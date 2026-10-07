@@ -21,7 +21,7 @@ export const PRODUCT_RELEASE_CHANNEL_CONTRACT_V1 = freeze({
   kind: "ProductReleaseChannelContractV1",
   id: "v5.0-macos-auto-rc-ga-20261002-r2",
   productVersion: "5.0.0",
-  productReleaseScopeId: "v5.0-rc1-macos-auto-bilingual-20261002-r1",
+  productReleaseScopeId: "v5.0-rc2-macos-auto-41-locales-20261007-r1",
   commonAcceptance: [
     "rights-and-corresponding-source",
     "exact-public-candidate-and-source-scope",

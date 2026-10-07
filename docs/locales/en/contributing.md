@@ -1,13 +1,13 @@
-<!-- Generated from CONTRIBUTING.md; source-sha256: 8255b9afa55125d7078e94e7ba08228ed7ee383a05319271213c5e95feafd20e; edit docs/rc1-catalogs/policies/*.json. -->
+<!-- Generated from CONTRIBUTING.md; source-sha256: f9fb422dd43bdbf071bcfe969fef0b4b9d47c7e44db40b362e14f8eadf13d507; edit docs/rc1-catalogs/policies/*.json. -->
 # Contributing
 
-**English** · [繁體中文（台灣）](../zh-Hant-TW/contributing.md)
+**English** · [繁體中文](../zh-Hant/contributing.md) · [繁體中文（台灣）](../zh-Hant-TW/contributing.md) · [繁體中文（香港）](../zh-Hant-HK/contributing.md) · [简体中文](../zh-Hans/contributing.md) · [Tiếng Việt](../vi/contributing.md) · [Українська](../uk/contributing.md) · [Türkçe](../tr/contributing.md) · [ไทย](../th/contributing.md) · [Svenska](../sv/contributing.md) · [Slovenčina](../sk/contributing.md) · [Русский](../ru/contributing.md) · [Română](../ro/contributing.md) · [Português](../pt/contributing.md) · [Português \(Brasil\)](../pt-BR/contributing.md) · [Polski](../pl/contributing.md) · [Nederlands](../nl/contributing.md) · [Norsk bokmål](../nb/contributing.md) · [မြန်မာ](../my/contributing.md) · [Bahasa Melayu](../ms/contributing.md) · [ລາວ](../lo/contributing.md) · [한국어](../ko/contributing.md) · [ខ្មែរ](../km/contributing.md) · [日本語](../ja/contributing.md) · [Italiano](../it/contributing.md) · [Bahasa Indonesia](../id/contributing.md) · [Magyar](../hu/contributing.md) · [Hrvatski](../hr/contributing.md) · [हिन्दी](../hi/contributing.md) · [עברית](../he/contributing.md) · [Français](../fr/contributing.md) · [Filipino](../fil/contributing.md) · [Suomi](../fi/contributing.md) · [Español](../es/contributing.md) · [Español \(México\)](../es-MX/contributing.md) · [Ελληνικά](../el/contributing.md) · [Deutsch](../de/contributing.md) · [Dansk](../da/contributing.md) · [Čeština](../cs/contributing.md) · [Català](../ca/contributing.md) · [العربية](../ar/contributing.md)
 
 Thank you for helping improve Better Workflows\.
 
 [README](../../../README.md) · **Contributing** · [Code of conduct](conduct.md) · [Security](security.md) · [Governance](governance.md) · [Support](support.md)
 
-[RC1 planned public routes cover en and zh\-Hant\-TW\; the 41\-locale source catalog is private](../../../docs/LANGUAGES.md)\. This normative contribution policy remains canonical in English\.
+[41\-locale localized overview and official web entry points](../../../docs/LANGUAGES.md)\. This normative contribution policy remains canonical in English\.
 
 ## Before you start
 

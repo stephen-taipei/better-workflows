@@ -5,9 +5,81 @@
 // and complete capture transcript can make a protected signing decision.
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { types as utilTypes } from "node:util";
 import { parseStrictJsonV1 } from "./strict-json-v1.mjs";
-import { snapshotJsonDataV1 } from "./private-input-snapshot-v1.mjs";
+import { copyBoundedBytesV1, PrivateInputSnapshotError, snapshotJsonDataV1 } from "./private-input-snapshot-v1.mjs";
 let installedPort = null;
+const CAPTURE_REQUEST_MAX_BYTES = 128 * 1024;
+const CAPTURE_DATA_KEYS = new Set(["cwd", "env", "input", "timeoutMs", "maxOutputBytes", "cleanupGraceMs"]);
+const CAPTURE_CONTROL_KEYS = new Set(["abortSignal", "onSpawn", "encoding"]);
+const signalAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted").get;
+const addAbortListener = EventTarget.prototype.addEventListener;
+const removeAbortListener = EventTarget.prototype.removeEventListener;
+
+function captureInputBase64(input) {
+  if (input === undefined || input === null) return null;
+  if (typeof input === "string") {
+    if (Buffer.byteLength(input, "utf8") > CAPTURE_REQUEST_MAX_BYTES) {
+      throw new PrivateInputSnapshotError("ESNAPSHOT_SIZE");
+    }
+    return Buffer.from(input, "utf8").toString("base64");
+  }
+  const bytes = copyBoundedBytesV1(input, { maxBytes: CAPTURE_REQUEST_MAX_BYTES });
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
+}
+
+function snapshotCaptureRequest(command, args, options, captureId) {
+  if (options === null || typeof options !== "object" || utilTypes.isProxy(options) ||
+      ![Object.prototype, null].includes(Object.getPrototypeOf(options))) {
+    throw new PrivateInputSnapshotError("ESNAPSHOT_INPUT");
+  }
+  const data = Object.create(null);
+  const controls = Object.create(null);
+  for (const key of Reflect.ownKeys(options)) {
+    if (typeof key !== "string" || (!CAPTURE_DATA_KEYS.has(key) && !CAPTURE_CONTROL_KEYS.has(key))) {
+      throw new PrivateInputSnapshotError("ESNAPSHOT_INPUT");
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(options, key);
+    if (!descriptor || !Object.hasOwn(descriptor, "value") || !descriptor.enumerable) {
+      throw new PrivateInputSnapshotError("ESNAPSHOT_ACCESSOR");
+    }
+    if (CAPTURE_CONTROL_KEYS.has(key)) controls[key] = descriptor.value;
+    else data[key] = descriptor.value;
+  }
+  if (controls.onSpawn != null) throw new Error("Protected capture has no caller launch hook");
+  const encoding = controls.encoding === undefined ? "utf8" : controls.encoding;
+  if (encoding !== null && (typeof encoding !== "string" || !Buffer.isEncoding(encoding))) {
+    throw new PrivateInputSnapshotError("ESNAPSHOT_INPUT");
+  }
+  const abortSignal = controls.abortSignal;
+  if (abortSignal != null) {
+    if (utilTypes.isProxy(abortSignal)) throw new PrivateInputSnapshotError("ESNAPSHOT_INPUT");
+    try { Reflect.apply(signalAborted, abortSignal, []); }
+    catch { throw new PrivateInputSnapshotError("ESNAPSHOT_INPUT"); }
+  }
+  const input = captureInputBase64(data.input);
+  data.input = input;
+  const copied = snapshotJsonDataV1({ command, args, ...data, captureId }, { maxBytes: CAPTURE_REQUEST_MAX_BYTES });
+  return { copied, abortSignal, encoding };
+}
+
+// The installed port and the focused private tests use this same boundary.
+// The request/cancel functions do not grant an IPC port or root authority.
+export async function captureFormalProtectedRequestV2(request, cancel, command, args, options = {}) {
+  const captureId = randomBytes(16).toString("hex");
+  const { copied, abortSignal, encoding } = snapshotCaptureRequest(command, args, options, captureId);
+  const abort = () => cancel(captureId);
+  if (abortSignal && Reflect.apply(signalAborted, abortSignal, [])) throw new Error("Protected capture cancelled before dispatch");
+  if (abortSignal) Reflect.apply(addAbortListener, abortSignal, ["abort", abort, { once: true }]);
+  try {
+    const result = await request("capture", copied);
+    const stdout = Buffer.from(result.stdout, "base64"), stderr = Buffer.from(result.stderr, "base64");
+    if (stdout.toString("base64") !== result.stdout || stderr.toString("base64") !== result.stderr) throw new Error("Root capture raw bytes are invalid");
+    return { ...result, stdout: encoding === null ? stdout : stdout.toString(encoding), stderr: encoding === null ? stderr : stderr.toString(encoding) };
+  } finally {
+    if (abortSignal) Reflect.apply(removeAbortListener, abortSignal, ["abort", abort]);
+  }
+}
 // The installed image and actual public control modules are separate ESM
 // identities in one nonroot process. Share their single inherited pipe after
 // kernel selection, so loading the public supervisor cannot re-handshake it.
@@ -73,22 +145,8 @@ if (typeof process.send === "function" && process.channel) {
       });
       installedPort = Object.freeze({ context,
         assertOuterOwner: pid => request("assert-outer-owner", { outerOwnerPid: pid }),
-        async capture(command, args, options = {}) {
-          const { abortSignal, onSpawn, encoding = "utf8", ...data } = options;
-          if (onSpawn != null) throw new Error("Protected capture has no caller launch hook");
-          const copied = snapshotJsonDataV1({ command, args, ...data, input: data.input === undefined ? null :
-            Buffer.from(data.input).toString("base64") }, { maxBytes: 128 * 1024 });
-          const captureId = randomBytes(16).toString("hex"); copied.captureId = captureId;
-          const abort = () => process.send({ kind: "FormalBrokerCancelV2", captureId });
-          if (abortSignal?.aborted) throw new Error("Protected capture cancelled before dispatch");
-          abortSignal?.addEventListener("abort", abort, { once: true });
-          try {
-            const result = await request("capture", copied);
-            const stdout = Buffer.from(result.stdout, "base64"), stderr = Buffer.from(result.stderr, "base64");
-            if (stdout.toString("base64") !== result.stdout || stderr.toString("base64") !== result.stderr) throw new Error("Root capture raw bytes are invalid");
-            return { ...result, stdout: encoding === null ? stdout : stdout.toString(encoding), stderr: encoding === null ? stderr : stderr.toString(encoding) };
-          } finally { abortSignal?.removeEventListener("abort", abort); }
-        }
+        capture: (command, args, options) => captureFormalProtectedRequestV2(request,
+          captureId => process.send({ kind: "FormalBrokerCancelV2", captureId }), command, args, options)
       });
       Object.defineProperty(globalThis, SHARED_PORT, { value: Object.freeze({ peerPid: process.pid,
         keeperPid: selectedKeeper, port: installedPort }), writable: false, configurable: false, enumerable: false });

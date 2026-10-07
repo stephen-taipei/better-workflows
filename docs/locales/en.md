@@ -4,7 +4,7 @@
 
 Better Workflows V5.0 RC1 is publicly available: a free, open-source Auto workflow for AI engineering QA and delivery, with current evidence, review gates, and provider reconciliation.
 
-**English** · [繁體中文（台灣）](zh-Hant-TW.md)
+**English** · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
 [Explore the documentation](https://betterworkflows.dev/en/docs/) · [Open GitHub](https://github.com/stephen-taipei/better-workflows) · [Support with USDT (TRC20)](https://betterworkflows.dev/#sponsor)
 
@@ -84,7 +84,7 @@ This reference page has a localized overview; its interactive content is not ful
 
 ## Help keep Better Workflows maintained.
 
-A one-time contribution supports open-source maintenance, English and Traditional Chinese documentation, and website hosting. It does not buy membership, roadmap priority, or support priority.
+A one-time contribution supports open-source maintenance, documentation, 41 localized editions, and website hosting. It does not buy membership, roadmap priority, or support priority.
 
 [Support with USDT (TRC20)](https://betterworkflows.dev/#sponsor)
 

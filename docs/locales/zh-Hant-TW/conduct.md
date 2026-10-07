@@ -1,11 +1,11 @@
-<!-- Generated from CODE_OF_CONDUCT.md; source-sha256: ed179636e759760820f194b08e367832149a252743c7cbe0428c0ff0a1d70d45; edit docs/rc1-catalogs/public-docs/*.json. -->
+<!-- Generated from CODE_OF_CONDUCT.md; source-sha256: 746c393957e3f25a833a5671f16a8ac53497b7cc3d1b6c5ac7f8eb63be36ee40; edit docs/rc1-catalogs/public-docs/*.json. -->
 # 社群行為準則
 
-[English](../en/conduct.md) · **繁體中文（台灣）**
+[English](../en/conduct.md) · [繁體中文](../zh-Hant/conduct.md) · **繁體中文（台灣）** · [繁體中文（香港）](../zh-Hant-HK/conduct.md) · [简体中文](../zh-Hans/conduct.md) · [Tiếng Việt](../vi/conduct.md) · [Українська](../uk/conduct.md) · [Türkçe](../tr/conduct.md) · [ไทย](../th/conduct.md) · [Svenska](../sv/conduct.md) · [Slovenčina](../sk/conduct.md) · [Русский](../ru/conduct.md) · [Română](../ro/conduct.md) · [Português](../pt/conduct.md) · [Português \(Brasil\)](../pt-BR/conduct.md) · [Polski](../pl/conduct.md) · [Nederlands](../nl/conduct.md) · [Norsk bokmål](../nb/conduct.md) · [မြန်မာ](../my/conduct.md) · [Bahasa Melayu](../ms/conduct.md) · [ລາວ](../lo/conduct.md) · [한국어](../ko/conduct.md) · [ខ្មែរ](../km/conduct.md) · [日本語](../ja/conduct.md) · [Italiano](../it/conduct.md) · [Bahasa Indonesia](../id/conduct.md) · [Magyar](../hu/conduct.md) · [Hrvatski](../hr/conduct.md) · [हिन्दी](../hi/conduct.md) · [עברית](../he/conduct.md) · [Français](../fr/conduct.md) · [Filipino](../fil/conduct.md) · [Suomi](../fi/conduct.md) · [Español](../es/conduct.md) · [Español \(México\)](../es-MX/conduct.md) · [Ελληνικά](../el/conduct.md) · [Deutsch](../de/conduct.md) · [Dansk](../da/conduct.md) · [Čeština](../cs/conduct.md) · [Català](../ca/conduct.md) · [العربية](../ar/conduct.md)
 
 [README](../../../README.md) · [參與貢獻](contributing.md) · **行為準則** · [資安政策](security.md) · [專案治理](governance.md) · [使用支援](support.md)
 
-[RC1 規劃公開路由涵蓋 en 與 zh\-Hant\-TW；41 語系來源目錄為私有](../../../docs/LANGUAGES.md)。本社群規範以英文版為準。
+[41 個語系版本的在地化總覽與官網入口](../../../docs/LANGUAGES.md)。本社群規範以英文版為準。
 
 ## 我們的標準
 

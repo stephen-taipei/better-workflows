@@ -3,7 +3,7 @@
 | [README](README.md) | [Contributing](CONTRIBUTING.md) | **Code of conduct** | [Security](SECURITY.md) | [Governance](GOVERNANCE.md) | [Support](SUPPORT.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 
-[RC1 planned public routes cover en and zh-Hant-TW; the 41-locale source catalog is private](docs/LANGUAGES.md). This normative community policy remains canonical in English.
+[41-locale localized overview and official web entry points](docs/LANGUAGES.md). This normative community policy remains canonical in English.
 
 ## Our standard
 

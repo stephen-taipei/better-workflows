@@ -1,11 +1,11 @@
-<!-- Generated from SECURITY.md; source-sha256: a16157ba5c7878255a8c6b83a10edfb8d157f03df3a2b1a542a5e2f34ee0b808; edit docs/rc1-catalogs/policies/*.json. -->
+<!-- Generated from SECURITY.md; source-sha256: 02167257277c1b06a7ed11fafcc20158ee6ada1747d84478edd027770a882919; edit docs/rc1-catalogs/policies/*.json. -->
 # 資安政策
 
-[English](../en/security.md) · **繁體中文（台灣）**
+[English](../en/security.md) · [繁體中文](../zh-Hant/security.md) · **繁體中文（台灣）** · [繁體中文（香港）](../zh-Hant-HK/security.md) · [简体中文](../zh-Hans/security.md) · [Tiếng Việt](../vi/security.md) · [Українська](../uk/security.md) · [Türkçe](../tr/security.md) · [ไทย](../th/security.md) · [Svenska](../sv/security.md) · [Slovenčina](../sk/security.md) · [Русский](../ru/security.md) · [Română](../ro/security.md) · [Português](../pt/security.md) · [Português \(Brasil\)](../pt-BR/security.md) · [Polski](../pl/security.md) · [Nederlands](../nl/security.md) · [Norsk bokmål](../nb/security.md) · [မြန်မာ](../my/security.md) · [Bahasa Melayu](../ms/security.md) · [ລາວ](../lo/security.md) · [한국어](../ko/security.md) · [ខ្មែរ](../km/security.md) · [日本語](../ja/security.md) · [Italiano](../it/security.md) · [Bahasa Indonesia](../id/security.md) · [Magyar](../hu/security.md) · [Hrvatski](../hr/security.md) · [हिन्दी](../hi/security.md) · [עברית](../he/security.md) · [Français](../fr/security.md) · [Filipino](../fil/security.md) · [Suomi](../fi/security.md) · [Español](../es/security.md) · [Español \(México\)](../es-MX/security.md) · [Ελληνικά](../el/security.md) · [Deutsch](../de/security.md) · [Dansk](../da/security.md) · [Čeština](../cs/security.md) · [Català](../ca/security.md) · [العربية](../ar/security.md)
 
 [README](../../../README.md) · [參與貢獻](contributing.md) · [行為準則](conduct.md) · **資安政策** · [專案治理](governance.md) · [使用支援](support.md)
 
-[RC1 規劃公開路由涵蓋 en 與 zh\-Hant\-TW；41 語系來源目錄為私有](../../../docs/LANGUAGES.md)。本資安政策以英文原文為準。
+[41 個語系版本的在地化總覽與官網入口](../../../docs/LANGUAGES.md)。本資安政策以英文原文為準。
 
 若唯一提議使用的證據來源包含無法去除敏感資訊的非公開歷史紀錄或敏感作業資料，請勿蒐集或傳輸該來源。僅記錄已遮蔽敏感資訊的 `REJECTED_WITH_EVIDENCE` 理由。
 

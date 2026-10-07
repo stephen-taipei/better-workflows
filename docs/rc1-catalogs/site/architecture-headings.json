@@ -1,0 +1,314 @@
+{
+  "zh-Hant": {
+    "/0": "架構",
+    "/1": "設計契約",
+    "/2": "Better Workflows 與 Dynamic Workflows",
+    "/3": "衍生圖檢視",
+    "/4": "模型研判與 Antigravity CLI",
+    "/5": "主要來源"
+  },
+  "zh-Hant-HK": {
+    "/0": "架構",
+    "/1": "設計契約",
+    "/2": "Better Workflows 與 Dynamic Workflows",
+    "/3": "衍生圖檢視",
+    "/4": "模型研判與 Antigravity CLI",
+    "/5": "主要來源"
+  },
+  "zh-Hans": {
+    "/0": "架构",
+    "/1": "设计契约",
+    "/2": "Better Workflows 与 Dynamic Workflows",
+    "/3": "派生图视图",
+    "/4": "模型研判与 Antigravity CLI",
+    "/5": "主要来源"
+  },
+  "vi": {
+    "/0": "Kiến trúc",
+    "/1": "Hợp đồng thiết kế",
+    "/2": "Better Workflows và Dynamic Workflows",
+    "/3": "Chế độ xem đồ thị suy ra",
+    "/4": "Cân nhắc mô hình và Antigravity CLI",
+    "/5": "Nguồn chính"
+  },
+  "uk": {
+    "/0": "Архітектура",
+    "/1": "Контракт проєктування",
+    "/2": "Better Workflows і Dynamic Workflows",
+    "/3": "Похідне подання графа",
+    "/4": "Розгляд моделі та Antigravity CLI",
+    "/5": "Основні джерела"
+  },
+  "tr": {
+    "/0": "Mimari",
+    "/1": "Tasarım sözleşmesi",
+    "/2": "Better Workflows ve Dynamic Workflows",
+    "/3": "Türetilmiş grafik görünümü",
+    "/4": "Model değerlendirmesi ve Antigravity CLI",
+    "/5": "Birincil kaynaklar"
+  },
+  "th": {
+    "/0": "สถาปัตยกรรม",
+    "/1": "สัญญาการออกแบบ",
+    "/2": "Better Workflows และ Dynamic Workflows",
+    "/3": "มุมมองกราฟที่อนุมาน",
+    "/4": "การพิจารณาโมเดลและ Antigravity CLI",
+    "/5": "แหล่งข้อมูลหลัก"
+  },
+  "sv": {
+    "/0": "Arkitektur",
+    "/1": "Designkontrakt",
+    "/2": "Better Workflows och Dynamic Workflows",
+    "/3": "Härledd grafvy",
+    "/4": "Modellövervägande och Antigravity CLI",
+    "/5": "Primärkällor"
+  },
+  "sk": {
+    "/0": "Architektúra",
+    "/1": "Návrhový kontrakt",
+    "/2": "Better Workflows a Dynamic Workflows",
+    "/3": "Odvodené grafové zobrazenie",
+    "/4": "Úvaha o modeli a Antigravity CLI",
+    "/5": "Primárne zdroje"
+  },
+  "ru": {
+    "/0": "Архитектура",
+    "/1": "Контракт проектирования",
+    "/2": "Better Workflows и Dynamic Workflows",
+    "/3": "Представление производного графа",
+    "/4": "Обсуждение модели и Antigravity CLI",
+    "/5": "Основные источники"
+  },
+  "ro": {
+    "/0": "Arhitectură",
+    "/1": "Contract de design",
+    "/2": "Better Workflows și Dynamic Workflows",
+    "/3": "Vizualizarea grafului derivat",
+    "/4": "Deliberarea modelului și Antigravity CLI",
+    "/5": "Surse principale"
+  },
+  "pt": {
+    "/0": "Arquitetura",
+    "/1": "Contrato de design",
+    "/2": "Better Workflows e Dynamic Workflows",
+    "/3": "Visão do grafo derivado",
+    "/4": "Deliberação do modelo e Antigravity CLI",
+    "/5": "Fontes primárias"
+  },
+  "pt-BR": {
+    "/0": "Arquitetura",
+    "/1": "Contrato de design",
+    "/2": "Better Workflows e Dynamic Workflows",
+    "/3": "Visão do grafo derivado",
+    "/4": "Deliberação do modelo e Antigravity CLI",
+    "/5": "Fontes principais"
+  },
+  "pl": {
+    "/0": "Architektura",
+    "/1": "Kontrakt projektowy",
+    "/2": "Better Workflows i Dynamic Workflows",
+    "/3": "Widok grafu pochodnego",
+    "/4": "Rozważanie modelu i Antigravity CLI",
+    "/5": "Źródła podstawowe"
+  },
+  "nl": {
+    "/0": "Architectuur",
+    "/1": "Ontwerpcontract",
+    "/2": "Better Workflows en Dynamic Workflows",
+    "/3": "Afgeleide grafiekweergave",
+    "/4": "Modelafweging en Antigravity CLI",
+    "/5": "Primaire bronnen"
+  },
+  "nb": {
+    "/0": "Arkitektur",
+    "/1": "Designkontrakt",
+    "/2": "Better Workflows og Dynamic Workflows",
+    "/3": "Avledet grafvisning",
+    "/4": "Modellvurdering og Antigravity CLI",
+    "/5": "Primærkilder"
+  },
+  "my": {
+    "/0": "ဗိသုကာ",
+    "/1": "ဒီဇိုင်းစာချုပ်",
+    "/2": "Better Workflows နှင့် Dynamic Workflows",
+    "/3": "ဆင်းသက်လာသော ဂရပ်ဖ်မြင်ကွင်း",
+    "/4": "မော်ဒယ်ဆွေးနွေးခြင်းနှင့် Antigravity CLI",
+    "/5": "အဓိကရင်းမြစ်များ"
+  },
+  "ms": {
+    "/0": "Seni bina",
+    "/1": "Kontrak reka bentuk",
+    "/2": "Better Workflows dan Dynamic Workflows",
+    "/3": "Paparan graf terbitan",
+    "/4": "Pertimbangan model dan Antigravity CLI",
+    "/5": "Sumber utama"
+  },
+  "lo": {
+    "/0": "ສະຖາປັດຕະຍະກຳ",
+    "/1": "ສັນຍາການອອກແບບ",
+    "/2": "Better Workflows ແລະ Dynamic Workflows",
+    "/3": "ມຸມມອງກຣາຟທີ່ອະນຸພັນ",
+    "/4": "ການພິຈາລະນາໂມເດວ ແລະ Antigravity CLI",
+    "/5": "ແຫຼ່ງຂໍ້ມູນຫຼັກ"
+  },
+  "ko": {
+    "/0": "아키텍처",
+    "/1": "설계 계약",
+    "/2": "Better Workflows와 Dynamic Workflows",
+    "/3": "파생 그래프 보기",
+    "/4": "모델 숙고와 Antigravity CLI",
+    "/5": "주요 출처"
+  },
+  "km": {
+    "/0": "ស្ថាបត្យកម្ម",
+    "/1": "កិច្ចសន្យារចនា",
+    "/2": "Better Workflows និង Dynamic Workflows",
+    "/3": "ទិដ្ឋភាពក្រាហ្វដែលបានដកស្រង់",
+    "/4": "ការពិចារណាម៉ូដែល និង Antigravity CLI",
+    "/5": "ប្រភពសំខាន់ៗ"
+  },
+  "ja": {
+    "/0": "アーキテクチャ",
+    "/1": "設計契約",
+    "/2": "Better Workflows と Dynamic Workflows",
+    "/3": "派生グラフビュー",
+    "/4": "モデルの検討と Antigravity CLI",
+    "/5": "主要な情報源"
+  },
+  "it": {
+    "/0": "Architettura",
+    "/1": "Contratto di progettazione",
+    "/2": "Better Workflows e Dynamic Workflows",
+    "/3": "Vista del grafo derivato",
+    "/4": "Deliberazione del modello e Antigravity CLI",
+    "/5": "Fonti primarie"
+  },
+  "id": {
+    "/0": "Arsitektur",
+    "/1": "Kontrak desain",
+    "/2": "Better Workflows dan Dynamic Workflows",
+    "/3": "Tampilan graf turunan",
+    "/4": "Pertimbangan model dan Antigravity CLI",
+    "/5": "Sumber utama"
+  },
+  "hu": {
+    "/0": "Architektúra",
+    "/1": "Tervezési szerződés",
+    "/2": "Better Workflows és Dynamic Workflows",
+    "/3": "Származtatott gráfnézet",
+    "/4": "Modellmérlegelés és Antigravity CLI",
+    "/5": "Elsődleges források"
+  },
+  "hr": {
+    "/0": "Arhitektura",
+    "/1": "Ugovor dizajna",
+    "/2": "Better Workflows i Dynamic Workflows",
+    "/3": "Izvedeni prikaz grafa",
+    "/4": "Razmatranje modela i Antigravity CLI",
+    "/5": "Primarni izvori"
+  },
+  "hi": {
+    "/0": "आर्किटेक्चर",
+    "/1": "डिज़ाइन अनुबंध",
+    "/2": "Better Workflows और Dynamic Workflows",
+    "/3": "व्युत्पन्न ग्राफ दृश्य",
+    "/4": "मॉडल विचार-विमर्श और Antigravity CLI",
+    "/5": "प्राथमिक स्रोत"
+  },
+  "he": {
+    "/0": "ארכיטקטורה",
+    "/1": "חוזה תכנון",
+    "/2": "Better Workflows ו-Dynamic Workflows",
+    "/3": "תצוגת גרף נגזרת",
+    "/4": "דיון במודל וב-Antigravity CLI",
+    "/5": "מקורות עיקריים"
+  },
+  "fr": {
+    "/0": "Architecture du système",
+    "/1": "Contrat de conception",
+    "/2": "Better Workflows et Dynamic Workflows",
+    "/3": "Vue du graphe dérivé",
+    "/4": "Délibération du modèle et Antigravity CLI",
+    "/5": "Sources principales"
+  },
+  "fil": {
+    "/0": "Arkitektura",
+    "/1": "Kontrata sa disenyo",
+    "/2": "Better Workflows at Dynamic Workflows",
+    "/3": "Nabuong graph view",
+    "/4": "Pagsasaalang-alang ng modelo at Antigravity CLI",
+    "/5": "Mga pangunahing source"
+  },
+  "fi": {
+    "/0": "Arkkitehtuuri",
+    "/1": "Suunnittelusopimus",
+    "/2": "Better Workflows ja Dynamic Workflows",
+    "/3": "Johdettu graafinäkymä",
+    "/4": "Mallin harkinta ja Antigravity CLI",
+    "/5": "Ensisijaiset lähteet"
+  },
+  "es": {
+    "/0": "Arquitectura",
+    "/1": "Contrato de diseño",
+    "/2": "Better Workflows y Dynamic Workflows",
+    "/3": "Vista del grafo derivado",
+    "/4": "Deliberación del modelo y Antigravity CLI",
+    "/5": "Fuentes principales"
+  },
+  "es-MX": {
+    "/0": "Arquitectura",
+    "/1": "Contrato de diseño",
+    "/2": "Better Workflows y Dynamic Workflows",
+    "/3": "Vista del grafo derivado",
+    "/4": "Deliberación del modelo y Antigravity CLI",
+    "/5": "Fuentes principales"
+  },
+  "el": {
+    "/0": "Αρχιτεκτονική",
+    "/1": "Σύμβαση σχεδιασμού",
+    "/2": "Better Workflows και Dynamic Workflows",
+    "/3": "Παράγωγη προβολή γράφου",
+    "/4": "Συλλογισμός μοντέλου και Antigravity CLI",
+    "/5": "Κύριες πηγές"
+  },
+  "de": {
+    "/0": "Architektur",
+    "/1": "Designvertrag",
+    "/2": "Better Workflows und Dynamic Workflows",
+    "/3": "Abgeleitete Graph-Ansicht",
+    "/4": "Modellabwägung und Antigravity CLI",
+    "/5": "Primärquellen"
+  },
+  "da": {
+    "/0": "Arkitektur",
+    "/1": "Designkontrakt",
+    "/2": "Better Workflows og Dynamic Workflows",
+    "/3": "Afledt grafvisning",
+    "/4": "Modelovervejelse og Antigravity CLI",
+    "/5": "Primære kilder"
+  },
+  "cs": {
+    "/0": "Architektura",
+    "/1": "Návrhový kontrakt",
+    "/2": "Better Workflows a Dynamic Workflows",
+    "/3": "Odvozené grafové zobrazení",
+    "/4": "Deliberace modelu a Antigravity CLI",
+    "/5": "Primární zdroje"
+  },
+  "ca": {
+    "/0": "Arquitectura",
+    "/1": "Contracte de disseny",
+    "/2": "Better Workflows i Dynamic Workflows",
+    "/3": "Vista del graf derivat",
+    "/4": "Deliberació del model i Antigravity CLI",
+    "/5": "Fonts principals"
+  },
+  "ar": {
+    "/0": "الهندسة المعمارية",
+    "/1": "عقد التصميم",
+    "/2": "Better Workflows وسير العمل الديناميكي",
+    "/3": "عرض الرسم البياني المشتق",
+    "/4": "مداولات النموذج وواجهة Antigravity CLI",
+    "/5": "المصادر الأساسية"
+  }
+}

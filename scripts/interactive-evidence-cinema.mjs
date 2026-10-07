@@ -2,14 +2,14 @@ import { applyPublicSiteShell } from './public-site-shell.mjs';
 import { createHash } from "node:crypto";
 import { readFile, lstat } from "node:fs/promises";
 import path from "node:path";
-import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, locales } from "./website-locales.mjs";
+import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_LOCALE_IDS, locales } from "./website-locales.mjs";
 import { publicDocPath } from "./public-docs.mjs";
 import { applyHtmlEdits, decodeHtml, escapeHtml, readDataObject, scanHtml } from "./html-source.mjs";
 import { readStructuredDataArray, readStructuredDataObject } from "./structured-data-source.mjs";
 
 export const EVIDENCE_CINEMA_SOURCE = Object.freeze({
   path: "docs/html/evidence-cinema/index.html",
-  sha256: "19effa3c20ef8b409e85938c0bbdce17f873e4e3ce57a74a83c8a8838c8a2e40",
+  sha256: "281a3a9b5aeff93bc79ee7ac9874517bbc8c3897d8e7f6b3132854bc16f48d10",
   rendererPath: "docs/html/evidence-cinema/shared/renderer.js",
   rendererSha256: "6886ea7b87c8a392ab8f2d2abc2f0c2e3fabad173bf1944a6bba780ec99abdf7",
   cssPath: "docs/html/evidence-cinema/shared/cinema.css",
@@ -205,7 +205,7 @@ function renderPage(guide, code, publicPage) {
   const edits = [], whole = new Set(), content = new Set(), nodeById = (id) => source.tree.elements.find((node) => node.attributes.id === id);
   const replace = (node, value) => { if (!node) fail("missing source slot"); whole.add(node); edits.push({ start: node.start, end: node.end, value }); };
   const fill = (id, value) => { const node = nodeById(id); if (!node) fail("missing source slot " + id); content.add(node); edits.push({ start: node.openEnd, end: node.contentEnd, value }); };
-  const links = PUBLIC_RC1_LOCALE_IDS.map((item) => { const language = locales.find((entry) => entry.code === item); return '<a data-cinema-locale="' + item + '" lang="' + item + '" hreflang="' + item + '" dir="' + (language.dir || "ltr") + '" href="' + publicDocPath(item, "evidence-cinema") + '"' + (item === code ? ' aria-current="page"' : '') + '>' + escapeHtml(language.label) + '</a>'; }).join("");
+  const links = PUBLIC_LOCALE_IDS.map((item) => { const language = locales.find((entry) => entry.code === item); return '<a data-cinema-locale="' + item + '" lang="' + item + '" hreflang="' + item + '" dir="' + (language.dir || "ltr") + '" href="' + publicDocPath(item, "evidence-cinema") + '"' + (item === code ? ' aria-current="page"' : '') + '>' + escapeHtml(language.label) + '</a>'; }).join("");
   replace(source.tree.elements.find((node) => hasClass(node, "locale-control")), '<details class="cinema-locales"><summary>' + escapeHtml(text("語言")) + ' · ' + escapeHtml(locale.label) + '</summary><nav aria-label="' + escapeHtml(text("語言")) + '">' + links + '</nav></details>');
   for (const node of source.tree.elements.filter((node) => hasClass(node, "locale-menu") || hasClass(node, "locale-noscript-links") || hasClass(node, "locale-button-section"))) replace(node, "");
   const noScript = source.tree.elements.filter((node) => node.tag === "noscript").at(-1);
@@ -246,7 +246,7 @@ function renderPage(guide, code, publicPage) {
     edits.push({ start: target.text.start, end: target.text.end, value: leading + escapeHtml(messages[target.key]) + trailing });
   }
   const head = source.tree.elements.find((node) => node.tag === "head"), main = nodeById("main");
-  edits.push({ start: head.contentEnd, end: head.contentEnd, value: '\n<meta name="robots" content="noindex,follow"><link rel="canonical" href="https://betterworkflows.dev' + publicDocPath(code, "evidence-cinema") + '">' + (publicPage ? [...PUBLIC_RC1_LOCALE_IDS, "x-default"].map((item) => '<link rel="alternate" hreflang="' + item + '" href="https://betterworkflows.dev' + publicDocPath(item === "x-default" ? DEFAULT_LOCALE : item, "evidence-cinema") + '">').join("") : "") });
+  edits.push({ start: head.contentEnd, end: head.contentEnd, value: '\n<meta name="robots" content="noindex,follow"><link rel="canonical" href="https://betterworkflows.dev' + publicDocPath(code, "evidence-cinema") + '">' + (publicPage ? [...PUBLIC_LOCALE_IDS, "x-default"].map((item) => '<link rel="alternate" hreflang="' + item + '" href="https://betterworkflows.dev' + publicDocPath(item === "x-default" ? DEFAULT_LOCALE : item, "evidence-cinema") + '">').join("") : "") });
   edits.push({ start: main.openEnd, end: main.openEnd, value: '<p class="cinema-draft">' + escapeHtml(ui.draft) + '</p>' });
   const rendered = applyHtmlEdits(source.html, edits);
   return publicPage ? applyPublicSiteShell(rendered, { code, path: publicDocPath(code, "evidence-cinema"), kind: "cinema" }) : rendered;

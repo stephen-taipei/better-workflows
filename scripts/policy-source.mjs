@@ -3,9 +3,9 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 export const POLICY_SPECS = Object.freeze([
-  { id: "security", source: "SECURITY.md", sha256: "a16157ba5c7878255a8c6b83a10edfb8d157f03df3a2b1a542a5e2f34ee0b808" },
-  { id: "contributing", source: "CONTRIBUTING.md", sha256: "8255b9afa55125d7078e94e7ba08228ed7ee383a05319271213c5e95feafd20e" },
-  { id: "governance", source: "GOVERNANCE.md", sha256: "037565854db49b1dd4eea8c02d6216df9c0ae4940fbfe89750c2dd50586ffa57" }
+  { id: "security", source: "SECURITY.md", sha256: "02167257277c1b06a7ed11fafcc20158ee6ada1747d84478edd027770a882919" },
+  { id: "contributing", source: "CONTRIBUTING.md", sha256: "f9fb422dd43bdbf071bcfe969fef0b4b9d47c7e44db40b362e14f8eadf13d507" },
+  { id: "governance", source: "GOVERNANCE.md", sha256: "ca362c6f5cfa5809d5fe192865dcaffc4801124ebfda839929240b8efcedfafd" }
 ]);
 
 export function markdownBlocks(source) {

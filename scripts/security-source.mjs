@@ -5,21 +5,22 @@ import { localizeReferenceTexts } from "./reference-localization.mjs";
 import { describePolicySource } from "./policy-source.mjs";
 import { v4ReferenceHeadingEntries } from "./reference-v4-headings.mjs";
 import { loadReferenceBodyTranslations } from "./reference-body-catalog.mjs";
+import { overlayLocales } from "./locale-overlay.mjs";
 
 export const SECURITY_GUIDE_SPEC = Object.freeze({
   id: "security-guide",
   kind: "guide",
   source: "docs/guide/security.md",
-  sha256: "83e112d4b882e688df175ee925d4e4b91ce1bff1c5832eb645e9c297f482dce2",
+  sha256: "07f9bf8812f6c52c36d33db446c1f75e984154fef0da6a6baac0300d2a3480a8",
   translationMode: "canonical-english-body",
   catalogDirectory: "public-docs",
   navigationPrefix: "| [Overview](../../README.md)"
 });
 
-const HEADINGS = Object.freeze({
+const HEADINGS = Object.freeze(overlayLocales({
   en: ["Security","Authority boundaries","Local state","External model transport","Threat-model boundary"],
   "zh-Hant-TW": ["安全性","權限邊界","本機狀態","外部模型傳輸","威脅模型邊界"]
-});
+}, "security-headings", CONNECTORS_LOCALES));
 
 const HEADING_KEYS = ["title", "authority", "local", "external", "threat"];
 

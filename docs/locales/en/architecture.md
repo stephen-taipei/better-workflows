@@ -1,11 +1,11 @@
-<!-- Generated from docs/guide/architecture.md; source-sha256: 9d2102eed653f2e009a0f032bc9fe4ca3100781e022dfc64ed6df55a767d9b6c; edit scripts/architecture-source.mjs. -->
+<!-- Generated from docs/guide/architecture.md; source-sha256: 1f08135c0c999c6556d1957adc78ce36c4920674bf117e67077e9ae6e47b5f93; edit scripts/architecture-source.mjs. -->
 # Architecture
 
-**English** · [繁體中文（台灣）](../zh-Hant-TW/architecture.md)
+**English** · [繁體中文](../zh-Hant/architecture.md) · [繁體中文（台灣）](../zh-Hant-TW/architecture.md) · [繁體中文（香港）](../zh-Hant-HK/architecture.md) · [简体中文](../zh-Hans/architecture.md) · [Tiếng Việt](../vi/architecture.md) · [Українська](../uk/architecture.md) · [Türkçe](../tr/architecture.md) · [ไทย](../th/architecture.md) · [Svenska](../sv/architecture.md) · [Slovenčina](../sk/architecture.md) · [Русский](../ru/architecture.md) · [Română](../ro/architecture.md) · [Português](../pt/architecture.md) · [Português \(Brasil\)](../pt-BR/architecture.md) · [Polski](../pl/architecture.md) · [Nederlands](../nl/architecture.md) · [Norsk bokmål](../nb/architecture.md) · [မြန်မာ](../my/architecture.md) · [Bahasa Melayu](../ms/architecture.md) · [ລາວ](../lo/architecture.md) · [한국어](../ko/architecture.md) · [ខ្មែរ](../km/architecture.md) · [日本語](../ja/architecture.md) · [Italiano](../it/architecture.md) · [Bahasa Indonesia](../id/architecture.md) · [Magyar](../hu/architecture.md) · [Hrvatski](../hr/architecture.md) · [हिन्दी](../hi/architecture.md) · [עברית](../he/architecture.md) · [Français](../fr/architecture.md) · [Filipino](../fil/architecture.md) · [Suomi](../fi/architecture.md) · [Español](../es/architecture.md) · [Español \(México\)](../es-MX/architecture.md) · [Ελληνικά](../el/architecture.md) · [Deutsch](../de/architecture.md) · [Dansk](../da/architecture.md) · [Čeština](../cs/architecture.md) · [Català](../ca/architecture.md) · [العربية](../ar/architecture.md)
 
 [README](../../../README.md) · [Contributing](contributing.md) · [Code of conduct](conduct.md) · [Security](security.md) · [Governance](governance.md) · [Support](support.md)
 
-[RC1 planned public routes cover en and zh\-Hant\-TW\; the 41\-locale source catalog is private](../../../docs/LANGUAGES.md)\. This normative guide remains canonical in English\.
+[41\-locale localized overview and official web entry points](../../../docs/LANGUAGES.md)\. This normative guide remains canonical in English\.
 
 ## Design contract
 

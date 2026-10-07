@@ -3,7 +3,7 @@
 | [README](README.md) | [Contributing](CONTRIBUTING.md) | [Code of conduct](CODE_OF_CONDUCT.md) | [Security](SECURITY.md) | [Governance](GOVERNANCE.md) | **Support** |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 
-[RC1 planned public routes cover en and zh-Hant-TW; the other 39 support editions remain in the private source catalog and are deferred to V5.0.rc2](docs/LANGUAGES.md). This support policy remains canonical in English.
+[41-locale localized overview and official web entry points](docs/LANGUAGES.md). This support policy remains canonical in English.
 
 ## Start here
 

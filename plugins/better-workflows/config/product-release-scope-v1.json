@@ -1,13 +1,12 @@
 {
   "schemaVersion": 1,
   "kind": "ProductReleaseScopeV1",
-  "id": "v5.0-rc1-macos-auto-bilingual-20261002-r1",
+  "id": "v5.0-rc2-macos-auto-41-locales-20261007-r1",
   "productVersion": "5.0.0",
   "publicEntrypointIds": ["auto"],
   "publicTemplateIds": ["auto"],
   "publicSkillIds": ["auto"],
-  "publicLocaleIds": ["en", "zh-Hant-TW"],
-  "deferredLocaleReleaseTag": "V5.0.rc2",
+  "publicLocaleIds": ["en", "zh-Hant", "zh-Hant-TW", "zh-Hant-HK", "zh-Hans", "vi", "uk", "tr", "th", "sv", "sk", "ru", "ro", "pt", "pt-BR", "pl", "nl", "nb", "my", "ms", "lo", "ko", "km", "ja", "it", "id", "hu", "hr", "hi", "he", "fr", "fil", "fi", "es", "es-MX", "el", "de", "da", "cs", "ca", "ar"],
   "hostIds": ["codex", "gemini-cli", "qwen-code"],
   "hostOsIds": ["macos"],
   "runtimeLanes": [

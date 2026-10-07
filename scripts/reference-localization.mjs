@@ -17,14 +17,14 @@ function localizeHeading(source, headingMap) {
 
 function localizeOverviewLink(source, code) {
   return source.replace(
-    /^\[RC1 planned public routes cover en and zh-Hant-TW; the 41-locale source catalog is private\]\(\{LINK_0\}\)/,
+    /^\[41-locale localized overview and official web entry points\]\(\{LINK_0\}\)/,
     `[${localizedOverviewLabel(code)}]({LINK_0})`
   );
 }
 
 export function localizeReferenceBlock(source, code, _messages, { headingMap = new Map() } = {}) {
   if (/^#{1,6}\s+/.test(source)) return localizeHeading(source, headingMap);
-  if (source.startsWith("[RC1 planned public routes cover en and zh-Hant-TW")) return localizeOverviewLink(source, code);
+  if (source.startsWith("[41-locale localized overview and official web entry points]")) return localizeOverviewLink(source, code);
   return source;
 }
 

@@ -1,0 +1,197 @@
+{
+  "zh-Hant": {
+    "/read-only-v1": "審查並回報",
+    "/code-change-v1": "進行有界限的程式碼修改",
+    "/dev-publish-v1": "準備受保護的交付"
+  },
+  "zh-Hant-HK": {
+    "/read-only-v1": "審查與回報",
+    "/code-change-v1": "進行受約束嘅程式碼修改",
+    "/dev-publish-v1": "準備受保護嘅交付"
+  },
+  "zh-Hans": {
+    "/read-only-v1": "审查与报告",
+    "/code-change-v1": "进行受控的代码修改",
+    "/dev-publish-v1": "准备受保护交付"
+  },
+  "vi": {
+    "/read-only-v1": "Đánh giá và báo cáo",
+    "/code-change-v1": "Thực hiện thay đổi mã trong giới hạn",
+    "/dev-publish-v1": "Chuẩn bị bàn giao được bảo vệ"
+  },
+  "uk": {
+    "/read-only-v1": "Перегляд і звіт",
+    "/code-change-v1": "Внести обмежену зміну в код",
+    "/dev-publish-v1": "Підготувати захищену доставку"
+  },
+  "tr": {
+    "/read-only-v1": "İnceleyin ve raporlayın",
+    "/code-change-v1": "Sınırlı bir kod değişikliği yapın",
+    "/dev-publish-v1": "Korumalı teslimatı hazırlayın"
+  },
+  "th": {
+    "/read-only-v1": "รีวิวและรายงานผล",
+    "/code-change-v1": "ทำการแก้ไขโค้ดแบบจำกัดขอบเขต",
+    "/dev-publish-v1": "เตรียมการส่งมอบที่มีการป้องกัน"
+  },
+  "sv": {
+    "/read-only-v1": "Granska och rapportera",
+    "/code-change-v1": "Gör en avgränsad kodändring",
+    "/dev-publish-v1": "Förbered skyddad leverans"
+  },
+  "sk": {
+    "/read-only-v1": "Skontrolovať a podať správu",
+    "/code-change-v1": "Vykonať ohraničenú úpravu kódu",
+    "/dev-publish-v1": "Pripraviť chránené doručenie"
+  },
+  "ru": {
+    "/read-only-v1": "Провести ревью и сформировать отчет",
+    "/code-change-v1": "Внести ограниченное изменение в код",
+    "/dev-publish-v1": "Подготовить защищенную поставку"
+  },
+  "ro": {
+    "/read-only-v1": "Revizuiește și raportează",
+    "/code-change-v1": "Fă o modificare delimitată a codului",
+    "/dev-publish-v1": "Pregătește livrarea protejată"
+  },
+  "pt": {
+    "/read-only-v1": "Rever e reportar",
+    "/code-change-v1": "Fazer uma alteração de código delimitada",
+    "/dev-publish-v1": "Preparar entrega protegida"
+  },
+  "pt-BR": {
+    "/read-only-v1": "Revisar e relatar",
+    "/code-change-v1": "Fazer uma alteração de código delimitada",
+    "/dev-publish-v1": "Preparar entrega protegida"
+  },
+  "pl": {
+    "/read-only-v1": "Przejrzyj i sporządź raport",
+    "/code-change-v1": "Wprowadź ograniczoną zmianę w kodzie",
+    "/dev-publish-v1": "Przygotuj chronione dostarczenie"
+  },
+  "nl": {
+    "/read-only-v1": "Beoordelen en rapporteren",
+    "/code-change-v1": "Een begrensde codewijziging doorvoeren",
+    "/dev-publish-v1": "Beveiligde oplevering voorbereiden"
+  },
+  "nb": {
+    "/read-only-v1": "Gjennomgå og rapporter",
+    "/code-change-v1": "Gjør en avgrenset kodeendring",
+    "/dev-publish-v1": "Forbered beskyttet levering"
+  },
+  "my": {
+    "/read-only-v1": "သုံးသပ်ပြီး အစီရင်ခံတင်ပြရန်",
+    "/code-change-v1": "ကန့်သတ်ထားသော ကုဒ်ပြင်ဆင်မှုတစ်ခု ပြုလုပ်ရန်",
+    "/dev-publish-v1": "Protected delivery ကို ပြင်ဆင်ရန်"
+  },
+  "ms": {
+    "/read-only-v1": "Semak dan lapor",
+    "/code-change-v1": "Buat perubahan kod terhad",
+    "/dev-publish-v1": "Sediakan penghantaran yang dilindungi"
+  },
+  "lo": {
+    "/read-only-v1": "ກວດສອບ ແລະ ລາຍງານ",
+    "/code-change-v1": "ແກ້ໄຂໂຄດແບບມີຂອບເຂດ",
+    "/dev-publish-v1": "ກຽມການສົ່ງມອບທີ່ໄດ້ຮັບການປົກປ້ອງ"
+  },
+  "ko": {
+    "/read-only-v1": "검토 및 보고",
+    "/code-change-v1": "제한된 코드 변경 수행",
+    "/dev-publish-v1": "보호된 전달 준비"
+  },
+  "km": {
+    "/read-only-v1": "ពិនិត្យឡើងវិញ និងរាយការណ៍",
+    "/code-change-v1": "ធ្វើការកែកូដដែលមានព្រំដែន",
+    "/dev-publish-v1": "រៀបចំការដឹកជញ្ជូនដែលត្រូវបានការពារ"
+  },
+  "ja": {
+    "/read-only-v1": "レビューとレポート",
+    "/code-change-v1": "制限付きのコード変更を行う",
+    "/dev-publish-v1": "保護されたデリバリーを準備する"
+  },
+  "it": {
+    "/read-only-v1": "Revisiona e genera report",
+    "/code-change-v1": "Applica una modifica delimitata al codice",
+    "/dev-publish-v1": "Prepara una delivery protetta"
+  },
+  "id": {
+    "/read-only-v1": "Tinjau dan laporkan",
+    "/code-change-v1": "Buat perubahan kode terbatas",
+    "/dev-publish-v1": "Siapkan pengiriman yang dilindungi"
+  },
+  "hu": {
+    "/read-only-v1": "Áttekintés és jelentéskészítés",
+    "/code-change-v1": "Behatárolt kódmódosítás végrehajtása",
+    "/dev-publish-v1": "Védett szállítás előkészítése"
+  },
+  "hr": {
+    "/read-only-v1": "Pregled i izvještavanje",
+    "/code-change-v1": "Napravite ograničenu promjenu koda",
+    "/dev-publish-v1": "Pripremite zaštićenu isporuku"
+  },
+  "hi": {
+    "/read-only-v1": "समीक्षा करें और रिपोर्ट दें",
+    "/code-change-v1": "एक सीमित कोड बदलाव करें",
+    "/dev-publish-v1": "सुरक्षित delivery तैयार करें"
+  },
+  "he": {
+    "/read-only-v1": "סקירה ודיווח",
+    "/code-change-v1": "ביצוע שינוי קוד מתוחם",
+    "/dev-publish-v1": "הכנה למסירה מוגנת"
+  },
+  "fr": {
+    "/read-only-v1": "Revue et rapport",
+    "/code-change-v1": "Effectuer une modification de code délimitée",
+    "/dev-publish-v1": "Préparer une livraison protégée"
+  },
+  "fil": {
+    "/read-only-v1": "Mag-review at mag-ulat",
+    "/code-change-v1": "Gumawa ng limitadong pagbabago sa code",
+    "/dev-publish-v1": "Ihanda ang protektadong delivery"
+  },
+  "fi": {
+    "/read-only-v1": "Katselmoi ja raportoi",
+    "/code-change-v1": "Tee rajattu koodimuutos",
+    "/dev-publish-v1": "Valmistele suojattu toimitus"
+  },
+  "es": {
+    "/read-only-v1": "Revisar e informar",
+    "/code-change-v1": "Hacer un cambio de código delimitado",
+    "/dev-publish-v1": "Preparar entrega protegida"
+  },
+  "es-MX": {
+    "/read-only-v1": "Revisar e informar",
+    "/code-change-v1": "Hacer un cambio de código delimitado",
+    "/dev-publish-v1": "Preparar entrega protegida"
+  },
+  "el": {
+    "/read-only-v1": "Αναθεώρηση και αναφορά",
+    "/code-change-v1": "Πραγματοποιήστε μια οριοθετημένη αλλαγή κώδικα",
+    "/dev-publish-v1": "Προετοιμασία προστατευμένης παράδοσης"
+  },
+  "de": {
+    "/read-only-v1": "Prüfen und berichten",
+    "/code-change-v1": "Eine begrenzte Codeänderung vornehmen",
+    "/dev-publish-v1": "Geschützte Auslieferung vorbereiten"
+  },
+  "da": {
+    "/read-only-v1": "Gennemgå og rapportér",
+    "/code-change-v1": "Lav en afgrænset kodeændring",
+    "/dev-publish-v1": "Forbered beskyttet levering"
+  },
+  "cs": {
+    "/read-only-v1": "Zkontrolovat a podat zprávu",
+    "/code-change-v1": "Provést ohraničenou změnu kódu",
+    "/dev-publish-v1": "Připravit chráněné doručení"
+  },
+  "ca": {
+    "/read-only-v1": "Revisar i informar",
+    "/code-change-v1": "Fer un canvi de codi acotat",
+    "/dev-publish-v1": "Preparar un lliurament protegit"
+  },
+  "ar": {
+    "/read-only-v1": "مراجعة وتقرير",
+    "/code-change-v1": "إجراء تعديل مقيد على الشيفرة",
+    "/dev-publish-v1": "تجهيز تسليم محمي"
+  }
+}

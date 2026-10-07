@@ -3,7 +3,7 @@
 | [Overview](../../README.md) | [Details](../details/en.md) | [Quick start](getting-started.md) | [Workflows](workflows.md) | [Architecture](architecture.md) | **Security** | [CLI](cli-reference.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 
-[RC1 planned public routes cover en and zh-Hant-TW; the 41-locale source catalog is private](../LANGUAGES.md). This normative security guide remains canonical in English.
+[41-locale localized overview and official web entry points](../LANGUAGES.md). This normative security guide remains canonical in English.
 
 ## Authority boundaries
 

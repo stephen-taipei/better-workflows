@@ -6,7 +6,7 @@ import { digestObject } from "../plugins/better-workflows/scripts/lib/core.mjs";
 import { loadHostSupportRegistry } from "../plugins/better-workflows/scripts/lib/hosts.mjs";
 import { PUBLIC_DOC_PAGES } from "./public-docs.mjs";
 import { loadPublicDocumentationExpectations, verifyPublicDocumentationResponse } from "./website-public-qa-documents.mjs";
-import { DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, publicRc1Locales } from "./website-locales.mjs";
+import { DEFAULT_LOCALE, PUBLIC_LOCALE_IDS, publicLocales } from "./website-locales.mjs";
 
 const ORIGIN = "https://betterworkflows.dev";
 const SHA40 = /^[a-f0-9]{40}$/;
@@ -48,7 +48,7 @@ export async function observeWebsitePublicQaV1({ repositoryRoot, sourceRevision 
   const releaseBuffer = await fetchExact(`${ORIGIN}/release.json?${cacheBust}`, "application/json");
   const release = JSON.parse(releaseBuffer.toString("utf8"));
   if (release.version !== versionManifest.version || release.revision !== sourceRevision) throw new Error("Public release version or revision mismatch");
-  if (release.locales !== PUBLIC_RC1_LOCALE_IDS.length || release.defaultLocale !== DEFAULT_LOCALE) throw new Error("Public locale receipt mismatch");
+  if (release.locales !== PUBLIC_LOCALE_IDS.length || release.defaultLocale !== DEFAULT_LOCALE) throw new Error("Public locale receipt mismatch");
   if (release.hostRegistryId !== registry.id || release.hostRegistryDigest !== registryDigest) throw new Error("Public host registry mismatch");
   if (!SHA256.test(release.contentDigest ?? "")) throw new Error("Public content digest is invalid");
 
@@ -61,7 +61,7 @@ export async function observeWebsitePublicQaV1({ repositoryRoot, sourceRevision 
     manifestEntries.set(match[2], match[1]);
   }
 
-  const expectedLocaleCodes = [...PUBLIC_RC1_LOCALE_IDS];
+  const expectedLocaleCodes = [...PUBLIC_LOCALE_IDS];
   const expectedDocumentationRouteCodes = expectedLocaleCodes.flatMap((locale) =>
     PUBLIC_DOC_PAGES.map(({ id }) => `${locale}/${id}`)
   ).sort((left, right) => left.localeCompare(right, "en"));
@@ -79,8 +79,8 @@ export async function observeWebsitePublicQaV1({ repositoryRoot, sourceRevision 
   }
 
   const localeReceipts = [];
-  for (let offset = 0; offset < publicRc1Locales.length; offset += 6) {
-    const batch = publicRc1Locales.slice(offset, offset + 6);
+  for (let offset = 0; offset < publicLocales.length; offset += 6) {
+    const batch = publicLocales.slice(offset, offset + 6);
     localeReceipts.push(...await Promise.all(batch.map(async (locale) => {
       const relativePath = locale.code === DEFAULT_LOCALE ? "index.html" : `${locale.code}/index.html`;
       const publicPath = locale.code === DEFAULT_LOCALE ? "/" : `/${locale.code}/`;

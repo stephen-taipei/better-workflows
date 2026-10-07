@@ -6,12 +6,13 @@ import { describePolicySource } from "./policy-source.mjs";
 import { localizeMermaidCode, localizeReferenceTexts } from "./reference-localization.mjs";
 import { v4ReferenceHeadingEntries } from "./reference-v4-headings.mjs";
 import { loadReferenceBodyTranslations } from "./reference-body-catalog.mjs";
+import { overlayLocales } from "./locale-overlay.mjs";
 
 export const ARCHITECTURE_SPEC = Object.freeze({
   id: "architecture",
   kind: "guide",
   source: "docs/guide/architecture.md",
-  sha256: "9d2102eed653f2e009a0f032bc9fe4ca3100781e022dfc64ed6df55a767d9b6c",
+  sha256: "1f08135c0c999c6556d1957adc78ce36c4920674bf117e67077e9ae6e47b5f93",
   translationMode: "canonical-english-body",
   catalogDirectory: "public-docs",
   navigationPrefix: "| [Overview](../../README.md)"
@@ -19,10 +20,10 @@ export const ARCHITECTURE_SPEC = Object.freeze({
 
 // Headings are deliberately kept in a small, reviewable phrasebook. Runtime
 // identifiers and normative names stay in the body exactly as authored.
-const HEADINGS = Object.freeze({
+const HEADINGS = Object.freeze(overlayLocales({
   en: ["Architecture","Design contract","Better Workflows and Dynamic Workflows","Derived Graph View","Model deliberation and Antigravity CLI","Primary sources"],
   "zh-Hant-TW": ["架構","設計契約","Better Workflows 與 Dynamic Workflows","衍生圖檢視","模型研判與 Antigravity CLI","主要來源"]
-});
+}, "architecture-headings", CONNECTORS_LOCALES));
 
 function headingSet(code) {
   const values = HEADINGS[code];

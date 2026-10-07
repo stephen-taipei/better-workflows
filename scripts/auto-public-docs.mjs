@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { CONNECTORS_LOCALES, PUBLIC_RC1_LOCALE_IDS, locales } from "./website-locales.mjs";
+import { CONNECTORS_LOCALES, PUBLIC_LOCALE_IDS, locales } from "./website-locales.mjs";
 import { publicDocPath } from "./public-docs.mjs";
 import { applyPublicSiteShell } from "./public-site-shell.mjs";
+import { overlayLocales } from "./locale-overlay.mjs";
 
 const PAGE_IDS = new Set(["guide", "quick", "use-cases", "use-cases-quick"]);
 const VARIANT_IDS = ["read-only-v1", "code-change-v1", "dev-publish-v1"];
@@ -20,7 +21,7 @@ const SOURCE_URLS = Object.freeze({
   cli: "https://github.com/stephen-taipei/better-workflows/blob/main/docs/guide/cli-reference.md"
 });
 
-const PAGE_COPY = Object.freeze({
+const PAGE_COPY = Object.freeze(overlayLocales({
   en: {
     guide: {
       heading: "Start here",
@@ -317,9 +318,9 @@ const PAGE_COPY = Object.freeze({
       ]
     }
   }
-});
+}, "public-page-copy", CONNECTORS_LOCALES));
 
-const VARIANT_LABELS = Object.freeze({
+const VARIANT_LABELS = Object.freeze(overlayLocales({
   en: {
     "read-only-v1": "Review and report",
     "code-change-v1": "Make a bounded code change",
@@ -330,7 +331,7 @@ const VARIANT_LABELS = Object.freeze({
     "code-change-v1": "有限範圍的程式修改",
     "dev-publish-v1": "準備受保護交付"
   }
-});
+}, "variant-labels", CONNECTORS_LOCALES));
 
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
@@ -515,7 +516,7 @@ export function renderAutoPublicDocs(guide, code, pageId) {
   const copy = PAGE_COPY[code]?.[pageId];
   if (!copy) throw new Error("Auto public documentation has incomplete page copy: " + code + "/" + pageId);
   const canonical = "https://betterworkflows.dev" + publicDocPath(code, pageId);
-  const alternatives = PUBLIC_RC1_LOCALE_IDS.map((candidate) =>
+  const alternatives = PUBLIC_LOCALE_IDS.map((candidate) =>
     '<link rel="alternate" hreflang="' + escapeHtml(candidate) + '" href="https://betterworkflows.dev' +
     escapeHtml(publicDocPath(candidate, pageId)) + '">').join("\n") +
     '\n<link rel="alternate" hreflang="x-default" href="https://betterworkflows.dev' +

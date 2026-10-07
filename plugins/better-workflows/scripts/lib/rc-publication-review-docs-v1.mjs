@@ -165,7 +165,7 @@ async function validateReferencedSources(ctx, config) {
     if (sha256(bytes) !== ref.sha256 || !strictUtf8(bytes, "scope citation").includes(ref.quote)) hold("ERC_REVIEW_REFERENCE", "Adopted scope citation is absent from the exact private source");
   }
   const scope = JSON.parse(strictUtf8(await committedFile(ctx.candidate.publicRoot, ctx.candidate.publicCandidateSha, SCOPE_PATH), "product scope"));
-  if (scope.id !== "v5.0-rc1-macos-auto-bilingual-20261002-r1" || digestObject(scope) !== ctx.binding.productReleaseScopeDigest) hold("ERC_REVIEW_SCOPE", "The actual public Auto/macOS product scope changed");
+  if (scope.id !== "v5.0-rc2-macos-auto-41-locales-20261007-r1" || digestObject(scope) !== ctx.binding.productReleaseScopeDigest) hold("ERC_REVIEW_SCOPE", "The actual public Auto/macOS product scope changed");
   return coverage;
 }
 

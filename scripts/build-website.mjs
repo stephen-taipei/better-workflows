@@ -9,7 +9,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { CONNECTORS_LOCALES, DEFAULT_LOCALE, LOCALE_KEYS, PUBLIC_RC1_LOCALE_IDS, locales, publicRc1Locales } from "./website-locales.mjs";
+import { CONNECTORS_LOCALES, DEFAULT_LOCALE, LOCALE_KEYS, PUBLIC_LOCALE_IDS, locales, publicLocales } from "./website-locales.mjs";
 import { PUBLIC_DOC_PAGES, homepagePath, publicDocPath } from "./public-docs.mjs";
 import { renderSupportHtml, supportPath } from "./localized-support.mjs";
 import { publicContentCoverage } from "./public-content-coverage.mjs";
@@ -57,7 +57,7 @@ const canonicalOrigin = "https://betterworkflows.dev";
 const repositoryUrl = "https://github.com/stephen-taipei/better-workflows";
 const sponsorUrl = SPONSORSHIP.url;
 const sponsorMode = SPONSORSHIP.mode;
-const releaseLocales = publicRc1Locales;
+const releaseLocales = publicLocales;
 
 async function canonicalPotentialPath(targetPath) {
   let existingPath = path.resolve(targetPath);
@@ -110,9 +110,11 @@ async function assertSafeOutputDirectory() {
   }
 }
 
-const openGraphLocales = Object.freeze({ en: "en_US", "zh-Hant-TW": "zh_TW" });
+const openGraphLocales = Object.freeze({
+  "en": "en_US", "zh-Hant": "zh_TW", "zh-Hant-TW": "zh_TW", "zh-Hant-HK": "zh_HK", "zh-Hans": "zh_CN", "vi": "vi_VN", "uk": "uk_UA", "tr": "tr_TR", "th": "th_TH", "sv": "sv_SE", "sk": "sk_SK", "ru": "ru_RU", "ro": "ro_RO", "pt": "pt_PT", "pt-BR": "pt_BR", "pl": "pl_PL", "nl": "nl_NL", "nb": "nb_NO", "my": "my_MM", "ms": "ms_MY", "lo": "lo_LA", "ko": "ko_KR", "km": "km_KH", "ja": "ja_JP", "it": "it_IT", "id": "id_ID", "hu": "hu_HU", "hr": "hr_HR", "hi": "hi_IN", "he": "he_IL", "fr": "fr_FR", "fil": "fil_PH", "fi": "fi_FI", "es": "es_ES", "es-MX": "es_MX", "el": "el_GR", "de": "de_DE", "da": "da_DK", "cs": "cs_CZ", "ca": "ca_ES", "ar": "ar_AR"
+});
 if (JSON.stringify(Object.keys(openGraphLocales)) !== JSON.stringify(CONNECTORS_LOCALES)) {
-  throw new Error("Open Graph locales must match the RC1 public locale catalog");
+  throw new Error("Open Graph locales must match the public locale catalog");
 }
 
 async function gitRevision() {
@@ -250,7 +252,7 @@ function structuredData({ locale, title, description, canonical, version, runtim
         url: `${canonicalOrigin}/`,
         name: "Better Workflows",
         alternateName: ["BW", "betterworkflows.dev"],
-        inLanguage: PUBLIC_RC1_LOCALE_IDS,
+        inLanguage: PUBLIC_LOCALE_IDS,
         sameAs: [repositoryUrl]
       },
       {
@@ -424,7 +426,7 @@ if (JSON.stringify(publicHostCapabilities.map((capability) => capability.id)) !=
   throw new Error("Auto website capability matrix no longer matches the host registry");
 }
 const { scope: currentProductScope } = await productReleaseScope();
-if (!currentProductScope || JSON.stringify(currentProductScope.publicLocaleIds) !== JSON.stringify(PUBLIC_RC1_LOCALE_IDS)) {
+if (!currentProductScope || JSON.stringify(currentProductScope.publicLocaleIds) !== JSON.stringify(PUBLIC_LOCALE_IDS)) {
   throw new Error("Website RC1 locale scope differs from the product release contract");
 }
 const runtimePlatforms = hostSupportRegistry.hosts
@@ -445,7 +447,7 @@ const commonValues = {
 };
 const defaultLocale = releaseLocales.find((locale) => locale.code === DEFAULT_LOCALE);
 // Validate full source/body parity before replacing any build output.
-const translationCoverage = await publicContentCoverage(repoRoot, { localeIds: PUBLIC_RC1_LOCALE_IDS, allowMissingGenerated: true });
+const translationCoverage = await publicContentCoverage(repoRoot, { localeIds: PUBLIC_LOCALE_IDS, allowMissingGenerated: true });
 const policies = await loadPublicTexts(repoRoot);
 const deferredReferenceIds = new Set(["architecture", "security-guide", "cli-reference"]);
 if (JSON.stringify(policies.filter((policy) => policy.translationMode === "canonical-english-body").map((policy) => policy.id).sort()) !==
@@ -459,9 +461,9 @@ const sourceMappedDocuments = translationCoverage.documents.map((document) => ({
 const fullTextDocuments = translationCoverage.documents.filter((document) => document.fullTextParity === "verified")
   .map((document) => ({ source: document.path, editions: document.editions.length }));
 
-if (locales.length !== PUBLIC_RC1_LOCALE_IDS.length ||
-    JSON.stringify(locales.map((locale) => locale.code)) !== JSON.stringify(PUBLIC_RC1_LOCALE_IDS) ||
-    JSON.stringify(CONNECTORS_LOCALES) !== JSON.stringify(PUBLIC_RC1_LOCALE_IDS)) {
+if (locales.length !== PUBLIC_LOCALE_IDS.length ||
+    JSON.stringify(locales.map((locale) => locale.code)) !== JSON.stringify(PUBLIC_LOCALE_IDS) ||
+    JSON.stringify(CONNECTORS_LOCALES) !== JSON.stringify(PUBLIC_LOCALE_IDS)) {
   throw new Error("Website source catalog must match the exact RC1 public locale scope");
 }
 for (const locale of releaseLocales) {

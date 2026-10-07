@@ -1,6 +1,6 @@
 # Third-party notices
 
-[RC1 planned public routes cover en and zh-Hant-TW; the 41-locale source catalog is private](docs/LANGUAGES.md). This legal notice remains canonical in English.
+[41-locale localized overview and official web entry points](docs/LANGUAGES.md). This legal notice remains canonical in English.
 
 Better Workflows was independently implemented with Node.js standard-library modules. It does not vendor source code, workflow definitions, or runtime components from the projects below.
 

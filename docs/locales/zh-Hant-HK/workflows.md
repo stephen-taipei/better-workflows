@@ -1,0 +1,26 @@
+<!-- Generated from docs/guide/workflows.md; source-sha256: 2acaf671415fc972265bcc5c4f20484c1a6cbea2dd1e6aa3fb22f54943786bb0; edit docs/rc1-catalogs/workflows/*.json. -->
+# 工作流程
+
+[English](../en/workflows.md) · [繁體中文](../zh-Hant/workflows.md) · [繁體中文（台灣）](../zh-Hant-TW/workflows.md) · **繁體中文（香港）** · [简体中文](../zh-Hans/workflows.md) · [Tiếng Việt](../vi/workflows.md) · [Українська](../uk/workflows.md) · [Türkçe](../tr/workflows.md) · [ไทย](../th/workflows.md) · [Svenska](../sv/workflows.md) · [Slovenčina](../sk/workflows.md) · [Русский](../ru/workflows.md) · [Română](../ro/workflows.md) · [Português](../pt/workflows.md) · [Português \(Brasil\)](../pt-BR/workflows.md) · [Polski](../pl/workflows.md) · [Nederlands](../nl/workflows.md) · [Norsk bokmål](../nb/workflows.md) · [မြန်မာ](../my/workflows.md) · [Bahasa Melayu](../ms/workflows.md) · [ລາວ](../lo/workflows.md) · [한국어](../ko/workflows.md) · [ខ្មែរ](../km/workflows.md) · [日本語](../ja/workflows.md) · [Italiano](../it/workflows.md) · [Bahasa Indonesia](../id/workflows.md) · [Magyar](../hu/workflows.md) · [Hrvatski](../hr/workflows.md) · [हिन्दी](../hi/workflows.md) · [עברית](../he/workflows.md) · [Français](../fr/workflows.md) · [Filipino](../fil/workflows.md) · [Suomi](../fi/workflows.md) · [Español](../es/workflows.md) · [Español \(México\)](../es-MX/workflows.md) · [Ελληνικά](../el/workflows.md) · [Deutsch](../de/workflows.md) · [Dansk](../da/workflows.md) · [Čeština](../cs/workflows.md) · [Català](../ca/workflows.md) · [العربية](../ar/workflows.md)
+
+| [概觀](../../../README.md) | [詳細資訊](../../../docs/details/en.md) | [快速上手](getting-started.md) | **工作流程** | [架構](architecture.md) | [安全性](security-guide.md) | [CLI](cli-reference.md) |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+
+## 使用 Auto
+
+```text
+$better-workflows:auto <describe the outcome you need>
+```
+
+## 常見路徑
+
+```mermaid
+flowchart TD
+  A{"預期成果是甚麼？"}
+  A -->|"僅限審查"| B["auto"]
+  A -->|"修復並交付"| C["auto"]
+  A -->|"比較方案"| D["auto"]
+  A -->|"發佈或不可逆操作"| E["HOLD"]
+  A -->|"重複穩定機制"| F["auto"]
+  A -->|"不確定"| G["HOLD"]
+```

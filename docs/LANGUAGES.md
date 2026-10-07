@@ -1,10 +1,49 @@
 # Better Workflows language index
 
-V5.0.rc1 provides public routes for `en` and `zh-Hant-TW` only. The other 39 locale editions remain in private development source for V5.0.rc2. The release is publicly available; these links do not replace exact-source deployment or semantic-acceptance receipts. Technical identifiers and commands remain exact English identifiers inside translated prose. See the [localization terminology policy](LOCALIZATION.md).
+Better Workflows publishes 41 locale editions. Each locale has a website, a localized overview, localized documentation routes and the support policy. Technical identifiers and commands remain exact English identifiers inside translated prose. See the [localization terminology policy](LOCALIZATION.md).
 
-| Locale | Native label | RC1 status | Planned RC1 route links |
-| --- | --- | --- | --- |
-| `en` | English | Planned for V5.0.rc1 | [Details](details/en.md) · [Website](https://betterworkflows.dev/en/) · [Docs entry](https://betterworkflows.dev/en/docs/) |
-| `zh-Hant-TW` | 繁體中文（台灣） | Planned for V5.0.rc1 | [Details](details/zh-TW.md) · [Website](https://betterworkflows.dev/) · [Docs entry](https://betterworkflows.dev/docs/) |
+| Locale | Native label | Links |
+| --- | --- | --- |
+| `en` | English | [Overview](locales/en.md) · [Details](details/en.md) · [Website](https://betterworkflows.dev/en/) · [Docs entry](https://betterworkflows.dev/en/docs/) |
+| `zh-Hant` | 繁體中文 | [Overview](locales/zh-Hant.md) · [Details](details/zh-Hant.md) · [Website](https://betterworkflows.dev/zh-Hant/) · [Docs entry](https://betterworkflows.dev/zh-Hant/docs/) |
+| `zh-Hant-TW` | 繁體中文（台灣） | [Overview](locales/zh-Hant-TW.md) · [Details](details/zh-Hant-TW.md) · [Website](https://betterworkflows.dev/) · [Docs entry](https://betterworkflows.dev/docs/) |
+| `zh-Hant-HK` | 繁體中文（香港） | [Overview](locales/zh-Hant-HK.md) · [Details](details/zh-Hant-HK.md) · [Website](https://betterworkflows.dev/zh-Hant-HK/) · [Docs entry](https://betterworkflows.dev/zh-Hant-HK/docs/) |
+| `zh-Hans` | 简体中文 | [Overview](locales/zh-Hans.md) · [Details](details/zh-Hans.md) · [Website](https://betterworkflows.dev/zh-Hans/) · [Docs entry](https://betterworkflows.dev/zh-Hans/docs/) |
+| `vi` | Tiếng Việt | [Overview](locales/vi.md) · [Details](details/vi.md) · [Website](https://betterworkflows.dev/vi/) · [Docs entry](https://betterworkflows.dev/vi/docs/) |
+| `uk` | Українська | [Overview](locales/uk.md) · [Details](details/uk.md) · [Website](https://betterworkflows.dev/uk/) · [Docs entry](https://betterworkflows.dev/uk/docs/) |
+| `tr` | Türkçe | [Overview](locales/tr.md) · [Details](details/tr.md) · [Website](https://betterworkflows.dev/tr/) · [Docs entry](https://betterworkflows.dev/tr/docs/) |
+| `th` | ไทย | [Overview](locales/th.md) · [Details](details/th.md) · [Website](https://betterworkflows.dev/th/) · [Docs entry](https://betterworkflows.dev/th/docs/) |
+| `sv` | Svenska | [Overview](locales/sv.md) · [Details](details/sv.md) · [Website](https://betterworkflows.dev/sv/) · [Docs entry](https://betterworkflows.dev/sv/docs/) |
+| `sk` | Slovenčina | [Overview](locales/sk.md) · [Details](details/sk.md) · [Website](https://betterworkflows.dev/sk/) · [Docs entry](https://betterworkflows.dev/sk/docs/) |
+| `ru` | Русский | [Overview](locales/ru.md) · [Details](details/ru.md) · [Website](https://betterworkflows.dev/ru/) · [Docs entry](https://betterworkflows.dev/ru/docs/) |
+| `ro` | Română | [Overview](locales/ro.md) · [Details](details/ro.md) · [Website](https://betterworkflows.dev/ro/) · [Docs entry](https://betterworkflows.dev/ro/docs/) |
+| `pt` | Português | [Overview](locales/pt.md) · [Details](details/pt.md) · [Website](https://betterworkflows.dev/pt/) · [Docs entry](https://betterworkflows.dev/pt/docs/) |
+| `pt-BR` | Português (Brasil) | [Overview](locales/pt-BR.md) · [Details](details/pt-BR.md) · [Website](https://betterworkflows.dev/pt-BR/) · [Docs entry](https://betterworkflows.dev/pt-BR/docs/) |
+| `pl` | Polski | [Overview](locales/pl.md) · [Details](details/pl.md) · [Website](https://betterworkflows.dev/pl/) · [Docs entry](https://betterworkflows.dev/pl/docs/) |
+| `nl` | Nederlands | [Overview](locales/nl.md) · [Details](details/nl.md) · [Website](https://betterworkflows.dev/nl/) · [Docs entry](https://betterworkflows.dev/nl/docs/) |
+| `nb` | Norsk bokmål | [Overview](locales/nb.md) · [Details](details/nb.md) · [Website](https://betterworkflows.dev/nb/) · [Docs entry](https://betterworkflows.dev/nb/docs/) |
+| `my` | မြန်မာ | [Overview](locales/my.md) · [Details](details/my.md) · [Website](https://betterworkflows.dev/my/) · [Docs entry](https://betterworkflows.dev/my/docs/) |
+| `ms` | Bahasa Melayu | [Overview](locales/ms.md) · [Details](details/ms.md) · [Website](https://betterworkflows.dev/ms/) · [Docs entry](https://betterworkflows.dev/ms/docs/) |
+| `lo` | ລາວ | [Overview](locales/lo.md) · [Details](details/lo.md) · [Website](https://betterworkflows.dev/lo/) · [Docs entry](https://betterworkflows.dev/lo/docs/) |
+| `ko` | 한국어 | [Overview](locales/ko.md) · [Details](details/ko.md) · [Website](https://betterworkflows.dev/ko/) · [Docs entry](https://betterworkflows.dev/ko/docs/) |
+| `km` | ខ្មែរ | [Overview](locales/km.md) · [Details](details/km.md) · [Website](https://betterworkflows.dev/km/) · [Docs entry](https://betterworkflows.dev/km/docs/) |
+| `ja` | 日本語 | [Overview](locales/ja.md) · [Details](details/ja.md) · [Website](https://betterworkflows.dev/ja/) · [Docs entry](https://betterworkflows.dev/ja/docs/) |
+| `it` | Italiano | [Overview](locales/it.md) · [Details](details/it.md) · [Website](https://betterworkflows.dev/it/) · [Docs entry](https://betterworkflows.dev/it/docs/) |
+| `id` | Bahasa Indonesia | [Overview](locales/id.md) · [Details](details/id.md) · [Website](https://betterworkflows.dev/id/) · [Docs entry](https://betterworkflows.dev/id/docs/) |
+| `hu` | Magyar | [Overview](locales/hu.md) · [Details](details/hu.md) · [Website](https://betterworkflows.dev/hu/) · [Docs entry](https://betterworkflows.dev/hu/docs/) |
+| `hr` | Hrvatski | [Overview](locales/hr.md) · [Details](details/hr.md) · [Website](https://betterworkflows.dev/hr/) · [Docs entry](https://betterworkflows.dev/hr/docs/) |
+| `hi` | हिन्दी | [Overview](locales/hi.md) · [Details](details/hi.md) · [Website](https://betterworkflows.dev/hi/) · [Docs entry](https://betterworkflows.dev/hi/docs/) |
+| `he` | עברית | [Overview](locales/he.md) · [Details](details/he.md) · [Website](https://betterworkflows.dev/he/) · [Docs entry](https://betterworkflows.dev/he/docs/) |
+| `fr` | Français | [Overview](locales/fr.md) · [Details](details/fr.md) · [Website](https://betterworkflows.dev/fr/) · [Docs entry](https://betterworkflows.dev/fr/docs/) |
+| `fil` | Filipino | [Overview](locales/fil.md) · [Details](details/fil.md) · [Website](https://betterworkflows.dev/fil/) · [Docs entry](https://betterworkflows.dev/fil/docs/) |
+| `fi` | Suomi | [Overview](locales/fi.md) · [Details](details/fi.md) · [Website](https://betterworkflows.dev/fi/) · [Docs entry](https://betterworkflows.dev/fi/docs/) |
+| `es` | Español | [Overview](locales/es.md) · [Details](details/es.md) · [Website](https://betterworkflows.dev/es/) · [Docs entry](https://betterworkflows.dev/es/docs/) |
+| `es-MX` | Español (México) | [Overview](locales/es-MX.md) · [Details](details/es-MX.md) · [Website](https://betterworkflows.dev/es-MX/) · [Docs entry](https://betterworkflows.dev/es-MX/docs/) |
+| `el` | Ελληνικά | [Overview](locales/el.md) · [Details](details/el.md) · [Website](https://betterworkflows.dev/el/) · [Docs entry](https://betterworkflows.dev/el/docs/) |
+| `de` | Deutsch | [Overview](locales/de.md) · [Details](details/de.md) · [Website](https://betterworkflows.dev/de/) · [Docs entry](https://betterworkflows.dev/de/docs/) |
+| `da` | Dansk | [Overview](locales/da.md) · [Details](details/da.md) · [Website](https://betterworkflows.dev/da/) · [Docs entry](https://betterworkflows.dev/da/docs/) |
+| `cs` | Čeština | [Overview](locales/cs.md) · [Details](details/cs.md) · [Website](https://betterworkflows.dev/cs/) · [Docs entry](https://betterworkflows.dev/cs/docs/) |
+| `ca` | Català | [Overview](locales/ca.md) · [Details](details/ca.md) · [Website](https://betterworkflows.dev/ca/) · [Docs entry](https://betterworkflows.dev/ca/docs/) |
+| `ar` | العربية | [Overview](locales/ar.md) · [Details](details/ar.md) · [Website](https://betterworkflows.dev/ar/) · [Docs entry](https://betterworkflows.dev/ar/docs/) |
 
-Default locale: `zh-Hant-TW`. The two in-scope locales have ten public documentation routes. English remains canonical for runtime contracts. Any additional locale requires a separate accepted RC2 candidate and public readback.
+Default locale: `zh-Hant-TW`. English remains canonical for runtime contracts. Editions other than `en` and `zh-Hant-TW` are machine-assisted translations.

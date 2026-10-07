@@ -5312,7 +5312,8 @@ async function commandEvalSuites() {
   // provide a fresh, task-scoped TMPDIR that does not exist yet, so establish
   // and validate that root before spawning any child suite. This prevents one
   // missing parent from turning every fixture into an unrelated ENOENT burst.
-  const suiteTempRoot = process.env.TMPDIR;
+  // macOS sets TMPDIR with one trailing slash; accept that form only.
+  const suiteTempRoot = process.env.TMPDIR?.replace(/(?<=.)\/$/u, "");
   if (suiteTempRoot) {
     if (!path.isAbsolute(suiteTempRoot) || path.resolve(suiteTempRoot) !== suiteTempRoot) {
       throw new Error("Evaluator TMPDIR must be an absolute path");
@@ -5327,7 +5328,8 @@ async function commandEvalSuites() {
   // This prevents a host shell's partial PATH from turning every fixture that
   // spawns git/gh into an avoidable ENOENT cascade.
   const toolPath = await fixedToolPath();
-  const suiteEnv = createFormalSuiteEnvironment(toolPath, process.env);
+  const suiteEnv = createFormalSuiteEnvironment(toolPath,
+    suiteTempRoot ? { ...process.env, TMPDIR: suiteTempRoot } : process.env);
   // Keep at most three suites active while each suite remains a single-file
   // Node test process with --test-concurrency=1. The formal POSIX path uses
   // owned capture groups and waits for descendant cleanup before returning;

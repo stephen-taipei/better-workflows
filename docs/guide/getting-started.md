@@ -3,7 +3,7 @@
 | [Overview](../../README.md) | [Details](../details/en.md) | **Quick start** | [Workflows](workflows.md) | [Architecture](architecture.md) | [Security](security.md) | [CLI](cli-reference.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 
-[RC1 public routes cover en and zh-Hant-TW; the 41-locale source catalog is private](../LANGUAGES.md). Commands and identifiers remain canonical in English.
+[41-locale localized overview and official web entry points](../LANGUAGES.md). Commands and identifiers remain canonical in English.
 
 V5.0 RC1 (`5.0.0-rc.1`, tag `V5.0.rc1`) is publicly available. Its release scope covers Auto only, with Codex, Gemini CLI, and Qwen Code on macOS Node 22/24. Linux and Windows qualification is deferred to V5.1, as is Claude Code qualification. GA `5.0.0` remains pending until at least 30 natural canary days, 20 consecutive eligible starts, and three distinct repositories are recorded.
 

@@ -1,0 +1,314 @@
+{
+  "zh-Hant": {
+    "/eyebrow": "V5.0 RC1 · 公開發布與授權",
+    "/title": "V5.0 RC1 現已公開發布。GA 仍在等待中。",
+    "/boundary": "V5.0 RC1（5.0.0-rc.1，標籤 V5.0.rc1）是受控預發布版本，具備單一公開 Auto 進入點。V4 支援矩陣仍保留為歷史紀錄；RC1 並不構成 GA 驗收或 V5 完成。",
+    "/scope": "V5.0 RC1 涵蓋 macOS × Node 22/24 上的 Codex、Gemini CLI 與 Qwen Code。Claude Code、Linux 與 Windows 資格認證延後至 V5.1。GA 需要至少 30 個自然金絲雀天數、連續 20 次合格啟動以及三個不同的存放庫。",
+    "/license": "第一方 Better Workflows 核心採 AGPL-3.0-only。實體獨立的 minimal wire package 另採 Apache-2.0；其 LICENSE 與 NOTICE 適用於該 package。",
+    "/plan": "基本產品免費。Professional Pack 規劃為專有產品，Cloud 是後續獨立產品；兩者目前尚未提供。"
+  },
+  "zh-Hant-HK": {
+    "/eyebrow": "V5.0 RC1 · 公開發布及授權",
+    "/title": "V5.0 RC1 現已公開發布。GA 仍然待定。",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) 係一個受控預先發布版本，提供單一公開 Auto 進入點。V4 支援矩陣仍屬歷史記錄；RC1 並唔代表通過 GA 驗收或完成 V5。",
+    "/scope": "V5.0 RC1 涵蓋 macOS × Node 22/24 上嘅 Codex、Gemini CLI 同 Qwen Code。Claude Code、Linux 同 Windows 嘅合資格認證推遲至 V5.1。GA 需要至少 30 個自然金絲雀日、連續 20 次合資格啟動，同三個不同嘅存放庫。",
+    "/license": "Better Workflows 第一方核心採用 AGPL-3.0-only。實體分離的 minimal wire package 採用 Apache-2.0；該 package 的 LICENSE 同 NOTICE 適用於它。",
+    "/plan": "基本產品免費。Professional Pack 計劃作為專有產品，Cloud 係日後另行推出嘅產品；兩者目前都未提供。"
+  },
+  "zh-Hans": {
+    "/eyebrow": "V5.0 RC1 · 公开发布与授权",
+    "/title": "V5.0 RC1 现已公开发布。GA 仍待定。",
+    "/boundary": "V5.0 RC1（5.0.0-rc.1，标签 V5.0.rc1）是受控预发布版本，提供单一公共 Auto 入口。V4 支持矩阵仍作为历史参考；RC1 不代表达成 GA 验收或 V5 完工。",
+    "/scope": "V5.0 RC1 覆盖 macOS × Node 22/24 上的 Codex、Gemini CLI 与 Qwen Code。Claude Code、Linux 与 Windows 资格认证推迟至 V5.1。GA 要求至少 30 个自然日金丝雀观察期、连续 20 次合格启动以及三个不同仓库。",
+    "/license": "Better Workflows 第一方核心采用 AGPL-3.0-only。实体独立的 minimal wire package 采用 Apache-2.0；该 package 的 LICENSE 与 NOTICE 适用于此 package。",
+    "/plan": "基础产品免费。Professional Pack 计划作为专有产品，Cloud 是后续推出的独立产品；两者目前都未提供。"
+  },
+  "vi": {
+    "/eyebrow": "V5.0 RC1 · Bản phát hành công khai và giấy phép",
+    "/title": "V5.0 RC1 đã được phát hành công khai. Bản GA vẫn đang chờ xử lý.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) là bản tiền phát hành có kiểm soát với một điểm truy cập Auto công khai duy nhất. Ma trận hỗ trợ của V4 mang tính lịch sử; RC1 không xác lập sự chấp nhận GA hay hoàn thành V5.",
+    "/scope": "V5.0 RC1 áp dụng cho Codex, Gemini CLI và Qwen Code trên macOS × Node 22/24. Việc kiểm định cho Claude Code, Linux và Windows được dời sang V5.1. Bản GA yêu cầu ít nhất 30 ngày canary tự nhiên, 20 lần khởi động đủ điều kiện liên tiếp và ba kho lưu trữ riêng biệt.",
+    "/license": "Cốt lõi Better Workflows do bên thứ nhất phát hành theo AGPL-3.0-only. Gói minimal wire tách biệt về mặt vật lý dùng Apache-2.0; LICENSE và NOTICE của gói đó áp dụng cho chính gói.",
+    "/plan": "Sản phẩm cơ bản miễn phí. Professional Pack được dự kiến là sản phẩm độc quyền, còn Cloud là sản phẩm riêng dự kiến cho giai đoạn sau; hiện cả hai chưa được cung cấp."
+  },
+  "uk": {
+    "/eyebrow": "V5.0 RC1 · Загальнодоступний випуск і ліцензування",
+    "/title": "V5.0 RC1 доступний для всіх. Статус GA все ще очікується.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, тег V5.0.rc1) — це контрольований попередній випуск із єдиною загальнодоступною точкою входу Auto. Матриця підтримки V4 залишається в минулому; RC1 не означає прийняття GA або завершення V5.",
+    "/scope": "V5.0 RC1 підтримує Codex, Gemini CLI та Qwen Code на macOS × Node 22/24. Кваліфікацію Claude Code, Linux та Windows відкладено до V5.1. Для GA потрібно щонайменше 30 природних днів канарейки, 20 послідовних відповідних запусків і три різні репозиторії.",
+    "/license": "Основне ядро Better Workflows від першої сторони поширюється за AGPL-3.0-only. Фізично окремий minimal wire package використовує Apache-2.0; його LICENSE і NOTICE застосовуються до цього пакета.",
+    "/plan": "Базовий продукт безкоштовний. Professional Pack заплановано як пропрієтарний продукт, а Cloud — як окремий продукт на пізніший етап; наразі жоден із них недоступний."
+  },
+  "tr": {
+    "/eyebrow": "V5.0 RC1 · Genel sürüm ve lisans",
+    "/title": "V5.0 RC1 genel kullanıma açıktır. GA henüz beklemededir.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1), tek bir genel Auto giriş noktasına sahip kontrollü bir ön sürümdür. V4 destek matrisi geçmişe yönelik olarak kalır; RC1, GA kabulü veya V5 tamamlanması anlamına gelmez.",
+    "/scope": "V5.0 RC1; macOS × Node 22/24 üzerinde Codex, Gemini CLI ve Qwen Code'u kapsar. Claude Code, Linux ve Windows yeterliliği V5.1'e ertelenmiştir. GA için en az 30 doğal canary günü, art arda 20 uygun başlatma ve üç ayrı depo gerekir.",
+    "/license": "Birinci taraf Better Workflows çekirdeği AGPL-3.0-only lisanslıdır. Fiziksel olarak ayrı minimal wire package Apache-2.0 kullanır; bu paketin LICENSE ve NOTICE dosyaları paket için geçerlidir.",
+    "/plan": "Temel ürün ücretsizdir. Professional Pack tescilli bir ürün olarak planlanıyor; Cloud ise daha sonraki bir tarihe bırakılmış ayrı bir üründür. İkisi de şu anda sunulmuyor."
+  },
+  "th": {
+    "/eyebrow": "V5.0 RC1 · การเปิดตัวสู่สาธารณะและใบอนุญาต",
+    "/title": "V5.0 RC1 พร้อมใช้งานแบบสาธารณะแล้ว ส่วน GA ยังคงอยู่ระหว่างรอดำเนินการ",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, แท็ก V5.0.rc1) เป็นรุ่นก่อนเปิดตัวอย่างเป็นทางการที่มีการควบคุม โดยมีจุดเข้าใช้งาน Auto แบบสาธารณะจุดเดียว เมทริกซ์การรองรับของ V4 ยังคงเป็นข้อมูลในอดีต RC1 ไม่ได้สร้างการยอมรับ GA หรือความสมบูรณ์ของ V5",
+    "/scope": "V5.0 RC1 ครอบคลุม Codex, Gemini CLI และ Qwen Code บน macOS × Node 22/24 การประเมินคุณสมบัติของ Claude Code, Linux และ Windows ถูกเลื่อนออกไปเป็น V5.1 ส่วน GA ต้องใช้เวลา canary ตามธรรมชาติอย่างน้อย 30 วัน การเริ่มต้นที่มีสิทธิ์ติดต่อกัน 20 ครั้ง และที่เก็บข้อมูลที่แตกต่างกันสามแห่ง",
+    "/license": "แกนหลัก Better Workflows ของผู้พัฒนารายแรกใช้ AGPL-3.0-only ส่วน minimal wire package ที่แยกเป็นอิสระทางกายภาพใช้ Apache-2.0 โดย LICENSE และ NOTICE ของ package นี้ใช้กับ package ดังกล่าว",
+    "/plan": "ผลิตภัณฑ์พื้นฐานใช้ฟรี Professional Pack วางแผนเป็นผลิตภัณฑ์กรรมสิทธิ์ ส่วน Cloud เป็นผลิตภัณฑ์แยกต่างหากที่เลื่อนไปไว้ในระยะถัดไป ขณะนี้ยังไม่มีทั้งสองรายการให้บริการ"
+  },
+  "sv": {
+    "/eyebrow": "V5.0 RC1 · Offentlig release och licenser",
+    "/title": "V5.0 RC1 är allmänt tillgänglig. GA väntar fortfarande.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) är en kontrollerad förhandsversion med en offentlig Auto-startpunkt. Supportmatrisen för V4 förblir historisk; RC1 innebär inte GA-godkännande eller färdigställande av V5.",
+    "/scope": "V5.0 RC1 omfattar Codex, Gemini CLI och Qwen Code på macOS × Node 22/24. Kvalificering för Claude Code, Linux och Windows skjuts upp till V5.1. GA kräver minst 30 naturliga canary-dagar, 20 kvalificerade starter i följd och tre separata arkiv.",
+    "/license": "Kärnan i Better Workflows från första part använder AGPL-3.0-only. Det fysiskt separata minimal wire package använder Apache-2.0; paketets LICENSE och NOTICE gäller för det paketet.",
+    "/plan": "Grundprodukten är gratis. Professional Pack planeras som en proprietär produkt och Cloud är en separat produkt som skjuts upp till ett senare skede; ingen av dem erbjuds just nu."
+  },
+  "sk": {
+    "/eyebrow": "V5.0 RC1 · Verejné vydanie a licencovanie",
+    "/title": "V5.0 RC1 je verejne dostupné. GA zostáva otvorené.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) je riadené predbežné vydanie s jedným verejným vstupným bodom Auto. Matica podpory V4 zostáva historická; RC1 neznamená schválenie GA ani dokončenie V5.",
+    "/scope": "V5.0 RC1 pokrýva Codex, Gemini CLI a Qwen Code na macOS × Node 22/24. Kvalifikácia pre Claude Code, Linux a Windows je odložená na V5.1. GA vyžaduje aspoň 30 prirodzených kanárikových dní, 20 po sebe idúcich spôsobilých spustení a tri rôzne repozitáre.",
+    "/license": "Jadro Better Workflows prvej strany používa AGPL-3.0-only. Fyzicky oddelený minimal wire package používa Apache-2.0; jeho LICENSE a NOTICE platia pre tento balík.",
+    "/plan": "Základný produkt je bezplatný. Professional Pack je plánovaný ako proprietárny produkt a Cloud je samostatný produkt odložený na neskôr; ani jeden sa momentálne neposkytuje."
+  },
+  "ru": {
+    "/eyebrow": "V5.0 RC1 · Публичный релиз и лицензирование",
+    "/title": "V5.0 RC1 доступна публично. GA по-прежнему ожидается.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, тег V5.0.rc1) — это контролируемый предрелиз с одной публичной точкой входа Auto. Матрица поддержки V4 остаётся исторической; RC1 не означает принятие GA или завершение V5.",
+    "/scope": "V5.0 RC1 охватывает Codex, Gemini CLI и Qwen Code на macOS × Node 22/24. Квалификация для Claude Code, Linux и Windows отложена до V5.1. Для GA требуется как минимум 30 календарных канареечных дней, 20 успешных запусков подряд, удовлетворяющих критериям, и три разных репозитория.",
+    "/license": "Ядро Better Workflows первой стороны распространяется по AGPL-3.0-only. Физически отдельный minimal wire package использует Apache-2.0; его LICENSE и NOTICE применяются к этому пакету.",
+    "/plan": "Базовый продукт бесплатен. Professional Pack запланирован как проприетарный продукт, а Cloud — как отдельный продукт, отложенный на более поздний этап; сейчас ни один из них недоступен."
+  },
+  "ro": {
+    "/eyebrow": "V5.0 RC1 · Lansare publică și licențiere",
+    "/title": "V5.0 RC1 este disponibilă public. GA rămâne în așteptare.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) este o versiune preliminară controlată cu un singur punct de intrare public Auto. Matricea de suport V4 rămâne istorică; RC1 nu stabilește acceptarea GA sau finalizarea V5.",
+    "/scope": "V5.0 RC1 acoperă Codex, Gemini CLI și Qwen Code pe macOS × Node 22/24. Calificarea pentru Claude Code, Linux și Windows este amânată pentru V5.1. GA necesită cel puțin 30 de zile calendaristice de canary, 20 de porniri eligibile consecutive și trei depozite distincte.",
+    "/license": "Componenta de bază Better Workflows, furnizată de prima parte, folosește AGPL-3.0-only. Pachetul minimal wire, separat fizic, folosește Apache-2.0; LICENSE și NOTICE ale sale se aplică acelui pachet.",
+    "/plan": "Produsul de bază este gratuit. Professional Pack este planificat ca produs proprietar, iar Cloud este un produs separat amânat pentru mai târziu; niciunul nu este disponibil acum."
+  },
+  "pt": {
+    "/eyebrow": "V5.0 RC1 · Lançamento público e licenciamento",
+    "/title": "O V5.0 RC1 está disponível publicamente. O GA continua pendente.",
+    "/boundary": "O V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) é um pré-lançamento controlado com um ponto de entrada público do Auto. A matriz de suporte da V4 permanece histórica; o RC1 não estabelece a aceitação de GA nem a conclusão da V5.",
+    "/scope": "O V5.0 RC1 cobre o Codex, Gemini CLI e Qwen Code em macOS × Node 22/24. A qualificação de Claude Code, Linux e Windows foi adiada para a V5.1. O GA requer pelo menos 30 dias naturais de canary, 20 arranques elegíveis consecutivos e três repositórios distintos.",
+    "/license": "O núcleo Better Workflows de primeira parte usa AGPL-3.0-only. O minimal wire package fisicamente separado usa Apache-2.0; o seu LICENSE e NOTICE aplicam-se a esse pacote.",
+    "/plan": "O produto básico é gratuito. O Professional Pack está planeado como produto proprietário, e o Cloud é um produto separado adiado para uma fase posterior; nenhum dos dois está disponível neste momento."
+  },
+  "pt-BR": {
+    "/eyebrow": "V5.0 RC1 · Lançamento público e licenciamento",
+    "/title": "O V5.0 RC1 está disponível publicamente. O status GA permanece pendente.",
+    "/boundary": "O V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) é um pré-lançamento controlado com um ponto de entrada público do Auto. A matriz de suporte do V4 permanece histórica; o RC1 não estabelece a aceitação de GA nem a conclusão do V5.",
+    "/scope": "O V5.0 RC1 abrange Codex, Gemini CLI e Qwen Code no macOS × Node 22/24. A qualificação para Claude Code, Linux e Windows foi adiada para o V5.1. A versão GA exige pelo menos 30 dias naturais de canary, 20 inicializações qualificadas consecutivas e três repositórios distintos.",
+    "/license": "O núcleo Better Workflows de primeira parte usa AGPL-3.0-only. O minimal wire package fisicamente separado usa Apache-2.0; seu LICENSE e NOTICE se aplicam a esse pacote.",
+    "/plan": "O produto básico é gratuito. O Professional Pack está planejado como produto proprietário, e o Cloud é um produto separado adiado para uma etapa posterior; nenhum dos dois está disponível no momento."
+  },
+  "pl": {
+    "/eyebrow": "V5.0 RC1 · Publiczne wydanie i licencjonowanie",
+    "/title": "Wersja V5.0 RC1 jest publicznie dostępna. GA w toku.",
+    "/boundary": "Wersja V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) to kontrolowana wersja przedpremierowa z jednym publicznym punktem wejścia Auto. Matryca wsparcia V4 pozostaje wersją historyczną; RC1 nie oznacza akceptacji GA ani ukończenia V5.",
+    "/scope": "Wersja V5.0 RC1 obejmuje Codex, Gemini CLI i Qwen Code w środowisku macOS × Node 22/24. Kwalifikacja Claude Code, Linux i Windows została odroczona do wersji V5.1. GA wymaga co najmniej 30 naturalnych dni canary, 20 kolejnych kwalifikujących się uruchomień i trzech odrębnych repozytoriów.",
+    "/license": "Rdzeń Better Workflows pierwszej strony jest objęty AGPL-3.0-only. Fizycznie oddzielny minimal wire package korzysta z Apache-2.0; jego LICENSE i NOTICE dotyczą tego pakietu.",
+    "/plan": "Podstawowy produkt jest bezpłatny. Professional Pack jest planowany jako produkt własnościowy, a Cloud to osobny produkt odłożony na później; obecnie żaden z nich nie jest dostępny."
+  },
+  "nl": {
+    "/eyebrow": "V5.0 RC1 · Publieke release en licenties",
+    "/title": "V5.0 RC1 is publiek beschikbaar. GA is nog in afwachting.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) is een gecontroleerde prerelease met één publiek Auto-toegangspunt. De V4-ondersteuningsmatrix blijft historisch; RC1 betekent geen GA-acceptatie of voltooiing van V5.",
+    "/scope": "V5.0 RC1 ondersteunt Codex, Gemini CLI en Qwen Code op macOS × Node 22/24. Kwalificatie voor Claude Code, Linux en Windows is uitgesteld naar V5.1. GA vereist ten minste 30 natuurlijke canary-dagen, 20 opeenvolgende in aanmerking komende starts en drie verschillende repositories.",
+    "/license": "De first-party kern van Better Workflows valt onder AGPL-3.0-only. Het fysiek afzonderlijke minimal wire package gebruikt Apache-2.0; de LICENSE en NOTICE van dat pakket gelden daarvoor.",
+    "/plan": "Het basisproduct is gratis. Professional Pack is gepland als propriëtair product en Cloud is een afzonderlijk product dat is uitgesteld tot later; geen van beide is nu beschikbaar."
+  },
+  "nb": {
+    "/eyebrow": "V5.0 RC1 · Offentlig utgivelse og lisensiering",
+    "/title": "V5.0 RC1 er offentlig tilgjengelig. GA gjenstår.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) er en kontrollert forhåndsutgivelse med ett offentlig Auto-inngangspunkt. Støttematrisen for V4 forblir historisk; RC1 etablerer ikke GA-godkjenning eller fullføring av V5.",
+    "/scope": "V5.0 RC1 dekker Codex, Gemini CLI og Qwen Code på macOS × Node 22/24. Kvalifisering for Claude Code, Linux og Windows er utsatt til V5.1. GA krever minst 30 naturlige canary-dager, 20 påfølgende kvalifiserte oppstarter og tre distinkte depoter.",
+    "/license": "Kjernen i Better Workflows fra første part bruker AGPL-3.0-only. Den fysisk separate minimal wire package bruker Apache-2.0; pakkens LICENSE og NOTICE gjelder for pakken.",
+    "/plan": "Basisproduktet er gratis. Professional Pack er planlagt som et proprietært produkt, mens Cloud er et separat produkt som er utsatt til senere; ingen av dem er tilgjengelige nå."
+  },
+  "my": {
+    "/eyebrow": "V5.0 RC1 · အများပြည်သူသုံး ထုတ်ပြန်ချက်နှင့် လိုင်စင်",
+    "/title": "V5.0 RC1 ကို အများပြည်သူ ရယူသုံးစွဲနိုင်ပါပြီ။ GA မထုတ်ပြန်ရသေးပါ။",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) သည် အများပြည်သူသုံး Auto entrypoint တစ်ခုပါဝင်သော ထိန်းချုပ်ထားသည့် ကြိုတင်ထုတ်ပြန်မှု (controlled prerelease) ဖြစ်သည်။ V4 အထောက်အပံ့ matrix သည် သမိုင်းဝင်အဖြစ်သာ ရှိနေသည်; RC1 သည် GA လက်ခံမှု သို့မဟုတ် V5 ပြီးမြောက်မှုကို မသတ်မှတ်ပါ။",
+    "/scope": "V5.0 RC1 သည် macOS × Node 22/24 ပေါ်တွင် Codex၊ Gemini CLI နှင့် Qwen Code တို့ကို အကျုံးဝင်သည်။ Claude Code၊ Linux နှင့် Windows အရည်အသွေးသတ်မှတ်ချက်ကို V5.1 သို့ ရွှေ့ဆိုင်းထားသည်။ GA အတွက် အနည်းဆုံး သဘာဝအတိုင်းဖြစ်သော canary ရက်ပေါင်း ၃၀၊ ဆက်တိုက်သတ်မှတ်ချက်ပြည့်မီသော စတင်မှု အကြိမ် ၂၀ နှင့် သီးခြား repositories သုံးခု လိုအပ်သည်။",
+    "/license": "Better Workflows ၏ first-party core သည် AGPL-3.0-only ကို အသုံးပြုသည်။ ရုပ်ပိုင်းဆိုင်ရာ သီးခြားထားသော minimal wire package သည် Apache-2.0 ကို အသုံးပြုပြီး ၎င်း၏ LICENSE နှင့် NOTICE သည် ထို package အတွက် သက်ဆိုင်သည်။",
+    "/plan": "အခြေခံထုတ်ကုန်သည် အခမဲ့ဖြစ်သည်။ Professional Pack ကို မူပိုင်ထုတ်ကုန်အဖြစ် စီစဉ်ထားပြီး Cloud သည် နောက်ပိုင်းအတွက် ရွှေ့ဆိုင်းထားသော သီးခြားထုတ်ကုန်ဖြစ်သည်။ နှစ်ခုစလုံးကို ယခုမရရှိနိုင်သေးပါ။"
+  },
+  "ms": {
+    "/eyebrow": "V5.0 RC1 · Pelepasan awam dan pelesenan",
+    "/title": "V5.0 RC1 tersedia secara umum. GA masih belum selesai.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) ialah pra-pelepasan terkawal dengan satu titik masuk Auto awam. Matriks sokongan V4 kekal sebagai sejarah; RC1 tidak menetapkan penerimaan GA atau penyiapan V5.",
+    "/scope": "V5.0 RC1 merangkumi Codex, Gemini CLI dan Qwen Code pada macOS × Node 22/24. Kelayakan Claude Code, Linux dan Windows ditangguhkan ke V5.1. GA memerlukan sekurang-kurangnya 30 hari kenari semula jadi, 20 permulaan layak berturut-turut dan tiga repositori berbeza.",
+    "/license": "Teras Better Workflows pihak pertama menggunakan AGPL-3.0-only. minimal wire package yang berasingan secara fizikal menggunakan Apache-2.0; LICENSE dan NOTICE pakej itu terpakai pada pakej tersebut.",
+    "/plan": "Produk asas adalah percuma. Professional Pack dirancang sebagai produk proprietari, manakala Cloud ialah produk berasingan yang ditangguhkan ke kemudian; kedua-duanya belum tersedia."
+  },
+  "lo": {
+    "/eyebrow": "V5.0 RC1 · ການເປີດຕົວສາທາລະນະ ແລະ ໃບອະນຸຍາດ",
+    "/title": "V5.0 RC1 ເປີດໃຫ້ໃຊ້ງານທົ່ວໄປແລ້ວ. ສ່ວນ GA ຍັງລໍຖ້າຢູ່.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) ເປັນ prerelease ທີ່ຄວບຄຸມ ໂດຍມີຈຸດເຂົ້າ Auto ສາທາລະນະອັນດຽວ. support matrix ຂອງ V4 ຍັງເປັນຂໍ້ມູນປະຫວັດສາດ; RC1 ບໍ່ໄດ້ໝາຍເຖິງການຍອມຮັບ GA ຫຼື ຄວາມສົມບູນຂອງ V5.",
+    "/scope": "V5.0 RC1 ຮອງຮັບ Codex, Gemini CLI ແລະ Qwen Code ເທິງ macOS × Node 22/24. ສ່ວນ Claude Code, Linux ແລະ Windows ແມ່ນເລື່ອນໄປ V5.1. GA ຕ້ອງການຢ່າງໜ້ອຍ 30 ວັນ canary ຕາມທຳມະຊາດ, 20 ການເລີ່ມຕົ້ນທີ່ຜ່ານເກນຕິດຕໍ່ກັນ ແລະ ສາມ repository ທີ່ຕ່າງກັນ.",
+    "/license": "ແກນຫຼັກ Better Workflows ຈາກຝ່າຍຜູ້ພັດທະນາໃຊ້ AGPL-3.0-only. minimal wire package ທີ່ແຍກອອກທາງກາຍະພາບໃຊ້ Apache-2.0; LICENSE ແລະ NOTICE ຂອງ package ນັ້ນໃຊ້ກັບ package ດັ່ງກ່າວ.",
+    "/plan": "ຜະລິດຕະພັນພື້ນຖານໃຫ້ໃຊ້ຟຣີ. Professional Pack ວາງແຜນເປັນຜະລິດຕະພັນມີລິຂະສິດ, ໃນຂະນະທີ່ Cloud ແມ່ນຜະລິດຕະພັນແຍກຕ່າງຫາກທີ່ເລື່ອນໄປໄລຍະຫຼັງ; ຕອນນີ້ຍັງບໍ່ມີທັງສອງ."
+  },
+  "ko": {
+    "/eyebrow": "V5.0 RC1 · 공개 릴리스 및 라이선스",
+    "/title": "V5.0 RC1은 공개적으로 이용할 수 있습니다. GA는 아직 보류 중입니다.",
+    "/boundary": "V5.0 RC1(5.0.0-rc.1, 태그 V5.0.rc1)은 하나의 공개 Auto 엔트리포인트를 갖춘 통제된 프리릴리스입니다. V4 지원 매트릭스는 과거 이력으로 유지되며, RC1이 GA 승인이나 V5 완료를 의미하지는 않습니다.",
+    "/scope": "V5.0 RC1은 macOS × Node 22/24 환경의 Codex, Gemini CLI, Qwen Code를 지원합니다. Claude Code, Linux, Windows 적격성 평가는 V5.1로 연기되었습니다. GA에는 최소 30일의 자연일 카나리 기간, 20회 연속 적격 시작, 3개의 서로 다른 저장소가 필요합니다.",
+    "/license": "Better Workflows의 퍼스트파티 코어는 AGPL-3.0-only를 따릅니다. 물리적으로 분리된 minimal wire package는 Apache-2.0을 사용하며, 해당 package의 LICENSE와 NOTICE가 그 package에 적용됩니다.",
+    "/plan": "기본 제품은 무료입니다. Professional Pack은 독점 제품으로 계획되어 있고 Cloud는 이후로 미뤄 둔 별도 제품입니다. 현재 둘 다 제공되지 않습니다."
+  },
+  "km": {
+    "/eyebrow": "V5.0 RC1 · ការចេញផ្សាយជាសាធារណៈ និងអាជ្ញាបណ្ណ",
+    "/title": "V5.0 RC1 អាចប្រើប្រាស់ជាសាធារណៈបាន។ GA នៅរង់ចាំនៅឡើយទេ។",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) គឺជា prerelease ក្រោមការគ្រប់គ្រងដែលមាន public Auto entrypoint មួយ។ support matrix របស់ V4 នៅតែជាប្រវត្តិសាស្ត្រ; RC1 មិនកំណត់ការទទួលយក GA ឬការបញ្ចប់ V5 នោះទេ។",
+    "/scope": "V5.0 RC1 គ្របដណ្តប់លើ Codex, Gemini CLI និង Qwen Code នៅលើ macOS × Node 22/24។ លក្ខណៈសម្បត្តិ Claude Code, Linux និង Windows ត្រូវបានពន្យារពេលទៅ V5.1។ GA ទាមទារយ៉ាងហោចណាស់ 30 ថ្ងៃ canary តាមប្រតិទិន, ការចាប់ផ្តើមបំពេញលក្ខខណ្ឌ 20 ដងជាប់ៗគ្នា និង repository ផ្សេងគ្នាបី។",
+    "/license": "ស្នូល Better Workflows របស់អ្នកផ្តល់ជូនដើមប្រើ AGPL-3.0-only។ minimal wire package ដែលបំបែកដោយរូបវន្តប្រើ Apache-2.0; LICENSE និង NOTICE របស់វាអនុវត្តចំពោះ package នោះ។",
+    "/plan": "ផលិតផលមូលដ្ឋានអាចប្រើដោយឥតគិតថ្លៃ។ Professional Pack គ្រោងទុកជាផលិតផលមានកម្មសិទ្ធិ ខណៈ Cloud ជាផលិតផលដាច់ដោយឡែកដែលពន្យារទៅពេលក្រោយ; បច្ចុប្បន្នទាំងពីរមិនទាន់មានផ្តល់ជូនទេ។"
+  },
+  "ja": {
+    "/eyebrow": "V5.0 RC1 · 一般公開とライセンス",
+    "/title": "V5.0 RC1 は一般公開されています。GA は保留中です。",
+    "/boundary": "V5.0 RC1（5.0.0-rc.1、タグ V5.0.rc1）は、公開 Auto エントリポイントを 1 つ備えた統制されたプレリリースです。V4 のサポートマトリクスは過去のものとして維持され、RC1 は GA の承認や V5 の完成を意味するものではありません。",
+    "/scope": "V5.0 RC1 は macOS × Node 22/24 上の Codex、Gemini CLI、Qwen Code をカバーしています。Claude Code、Linux、Windows の検証は V5.1 に延期されます。GA には、少なくとも 30 暦日のカナリア期間、20 回連続の適格な起動、および 3 つの異なるリポジトリが必要です。",
+    "/license": "Better Workflows のファーストパーティ製コアは AGPL-3.0-only です。物理的に分離された minimal wire package は Apache-2.0 を採用し、その package の LICENSE と NOTICE が適用されます。",
+    "/plan": "基本製品は無料です。Professional Pack はプロプライエタリ製品として計画され、Cloud は後段に延期された独立製品です。どちらも現在は提供していません。"
+  },
+  "it": {
+    "/eyebrow": "V5.0 RC1 · Release pubblica e licenze",
+    "/title": "V5.0 RC1 è disponibile pubblicamente. GA rimane in attesa.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) è una prerelease controllata con un unico entrypoint pubblico Auto. La matrice di supporto di V4 rimane storica; RC1 non stabilisce l'accettazione GA né il completamento di V5.",
+    "/scope": "V5.0 RC1 copre Codex, Gemini CLI e Qwen Code su macOS × Node 22/24. La qualificazione per Claude Code, Linux e Windows è posticipata a V5.1. GA richiede almeno 30 giorni canary naturali, 20 avvii idonei consecutivi e tre repository distinti.",
+    "/license": "Il core Better Workflows di prima parte usa AGPL-3.0-only. Il minimal wire package fisicamente separato usa Apache-2.0; il suo LICENSE e NOTICE si applicano a quel pacchetto.",
+    "/plan": "Il prodotto base è gratuito. Professional Pack è previsto come prodotto proprietario, mentre Cloud è un prodotto separato rimandato a una fase successiva; al momento nessuno dei due è disponibile."
+  },
+  "id": {
+    "/eyebrow": "V5.0 RC1 · Rilis publik dan lisensi",
+    "/title": "V5.0 RC1 telah tersedia untuk umum. GA masih ditangguhkan.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) adalah pra-rilis terkontrol dengan satu titik masuk Auto publik. Matriks dukungan V4 tetap bersifat historis; RC1 tidak menetapkan penerimaan GA atau penyelesaian V5.",
+    "/scope": "V5.0 RC1 mencakup Codex, Gemini CLI, dan Qwen Code di macOS × Node 22/24. Kualifikasi Claude Code, Linux, dan Windows ditunda hingga V5.1. GA memerlukan setidaknya 30 hari canary alami, 20 kali mulai yang memenuhi syarat berturut-turut, dan tiga repositori berbeda.",
+    "/license": "Core Better Workflows dari pihak pertama menggunakan AGPL-3.0-only. minimal wire package yang terpisah secara fisik menggunakan Apache-2.0; LICENSE dan NOTICE miliknya berlaku untuk package tersebut.",
+    "/plan": "Produk dasar gratis. Professional Pack direncanakan sebagai produk proprietary, sedangkan Cloud adalah produk terpisah yang ditunda untuk tahap berikutnya; keduanya belum tersedia."
+  },
+  "hu": {
+    "/eyebrow": "V5.0 RC1 · Nyilvános kiadás és licencelés",
+    "/title": "A V5.0 RC1 nyilvánosan elérhető. A GA továbbra is függőben van.",
+    "/boundary": "A V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) egy szabályozott előzetes kiadás egyetlen nyilvános Auto belépési ponttal. A V4 támogatási mátrix korábbi állapotot rögzít; az RC1 nem jelent GA-elfogadást vagy a V5 befejezését.",
+    "/scope": "A V5.0 RC1 a Codex, a Gemini CLI és a Qwen Code eszközöket fedi le macOS × Node 22/24 környezetben. A Claude Code, a Linux és a Windows minősítése a V5.1-re halasztódik. A GA legalább 30 naptári canary-napot, 20 egymást követő megfelelő indítást és három különböző repositoryt igényel.",
+    "/license": "A Better Workflows first-party magja AGPL-3.0-only licencet használ. A fizikailag különálló minimal wire package Apache-2.0 licencet használ; a csomag LICENSE és NOTICE fájljai erre a csomagra vonatkoznak.",
+    "/plan": "Az alaptermék ingyenes. A Professional Pack tulajdonosi termékként van tervbe véve, a Cloud pedig későbbre halasztott külön termék; jelenleg egyik sem érhető el."
+  },
+  "hr": {
+    "/eyebrow": "V5.0 RC1 · Javno izdanje i licenciranje",
+    "/title": "V5.0 RC1 je javno dostupan. GA je još na čekanju.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, oznaka V5.0.rc1) je kontrolirano predizdanje s jednom javnom Auto ulaznom točkom. V4 matrica podrške ostaje povijesna; RC1 ne utvrđuje GA prihvaćanje niti dovršetak verzije V5.",
+    "/scope": "V5.0 RC1 pokriva Codex, Gemini CLI i Qwen Code na sustavu macOS × Node 22/24. Kvalifikacija za Claude Code, Linux i Windows odgođena je za V5.1. GA zahtijeva najmanje 30 prirodnih dana canary testiranja, 20 uzastopnih kvalificiranih pokretanja i tri zasebna repozitorija.",
+    "/license": "Osnovna jezgra Better Workflowsa prve strane koristi AGPL-3.0-only. Fizički odvojeni minimal wire package koristi Apache-2.0; njegov LICENSE i NOTICE vrijede za taj paket.",
+    "/plan": "Osnovni je proizvod besplatan. Professional Pack planiran je kao vlasnički proizvod, a Cloud je zaseban proizvod odgođen za kasnije; trenutačno nijedan nije dostupan."
+  },
+  "hi": {
+    "/eyebrow": "V5.0 RC1 · सार्वजनिक रिलीज़ और लाइसेंस",
+    "/title": "V5.0 RC1 सार्वजनिक रूप से उपलब्ध है। GA अभी बाकी है।",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) एक नियंत्रित prerelease है जिसमें एक सार्वजनिक Auto entrypoint है। V4 सपोर्ट मैट्रिक्स ऐतिहासिक बना हुआ है; RC1 GA स्वीकृति या V5 पूर्णता स्थापित नहीं करता है।",
+    "/scope": "V5.0 RC1 macOS × Node 22/24 पर Codex, Gemini CLI और Qwen Code को कवर करता है। Claude Code, Linux और Windows की अर्हता V5.1 तक के लिए स्थगित है। GA के लिए कम से कम 30 प्राकृतिक canary दिन, लगातार 20 योग्य शुरुआत और तीन अलग-अलग रिपॉजिटरी आवश्यक हैं।",
+    "/license": "Better Workflows का first-party core AGPL-3.0-only के अंतर्गत है। भौतिक रूप से अलग minimal wire package Apache-2.0 का उपयोग करता है; उसका LICENSE और NOTICE उसी package पर लागू होता है।",
+    "/plan": "मूल उत्पाद मुफ़्त है। Professional Pack को proprietary उत्पाद के रूप में योजनाबद्ध किया गया है और Cloud बाद के लिए स्थगित अलग उत्पाद है; दोनों अभी उपलब्ध नहीं हैं।"
+  },
+  "he": {
+    "/eyebrow": "V5.0 RC1 · שחרור פומבי ורישוי",
+    "/title": "V5.0 RC1 זמין לציבור. GA עדיין בהמתנה.",
+    "/boundary": "V5.0 RC1 ‏(5.0.0-rc.1, תג V5.0.rc1) הוא גרסה מוקדמת מבוקרת עם נקודת כניסה פומבית אחת ל-Auto. מטריצת התמיכה של V4 נשארת היסטורית; RC1 אינו מהווה קבלת GA או השלמה של V5.",
+    "/scope": "V5.0 RC1 מכסה את Codex, Gemini CLI ו-Qwen Code ב-macOS × Node 22/24. ההסמכה של Claude Code, Linux ו-Windows נדחית ל-V5.1. לצורך GA נדרשים לפחות 30 ימי canary טבעיים, 20 הפעלות כשירות ברצף ושלושה מאגרים נפרדים.",
+    "/license": "ליבת Better Workflows של הצד הראשון משתמשת ב־AGPL-3.0-only. ה־minimal wire package המופרד פיזית משתמש ב־Apache-2.0; קובצי LICENSE ו־NOTICE שלו חלים על package זה.",
+    "/plan": "המוצר הבסיסי חינמי. Professional Pack מתוכנן כמוצר קנייני, ו־Cloud הוא מוצר נפרד שנדחה לשלב מאוחר יותר; אף אחד מהם אינו זמין כרגע."
+  },
+  "fr": {
+    "/eyebrow": "V5.0 RC1 · Version publique et licences",
+    "/title": "V5.0 RC1 est disponible publiquement. La GA reste en attente.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) est une préversion contrôlée avec un point d’entrée public Auto unique. La matrice de support V4 reste historique ; la RC1 n’établit pas la validation GA ni l’achèvement de la V5.",
+    "/scope": "V5.0 RC1 prend en charge Codex, Gemini CLI et Qwen Code sur macOS × Node 22/24. La qualification de Claude Code, Linux et Windows est reportée à la V5.1. La GA nécessite au moins 30 jours calendaires de canary, 20 démarrages éligibles consécutifs et trois dépôts distincts.",
+    "/license": "Le cœur Better Workflows de première partie utilise AGPL-3.0-only. Le minimal wire package physiquement séparé utilise Apache-2.0 ; son LICENSE et sa NOTICE s’appliquent à ce package.",
+    "/plan": "Le produit de base est gratuit. Professional Pack est prévu comme produit propriétaire, tandis que Cloud est un produit distinct reporté à plus tard ; aucun des deux n’est disponible actuellement."
+  },
+  "fil": {
+    "/eyebrow": "V5.0 RC1 · Pampublikong release at lisensya",
+    "/title": "Pampublikong available ang V5.0 RC1. Nakabinbin pa rin ang GA.",
+    "/boundary": "Ang V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) ay isang kontroladong prerelease na may iisang pampublikong Auto entrypoint. Mananatiling pangkasaysayan ang V4 support matrix; hindi itinatakda ng RC1 ang pagtanggap sa GA o pagkumpleto ng V5.",
+    "/scope": "Sinasaklaw ng V5.0 RC1 ang Codex, Gemini CLI, at Qwen Code sa macOS × Node 22/24. Ipinagpaliban sa V5.1 ang kwalipikasyon para sa Claude Code, Linux, at Windows. Nangangailangan ang GA ng hindi bababa sa 30 natural na araw ng canary, 20 magkakasunod na kwalipikadong pagsisimula, at tatlong magkakaibang repository.",
+    "/license": "Ang first-party core ng Better Workflows ay gumagamit ng AGPL-3.0-only. Ang pisikal na hiwalay na minimal wire package ay gumagamit ng Apache-2.0; ang LICENSE at NOTICE nito ay para sa package na iyon.",
+    "/plan": "Libre ang basic na produkto. Ang Professional Pack ay planong proprietary na produkto, habang ang Cloud ay hiwalay na produktong ipinagpaliban sa susunod na yugto; parehong hindi pa available."
+  },
+  "fi": {
+    "/eyebrow": "V5.0 RC1 · Julkinen julkaisu ja lisensointi",
+    "/title": "V5.0 RC1 on julkisesti saatavilla. GA on yhä vireillä.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tagi V5.0.rc1) on hallittu esiversio yhdellä julkisella Auto-aloituspisteellä. V4-tukimatriisi säilyy historiallisena; RC1 ei muodosta GA-hyväksyntää tai V5:n valmistumista.",
+    "/scope": "V5.0 RC1 kattaa alustat Codex, Gemini CLI ja Qwen Code ympäristössä macOS × Node 22/24. Claude Code-, Linux- ja Windows-kelpoisuus siirretään versioon V5.1. GA vaatii vähintään 30 luonnollista canary-päivää, 20 peräkkäistä hyväksyttävää käynnistystä ja kolme eri arkistoa.",
+    "/license": "Better Workflowsin ensisijainen ydin käyttää AGPL-3.0-only-lisenssiä. Fyysisesti erillinen minimal wire package käyttää Apache-2.0-lisenssiä; sen LICENSE ja NOTICE koskevat tätä pakettia.",
+    "/plan": "Perustuote on maksuton. Professional Pack on suunniteltu omistusoikeudelliseksi tuotteeksi, ja Cloud on erillinen myöhemmäksi siirretty tuote; kumpaakaan ei ole tällä hetkellä saatavilla."
+  },
+  "es": {
+    "/eyebrow": "V5.0 RC1 · Lanzamiento público y licencias",
+    "/title": "V5.0 RC1 está disponible públicamente. GA sigue pendiente.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) es una versión preliminar controlada con un punto de entrada público de Auto. La matriz de compatibilidad de V4 se mantiene como histórica; RC1 no establece la aceptación de GA ni la finalización de V5.",
+    "/scope": "V5.0 RC1 cubre Codex, Gemini CLI y Qwen Code en macOS × Node 22/24. La calificación de Claude Code, Linux y Windows se pospone a V5.1. GA requiere al menos 30 días naturales de canary, 20 inicios válidos consecutivos y tres repositorios distintos.",
+    "/license": "El núcleo de Better Workflows de primera parte usa AGPL-3.0-only. El minimal wire package físicamente separado usa Apache-2.0; su LICENSE y NOTICE se aplican a ese paquete.",
+    "/plan": "El producto básico es gratuito. Professional Pack está previsto como producto propietario y Cloud es un producto independiente aplazado para más adelante; ninguno está disponible ahora."
+  },
+  "es-MX": {
+    "/eyebrow": "V5.0 RC1 · Lanzamiento público y licencias",
+    "/title": "V5.0 RC1 está disponible públicamente. GA permanece pendiente.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) es un prelanzamiento controlado con un único punto de entrada público de Auto. La matriz de compatibilidad de V4 sigue siendo histórica; RC1 no establece la aceptación de GA ni la finalización de V5.",
+    "/scope": "V5.0 RC1 cubre Codex, Gemini CLI y Qwen Code en macOS × Node 22/24. La calificación para Claude Code, Linux y Windows se pospone para V5.1. GA requiere al menos 30 días naturales de canary, 20 inicios elegibles consecutivos y tres repositorios distintos.",
+    "/license": "El núcleo de primera parte de Better Workflows usa AGPL-3.0-only. El minimal wire package separado físicamente usa Apache-2.0; su LICENSE y NOTICE aplican a ese package.",
+    "/plan": "El producto básico es gratis. Professional Pack está planeado como producto propietario, y Cloud es un producto separado pospuesto para una etapa posterior; ninguno está disponible por ahora."
+  },
+  "el": {
+    "/eyebrow": "V5.0 RC1 · Δημόσια κυκλοφορία και άδειες χρήσης",
+    "/title": "Το V5.0 RC1 είναι διαθέσιμο δημόσια. Το GA παραμένει σε εκκρεμότητα.",
+    "/boundary": "Το V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) είναι μια ελεγχόμενη προέκδοση με ένα δημόσιο σημείο εισόδου Auto. Ο πίνακας υποστήριξης του V4 παραμένει ιστορικός· το RC1 δεν συνιστά αποδοχή GA ή ολοκλήρωση του V5.",
+    "/scope": "Το V5.0 RC1 καλύπτει τα Codex, Gemini CLI και Qwen Code σε macOS × Node 22/24. Η επικύρωση για Claude Code, Linux και Windows αναβάλλεται για το V5.1. Το GA απαιτεί τουλάχιστον 30 φυσικές ημέρες canary, 20 διαδοχικές επιλέξιμες εκκινήσεις και τρία διακριτά αποθετήρια.",
+    "/license": "Ο πυρήνας Better Workflows πρώτου μέρους χρησιμοποιεί AGPL-3.0-only. Το φυσικά ξεχωριστό minimal wire package χρησιμοποιεί Apache-2.0· το LICENSE και το NOTICE του ισχύουν για αυτό το package.",
+    "/plan": "Το βασικό προϊόν είναι δωρεάν. Το Professional Pack έχει προγραμματιστεί ως ιδιόκτητο προϊόν, ενώ το Cloud είναι ξεχωριστό προϊόν που μετατίθεται για αργότερα· κανένα από τα δύο δεν διατίθεται τώρα."
+  },
+  "de": {
+    "/eyebrow": "V5.0 RC1 · Öffentlicher Release und Lizenzen",
+    "/title": "V5.0 RC1 ist öffentlich verfügbar. GA steht noch aus.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, Tag V5.0.rc1) ist ein kontrollierter Vorab-Release mit einem einzigen öffentlichen Auto-Einstiegspunkt. Die V4-Supportmatrix bleibt historisch; RC1 begründet keine GA-Abnahme oder V5-Fertigstellung.",
+    "/scope": "V5.0 RC1 deckt Codex, Gemini CLI und Qwen Code unter macOS × Node 22/24 ab. Die Qualifizierung für Claude Code, Linux und Windows ist auf V5.1 verschoben. GA erfordert mindestens 30 Canary-Kalendertage, 20 aufeinanderfolgende berechtigte Starts und drei verschiedene Repositories.",
+    "/license": "Der First-Party-Kern von Better Workflows steht unter AGPL-3.0-only. Das physisch getrennte minimal wire package nutzt Apache-2.0; sein LICENSE und NOTICE gelten für dieses Paket.",
+    "/plan": "Das Basisprodukt ist kostenlos. Professional Pack ist als proprietäres Produkt geplant, und Cloud ist ein separates, auf später verschobenes Produkt; derzeit ist keines von beiden verfügbar."
+  },
+  "da": {
+    "/eyebrow": "V5.0 RC1 · Offentlig udgivelse og licenser",
+    "/title": "V5.0 RC1 er offentligt tilgængelig. GA afventer stadig.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) er en kontrolleret præudgivelse med ét offentligt Auto-indgangspunkt. V4-understøttelsesmatricen forbliver historisk; RC1 etablerer ikke GA-accept eller fuldførelse af V5.",
+    "/scope": "V5.0 RC1 dækker Codex, Gemini CLI og Qwen Code på macOS × Node 22/24. Kvalificering til Claude Code, Linux og Windows er udskudt til V5.1. GA kræver mindst 30 naturlige canary-dage, 20 kvalificerede starter i træk og tre særskilte repositories.",
+    "/license": "Better Workflows' first-party-kerne bruger AGPL-3.0-only. Den fysisk separate minimal wire package bruger Apache-2.0; pakkens LICENSE og NOTICE gælder for denne pakke.",
+    "/plan": "Basisproduktet er gratis. Professional Pack er planlagt som et proprietært produkt, mens Cloud er et separat produkt, der er udskudt til senere; ingen af dem tilbydes nu."
+  },
+  "cs": {
+    "/eyebrow": "V5.0 RC1 · Veřejné vydání a licencování",
+    "/title": "V5.0 RC1 je veřejně k dispozici. Vydání GA zatím čeká.",
+    "/boundary": "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) je řízená předběžná verze s jedním veřejným vstupním bodem Auto. Matice podpory pro V4 zůstává historická; RC1 neznamená akceptaci GA ani dokončení V5.",
+    "/scope": "V5.0 RC1 pokrývá Codex, Gemini CLI a Qwen Code na macOS × Node 22/24. Kvalifikace pro Claude Code, Linux a Windows je odložena na V5.1. GA vyžaduje alespoň 30 kalendářních kanárkových dní, 20 po sobě jdoucích způsobilých spuštění a tři různé repozitáře.",
+    "/license": "Jádro Better Workflows první strany používá AGPL-3.0-only. Fyzicky oddělený minimal wire package používá Apache-2.0; jeho LICENSE a NOTICE se vztahují na tento balíček.",
+    "/plan": "Základní produkt je zdarma. Professional Pack je plánován jako proprietární produkt a Cloud je samostatný produkt odložený na později; nyní není dostupný ani jeden."
+  },
+  "ca": {
+    "/eyebrow": "V5.0 RC1 · Publicació i llicències",
+    "/title": "La versió V5.0 RC1 està disponible públicament. GA continua pendent.",
+    "/boundary": "La versió V5.0 RC1 (5.0.0-rc.1, etiqueta V5.0.rc1) és una versió preliminar controlada amb un sol punt d'entrada públic d'Auto. La matriu de compatibilitat de V4 es manté històrica; RC1 no estableix l'acceptació de GA ni la finalització de V5.",
+    "/scope": "La versió V5.0 RC1 cobreix Codex, Gemini CLI i Qwen Code a macOS × Node 22/24. La qualificació de Claude Code, Linux i Windows s'ajorna a la versió V5.1. GA requereix almenys 30 dies naturals de canary, 20 inicis aptes consecutius i tres repositoris diferents.",
+    "/license": "El nucli de primera part de Better Workflows utilitza AGPL-3.0-only. El minimal wire package separat físicament utilitza Apache-2.0; el seu LICENSE i NOTICE s’apliquen a aquest paquet.",
+    "/plan": "El producte bàsic és gratuït. Professional Pack està previst com a producte propietari, i Cloud és un producte separat ajornat per a més endavant; ara no se n’ofereix cap."
+  },
+  "ar": {
+    "/eyebrow": "V5.0 RC1 · الإصدار العام والترخيص",
+    "/title": "الإصدار V5.0 RC1 متاح للعامة. بينما لا يزال GA قيد الانتظار.",
+    "/boundary": "يعد V5.0 RC1 (5.0.0-rc.1، الوسم V5.0.rc1) إصدارًا تجريبيًا خاضعًا للرقابة مع نقطة دخول Auto عامة واحدة. تظل مصفوفة دعم V4 تاريخية؛ ولا يُرسي RC1 قبول GA أو اكتمال V5.",
+    "/scope": "يغطي V5.0 RC1 كلاً من Codex وGemini CLI وQwen Code على macOS × Node 22/24. بينما أُرجئ تأهيل Claude Code وLinux وWindows إلى V5.1. يتطلب GA ما لا يقل عن 30 يومًا كناريًا طبيعيًا، و20 تشغيلاً مؤهلاً متتاليًا، وثلاثة مستودعات متمايزة.",
+    "/license": "يستخدم جوهر Better Workflows من الطرف الأول ترخيص AGPL-3.0-only. أما minimal wire package المنفصل ماديًا فيستخدم Apache-2.0؛ وينطبق LICENSE وNOTICE الخاصان به على ذلك package.",
+    "/plan": "المنتج الأساسي مجاني. ومن المخطط أن يكون Professional Pack منتجًا مملوكًا، بينما Cloud منتج مستقل مؤجل إلى مرحلة لاحقة؛ ولا يتوفر أيٌّ منهما حاليًا."
+  }
+}

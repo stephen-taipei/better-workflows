@@ -3,7 +3,7 @@
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, locales } from "./website-locales.mjs";
+import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_LOCALE_IDS, locales } from "./website-locales.mjs";
 import { EVIDENCE_CINEMA_TITLES, publicDocCards, publicDocPath, publicDocSections } from "./public-docs.mjs";
 import { supportCopy } from "./localized-support.mjs";
 import { policyTitle } from "./localized-policies.mjs";
@@ -23,8 +23,8 @@ if (args.some((arg) => !["--check", "--preserve-deferred"].includes(arg))) {
   throw new Error("Usage: generate-localized-markdown.mjs [--check] [--preserve-deferred]");
 }
 const checkMode = args.includes("--check");
-// Private development retains the 39 deferred RC2 editions. Public candidate
-// verification omits this flag and requires the exact RC1 file set.
+// Every public locale is generated. The flag only keeps unknown extra locale
+// files during local experiments; public verification omits it.
 const preserveDeferred = args.includes("--preserve-deferred");
 const localizedPolicies = await loadPublicTexts(repoRoot);
 const onboardingPolicy = localizedPolicies.find((document) => document.id === "getting-started");
@@ -44,7 +44,7 @@ const referenceDraftCatalogs = referenceBodyPolicies.flatMap((document) => Objec
 const referenceDraftParagraphCount = referenceDraftCatalogs.reduce((count, catalog) => count + catalog.texts.length, 0);
 
 const localizedDetails = Object.fromEntries(locales.map(({ code }) => [code, `../details/${code}.md`]));
-const generatedDetailCodes = new Set(CONNECTORS_LOCALES.filter((code) => !["en", "ja", "ko"].includes(code)));
+const generatedDetailCodes = new Set(CONNECTORS_LOCALES.filter((code) => code !== "en"));
 
 const canonicalGuides = [
   ["getting-started", "../guide/getting-started.md"],
@@ -215,18 +215,17 @@ function languageIndex() {
   const rows = locales.map(({ code, label }) => {
     const homepage = code === DEFAULT_LOCALE ? `${canonicalOrigin}/` : `${canonicalOrigin}/${code}/`;
     const docs = `${canonicalOrigin}${publicDocPath(code, "guide")}`;
-    const detail = code === "en" ? "details/en.md" : "details/zh-TW.md";
-    return `| \`${code}\` | ${inline(label)} | Planned for V5.0.rc1 | [Details](${detail}) · [Website](${homepage}) · [Docs entry](${docs}) |`;
+    return `| \`${code}\` | ${inline(label)} | [Overview](locales/${localeFile(code)}) · [Details](details/${code}.md) · [Website](${homepage}) · [Docs entry](${docs}) |`;
   }).join("\n");
   return `# Better Workflows language index
 
-V5.0.rc1 provides public routes for \`en\` and \`zh-Hant-TW\` only. The other 39 locale editions remain in private development source for V5.0.rc2. The release is publicly available; these links do not replace exact-source deployment or semantic-acceptance receipts. Technical identifiers and commands remain exact English identifiers inside translated prose. See the [localization terminology policy](LOCALIZATION.md).
+Better Workflows publishes ${locales.length} locale editions. Each locale has a website, a localized overview, localized documentation routes and the support policy. Technical identifiers and commands remain exact English identifiers inside translated prose. See the [localization terminology policy](LOCALIZATION.md).
 
-| Locale | Native label | RC1 status | Planned RC1 route links |
-| --- | --- | --- | --- |
+| Locale | Native label | Links |
+| --- | --- | --- |
 ${rows}
 
-Default locale: \`${DEFAULT_LOCALE}\`. The two in-scope locales have ten public documentation routes. English remains canonical for runtime contracts. Any additional locale requires a separate accepted RC2 candidate and public readback.
+Default locale: \`${DEFAULT_LOCALE}\`. English remains canonical for runtime contracts. Editions other than \`en\` and \`zh-Hant-TW\` are machine-assisted translations.
 `;
 }
 

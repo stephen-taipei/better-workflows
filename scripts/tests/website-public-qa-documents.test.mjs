@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { PUBLIC_DOC_PAGES, publicDocPath } from "../public-docs.mjs";
-import { DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, publicRc1Locales } from "../website-locales.mjs";
+import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_LOCALE_IDS, publicLocales } from "../website-locales.mjs";
 import {
   loadPublicDocumentationExpectations,
   verifyPublicDocumentationResponse
@@ -15,7 +15,7 @@ import {
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDirectory, "../..");
 const pageIds = PUBLIC_DOC_PAGES.map(({ id }) => id);
-const expectedLocalePageOrder = publicRc1Locales.flatMap(({ code }) => pageIds.map((page) => `${code}/${page}`));
+const expectedLocalePageOrder = publicLocales.flatMap(({ code }) => pageIds.map((page) => `${code}/${page}`));
 const sha256 = (body) => createHash("sha256").update(body).digest("hex");
 
 // The helper builds all native bodies once. Keeping the body beside its digest
@@ -32,16 +32,15 @@ function manifestFor(expected, body = nativeBody(expected)) {
   return new Map([[expected.relativePath, sha256(body)]]);
 }
 
-test("public documentation expectations contain every RC1 locale-page body", () => {
+test("public documentation expectations contain every public locale-page body", () => {
   assert.ok(Array.isArray(expectations));
-  assert.deepEqual(PUBLIC_RC1_LOCALE_IDS, ["en", "zh-Hant-TW"]);
-  assert.equal(expectations.length, 10);
-  assert.equal(expectations.length, PUBLIC_RC1_LOCALE_IDS.length * PUBLIC_DOC_PAGES.length);
+  assert.deepEqual(PUBLIC_LOCALE_IDS, CONNECTORS_LOCALES);
+  assert.equal(expectations.length, PUBLIC_LOCALE_IDS.length * PUBLIC_DOC_PAGES.length);
   assert.deepEqual(expectations.map((item) => `${item.locale}/${item.page}`), expectedLocalePageOrder);
   assert.equal(new Set(expectations.map(({ path: route }) => route)).size, expectations.length);
   assert.equal(new Set(expectations.map(({ relativePath }) => relativePath)).size, expectations.length);
-  assert.equal(new Set(expectations.map(({ locale }) => locale)).size, PUBLIC_RC1_LOCALE_IDS.length);
-  for (const locale of PUBLIC_RC1_LOCALE_IDS) {
+  assert.equal(new Set(expectations.map(({ locale }) => locale)).size, PUBLIC_LOCALE_IDS.length);
+  for (const locale of PUBLIC_LOCALE_IDS) {
     const entries = expectations.filter((item) => item.locale === locale);
     assert.equal(entries.length, 5, `${locale}: exact five documentation pages`);
     assert.deepEqual(entries.map(({ page }) => page), pageIds, `${locale}: page order`);

@@ -6,7 +6,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, locales } from "../website-locales.mjs";
+import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_LOCALE_IDS, locales } from "../website-locales.mjs";
 import { scanHtml } from "../html-source.mjs";
 import { publicTextPath } from "../policy-routes.mjs";
 import { PUBLIC_DOC_PAGES, publicDocPath } from "../public-docs.mjs";
@@ -117,9 +117,9 @@ globalThis.fetch = async (url, options) => {
   const receipt = JSON.parse(await readFile(summary.outputPath, "utf8"));
   assert.equal(receipt.sourceRevision, revision);
   assert.equal(receipt.result, "PASS");
-  assert.equal(receipt.locales.length, PUBLIC_RC1_LOCALE_IDS.length);
+  assert.equal(receipt.locales.length, PUBLIC_LOCALE_IDS.length);
   assert.equal(receipt.publicDocumentationPages, 5);
-  assert.equal(receipt.publicDocumentationRoutes.length, PUBLIC_RC1_LOCALE_IDS.length * PUBLIC_DOC_PAGES.length);
+  assert.equal(receipt.publicDocumentationRoutes.length, PUBLIC_LOCALE_IDS.length * PUBLIC_DOC_PAGES.length);
   assert.ok(receipt.publicDocumentationRoutes.every((entry) => entry.result === "PASS"));
   assert.equal(receipt.authentication.status, "awaiting-github-oidc-attestation");
   assert.equal(receipt.authentication.releaseEligible, false);
@@ -150,9 +150,9 @@ test("official website build serves Auto-only public docs without archived templ
     assert.equal(release.sponsorAddress, "TGuMUi1d8MoBQcuFrGJZnu4JrbaeP3wy9a");
     assert.equal(release.sponsorQrPath, "/docs/assets/sponsor-usdt-trc20.jpeg");
     assert.equal(release.sponsorQrSha256, "ef7c46831b0992d69ce5c89883ea61b5f98807df9d0a071556a6f2615436910e");
-    assert.equal(release.locales, PUBLIC_RC1_LOCALE_IDS.length);
+    assert.equal(release.locales, PUBLIC_LOCALE_IDS.length);
     assert.equal(release.publicDocumentationPages, 5);
-    assert.equal(release.localizedReferencePages, PUBLIC_RC1_LOCALE_IDS.length * PUBLIC_DOC_PAGES.length);
+    assert.equal(release.localizedReferencePages, PUBLIC_LOCALE_IDS.length * PUBLIC_DOC_PAGES.length);
     assert.equal(release.defaultLocale, "zh-Hant-TW");
     assert.equal(release.hostRegistryId, "host-support-v1");
     assert.match(release.hostRegistryDigest, /^[a-f0-9]{64}$/);
@@ -176,14 +176,14 @@ test("official website build serves Auto-only public docs without archived templ
     assert.equal(touchIcon.subarray(1, 4).toString("latin1"), "PNG", "apple-touch-icon.png: PNG");
     assert.equal(touchIcon.readUInt32BE(16), 180);
     assert.equal(touchIcon.readUInt32BE(20), 180);
-    for (const code of PUBLIC_RC1_LOCALE_IDS) {
+    for (const code of PUBLIC_LOCALE_IDS) {
       const home = await readFile(path.join(outputDirectory, ...(code === DEFAULT_LOCALE ? [] : [code]), "index.html"), "utf8");
       assert.match(home, new RegExp(`<link rel="icon" href="/favicon\\.svg\\?v=${release.assetVersion}" type="image/svg\\+xml"`), `${code}: content-bound SVG icon`);
       assert.match(home, new RegExp(`<link rel="apple-touch-icon" href="/apple-touch-icon\\.png\\?v=${release.assetVersion}">`), `${code}: content-bound touch icon`);
       assert.equal((home.match(/rel="icon"/g) || []).length, 2, `${code}: exactly the .ico and .svg icons`);
     }
     const englishV5Title = locales.find((locale) => locale.code === "en").v5Product.title;
-    for (const code of PUBLIC_RC1_LOCALE_IDS) {
+    for (const code of PUBLIC_LOCALE_IDS) {
       const homepage = path.join(outputDirectory, ...(code === DEFAULT_LOCALE ? [] : [code]), "index.html");
       const body = await readFile(homepage, "utf8");
       const marks = [...body.matchAll(/<img class="brand-mark brand-mark--converge"[^>]*>/g)];
@@ -266,7 +266,7 @@ test("official website build serves Auto-only public docs without archived templ
       "plugins/better-workflows/skills/auto/SKILL.md"
     ]) assert.equal(await exists(path.join(outputDirectory, relativePath)), true, relativePath);
 
-    for (const code of CONNECTORS_LOCALES.filter((item) => !PUBLIC_RC1_LOCALE_IDS.includes(item))) {
+    for (const code of CONNECTORS_LOCALES.filter((item) => !PUBLIC_LOCALE_IDS.includes(item))) {
       assert.equal(await exists(path.join(outputDirectory, code, "index.html")), false, `${code}: deferred homepage`);
       assert.equal(await exists(path.join(outputDirectory, code, "docs", "index.html")), false, `${code}: deferred documentation`);
     }
@@ -332,10 +332,10 @@ test("official website build serves Auto-only public docs without archived templ
     ]) {
       const html = await readFile(path.join(outputDirectory, relativePath), "utf8");
       const buttons = [...html.matchAll(/data-locale-button="([^\"]+)"[^>]+href="([^\"]+)"/g)];
-      assert.deepEqual(buttons.map(([, code]) => code), PUBLIC_RC1_LOCALE_IDS, `${relativePath}: redirect locale buttons`);
+      assert.deepEqual(buttons.map(([, code]) => code), PUBLIC_LOCALE_IDS, `${relativePath}: redirect locale buttons`);
       assert.deepEqual(
         buttons.map(([, , href]) => href),
-        PUBLIC_RC1_LOCALE_IDS.map((code) => code === DEFAULT_LOCALE ? defaultRoute : `/${code}${defaultRoute}`),
+        PUBLIC_LOCALE_IDS.map((code) => code === DEFAULT_LOCALE ? defaultRoute : `/${code}${defaultRoute}`),
         `${relativePath}: redirect locale routes`
       );
     }
@@ -348,10 +348,10 @@ test("official website build serves Auto-only public docs without archived templ
       const html = await readFile(path.join(outputDirectory, relativePath), "utf8");
       const switcher = html.match(/<nav class="locale-button-grid"[\s\S]*?<\/nav>/)?.[0] || "";
       const buttons = [...switcher.matchAll(/data-locale-button="([^\"]+)"[^>]+href="([^\"]+)"/g)];
-      assert.deepEqual(buttons.map(([, code]) => code), PUBLIC_RC1_LOCALE_IDS, `${relativePath}: reference locale buttons`);
+      assert.deepEqual(buttons.map(([, code]) => code), PUBLIC_LOCALE_IDS, `${relativePath}: reference locale buttons`);
       assert.deepEqual(
         buttons.map(([, , href]) => href),
-        PUBLIC_RC1_LOCALE_IDS.map((code) => publicDocPath(code, pageId)),
+        PUBLIC_LOCALE_IDS.map((code) => publicDocPath(code, pageId)),
         `${relativePath}: reference locale routes`
       );
       assert.match(html, /data-public-locale-buttons/);
@@ -359,15 +359,15 @@ test("official website build serves Auto-only public docs without archived templ
     }
 
     const visitableRoutes = ["/", "/en/", "/support/", "/en/support/", "/404.html",
-      ...PUBLIC_RC1_LOCALE_IDS.flatMap(code => PUBLIC_DOC_PAGES.map(page => publicDocPath(code,page.id))),
-      ...PUBLIC_RC1_LOCALE_IDS.flatMap(code => ["security","contributing","governance","conduct","getting-started","workflows","architecture","security-guide","cli-reference"].map(id => publicTextPath(code,id)))];
+      ...PUBLIC_LOCALE_IDS.flatMap(code => PUBLIC_DOC_PAGES.map(page => publicDocPath(code,page.id))),
+      ...PUBLIC_LOCALE_IDS.flatMap(code => ["security","contributing","governance","conduct","getting-started","workflows","architecture","security-guide","cli-reference"].map(id => publicTextPath(code,id)))];
     for (const route of visitableRoutes) {
       const html = await readFile(path.join(outputDirectory, route === "/404.html" ? "404.html" : route.slice(1)+"index.html"), "utf8");
       const nodes = scanHtml(html).elements;
       if (/<meta http-equiv="refresh"/.test(html)) {
         assert.ok(/\/guides\/(architecture|security-guide|cli-reference)\/$/.test(route),route+": only documented retired routes may redirect here");
         assert.match(html, /<meta name="robots" content="noindex,follow">/);
-        assert.equal(nodes.filter(n => Object.hasOwn(n.attributes,"data-locale-button")).length,2,route+": redirect keeps both locale routes");
+        assert.equal(nodes.filter(n => Object.hasOwn(n.attributes,"data-locale-button")).length,PUBLIC_LOCALE_IDS.length,route+": redirect keeps every locale route");
         continue;
       }
       assert.equal(nodes.filter(n => n.tag === "header" && n.attributes.class === "site-header").length,1, route+": shared header");
@@ -380,10 +380,10 @@ test("official website build serves Auto-only public docs without archived templ
       assert.equal(nodes.filter(n => n.tag === "select").filter(n => /locale/i.test(n.attributes.id||"")).length,0, route+": no duplicate locale selector");
       const ids=nodes.map(n=>n.attributes.id).filter(Boolean);
       assert.equal(new Set(ids).size,ids.length, route+": unique IDs");
-      const home=route.startsWith("/en/") ? "/en/" : "/";
+      const segment=route.split("/")[1], home=PUBLIC_LOCALE_IDS.includes(segment) && segment !== DEFAULT_LOCALE ? `/${segment}/` : "/";
       for (const anchor of ["product","workflow","install","principles"]) assert.ok(html.includes(`href="${home}#${anchor}"`),route+": homepage navigation "+anchor);
       const menuLinks=nodes.filter(n=>Object.hasOwn(n.attributes,"data-locale-button"));
-      assert.equal(menuLinks.length,2,route+": bilingual links work without scripts");
+      assert.equal(menuLinks.length,PUBLIC_LOCALE_IDS.length,route+": every locale link works without scripts");
       assert.doesNotMatch(html,/<iframe\b/);
     }
     const pageBodies=await Promise.all(["docs/index.html","docs/quick/index.html","docs/use-cases/index.html","docs/use-cases/quick/index.html"].map(file=>readFile(path.join(outputDirectory,file),"utf8")));
