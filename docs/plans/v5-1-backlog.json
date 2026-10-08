@@ -107,15 +107,15 @@
       "dependencies": [],
       "state": "BLOCKED",
       "reservedPaths": [
-        "Root serialized integration; exact files must be frozen in dispatch packet"
+        "docs/reports/v5.1/gov-01.md"
       ],
-      "contractDigest": "e2928af1b6aca849863eb4a8eb454d1a6627a0cadaad3b50f3e983397b87a21a",
+      "contractDigest": "549cc2a5712d8ed2e4181825023c4781890cfede360e4d945fcf0723f710ea6c",
       "contract": {
         "code": "GOV-01",
         "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
         "owner": "R",
         "reservedPaths": [
-          "Root serialized integration; exact files must be frozen in dispatch packet"
+          "docs/reports/v5.1/gov-01.md"
         ],
         "forbidden": [
           "shared facade edits without Root",

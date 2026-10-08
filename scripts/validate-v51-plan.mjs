@@ -14,7 +14,7 @@ const R8_ROWS_DIGEST = "cc1c46f746805d189dceccff3df43bbb294d08d2ef73ef6960d2e790
 // Do not derive this trust anchor from the supplied requirements catalog.
 const REVIEWED_DEVELOPMENT_BASE = "9afb9e119d74ff721fe6e0cb75760a0c32e7de25";
 // Reviewed immutable planning metadata; mutable execution state stays outside.
-const REVIEWED_BACKLOG_METADATA_DIGEST = "e5c8d530b36362a3a83bc1ee52651bc01963a4d750da3d48857e17b8fd6c9fcc";
+const REVIEWED_BACKLOG_METADATA_DIGEST = "a5b5a5f3da8050d1673f5c9e8a9683d943876edceb9beee3ad522d3a06af4e00";
 // No READY packet is currently reviewed. Root must verify actual source/policy,
 // dependencies and admission before a reviewed revision adds a packet digest.
 // A digest declared by the packet itself cannot establish that frozen baseline.

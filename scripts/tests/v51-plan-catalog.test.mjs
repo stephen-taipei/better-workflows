@@ -907,3 +907,26 @@ test("dispatch SOP freezes the table grammar without creating READY or runtime a
   for (const clause of ["先由相鄰 delimiter row 發現表格", "每一個 body row", "固定的完整 header vectors", "不由當次待驗文件建立 allowlist", "未被合法表格消費", "先發現表格，再適用 inline", "102／100／122 分母不變"])
     assert.ok(sop.includes(clause),"closed source grammar must retain "+clause);
 });
+
+test("GOV-01 report path is pinned while dispatch remains BLOCKED", () => {
+  const task = backlog.tasks.find(item => item.code === "GOV-01");
+  assert.deepEqual(task.reservedPaths, ["docs/reports/v5.1/gov-01.md"]);
+  assert.deepEqual(task.contract.reservedPaths, task.reservedPaths);
+  assert.equal(task.state, "BLOCKED");
+  assert.deepEqual(task.dependencies, []);
+  assert.equal(task.contractDigest, digest(task.contract));
+  assert.equal(validateV51Catalog(requirements, backlog).tasks, 129);
+});
+
+test("GOV-01 placeholder restoration rejects even with a recomputed contract digest", () => {
+  const changed = structuredClone(backlog);
+  const task = changed.tasks.find(item => item.code === "GOV-01");
+  setPaths(task, ["Root serialized integration; exact files must be frozen in dispatch packet"]);
+  assert.throws(() => validateV51Catalog(requirements, changed), /reviewed backlog metadata drift/);
+});
+
+test("GOV-01 forged contract digest rejects despite pinned report paths", () => {
+  const changed = structuredClone(backlog);
+  changed.tasks.find(item => item.code === "GOV-01").contractDigest = "0".repeat(64);
+  assert.throws(() => validateV51Catalog(requirements, changed), /contract digest drift GOV-01/);
+});
