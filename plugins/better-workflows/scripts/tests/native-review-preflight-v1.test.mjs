@@ -39,7 +39,8 @@ fs.appendFileSync(marker, (process.argv.includes("app-server") ? "app-server" : 
 if (process.argv[2] === "--version") {
   mutation = mutation || (fs.existsSync(marker + ".mutation") ? JSON.parse(fs.readFileSync(marker + ".mutation")) : null);
   if (mutation) {
-    if (mutation.kind === "directory") fs.mkdirSync(mutation.path, { recursive: true });
+    if (mutation.kind === "head") require("node:child_process").execFileSync("git", ["-c", "core.fsmonitor=false", "reset", "--hard", "HEAD^"], { stdio: "ignore" });
+    else if (mutation.kind === "directory") fs.mkdirSync(mutation.path, { recursive: true });
     else if (mutation.kind === "replace-directory") { fs.renameSync(mutation.path, mutation.path + ".original"); fs.mkdirSync(mutation.path, { recursive: true }); }
     else if (mutation.kind === "modify") fs.appendFileSync(mutation.path, " ");
     else { fs.mkdirSync(require("node:path").dirname(mutation.path), { recursive: true }); fs.writeFileSync(mutation.path, "probe-artifact", { flag: "wx" }); }
@@ -224,3 +225,49 @@ for (const target of ["index.json", "shard-plan.json", "shard-preparation.json",
     assert.equal(await exists(artifact), true);
   });
 }
+
+// A rejected version never establishes that its source and frozen inputs stayed
+// unchanged. These mutations must be classified before the version-only error.
+for (const sharded of [false, true]) {
+  for (const behavior of ["unsupported", "malformed", "nonzero", "overflow", "timeout"]) {
+    const targets = ["package", "manifest", "instruction", "authorization", "dirty", "head", ...(sharded ? ["policy"] : [])];
+    for (const target of targets) test(`${sharded ? "sharded" : "single"} failed ${behavior} probe detects ${target} drift`, async t => {
+      const f = await fixture(t, behavior, sharded);
+      const artifact = ({ package: f.args.packagePath, manifest: f.args.manifestPath,
+        instruction: f.args.instructionPath, authorization: f.args.authorizationPath,
+        policy: f.args.shardPolicyPath, dirty: path.join(f.args.cwd, "sample.txt"), head: f.args.cwd })[target];
+      await writeFile(f.marker + ".mutation", JSON.stringify({ path: artifact, kind: target === "head" ? "head" : "modify" }));
+      const expected = ["dirty", "head"].includes(target) ? /Native review source changed/ : new RegExp(`${target === "policy" ? "shard policy" : target} changed during native review`);
+      await withBinary(f, () => assert.rejects(runNativeReview(f.args), expected));
+      assert.equal(await exists(f.attempt), false);
+      assert.equal(await exists(f.args.resultPath + ".receipt.json"), false);
+      assert.equal(await readFile(f.marker, "utf8"), "--version\n");
+      await assertNoExecutionArtifacts(f, sharded);
+      if (behavior === "timeout") {
+        const pid = Number(await readFile(f.childPid, "utf8"));
+        assert.throws(() => process.kill(pid, 0), error => error.code === "ESRCH");
+      }
+    });
+  }
+}
+for (const target of ["index.json", "shard-plan.json", "shard-preparation.json", "directory"]) {
+  test(`sharded failed probe prepared ${target} drift retains cleanup precedence`, async t => {
+    const f = await fixture(t, "unsupported", true);
+    const content = path.join(f.args.runDir, "native-review-content", f.args.packageId);
+    await writeFile(f.marker + ".mutation", JSON.stringify({ path: target === "directory" ? content : path.join(content, target), kind: target === "directory" ? "replace-directory" : "modify" }));
+    await withBinary(f, () => assert.rejects(runNativeReview(f.args), error => error.code === "native-review-cli-preflight-cleanup-incomplete"));
+    assert.equal(await exists(f.attempt), false);
+    assert.equal(await readFile(f.marker, "utf8"), "--version\n");
+  });
+}
+test("sharded failed probe detects prepared diff content drift", async t => {
+  const f = await fixture(t, "unsupported", true);
+  const content = path.join(f.args.runDir, "native-review-content", f.args.packageId);
+  const index = JSON.parse(await readFile(path.join(content, "index.json"), "utf8"));
+  const stream = index.streams.find(row => row.kind === "diff") ?? index.streams[0];
+  assert.ok(stream.id);
+  await writeFile(f.marker + ".mutation", JSON.stringify({ path: path.join(content, `${stream.id}.diff`), kind: "modify" }));
+  await withBinary(f, () => assert.rejects(runNativeReview(f.args), /changed|digest|mismatch|size|byte/i));
+  assert.equal(await exists(f.attempt), false);
+  assert.equal(await readFile(f.marker, "utf8"), "--version\n");
+});

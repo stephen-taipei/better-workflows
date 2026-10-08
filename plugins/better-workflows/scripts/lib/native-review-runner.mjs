@@ -206,7 +206,7 @@ async function pathAbsent(target) {
 
 // A version probe must not occupy the execution namespace or replace prepared inputs.
 // Preserve drift artifacts for diagnosis; never delete/reuse an existing attempt.
-async function preflightExecutionArtifacts(codex, options, { absent, prepared = [], directory = null }) {
+async function preflightExecutionArtifacts(codex, options, { absent, prepared = [], directory = null, assertFresh }) {
   const assertArtifacts = async () => {
     try {
       for (const target of absent) if (!(await pathAbsent(target))) throw new Error("Artifact exists");
@@ -220,7 +220,14 @@ async function preflightExecutionArtifacts(codex, options, { absent, prepared = 
   await assertArtifacts();
   let probeError;
   try { await preflightCodexVersion(codex, options); } catch (error) { probeError = error; }
-  await assertArtifacts();
+  // Failed probes can mutate source or frozen inputs too. Inspect both sets of
+  // postconditions before reporting a version failure, retaining cleanup priority.
+  let artifactError, freshnessError;
+  try { await assertArtifacts(); } catch (error) { artifactError = error; }
+  try { await assertFresh(); } catch (error) { freshnessError = error; }
+  if (artifactError) throw artifactError;
+  if (probeError?.code === "native-review-cli-preflight-cleanup-incomplete") throw probeError;
+  if (freshnessError) throw freshnessError;
   if (probeError) throw probeError;
 }
 
@@ -1024,21 +1031,24 @@ export async function runNativeReview({
   }
   // Single content/job creation is exclusive. Reject an unavailable CLI first.
   if (!shardPolicy) {
+    const assertFresh = async () => {
+      for (const [file, label] of [[packageFile, "package"], [manifestFile, "manifest"],
+        [instructionFile, "instruction"], [authorizationFile, "authorization"]]) {
+        await assertFileUnchanged(file, label);
+      }
+      await assertPhysicalSnapshot(repositorySnapshot, "Native review repository");
+      await assertPhysicalSnapshot(runDirectorySnapshot, "Native review run directory");
+      await assertPhysicalSnapshot(attemptDirectorySnapshot, "Native review attempt directory");
+      await assertPhysicalSnapshot(resultParentSnapshot, "Native review result parent");
+      const actualHead = String((await runSourceGit(repository, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout).trim();
+      const dirty = String((await runSourceGit(repository, ["status", "--porcelain=v1"])).stdout);
+      if (actualHead !== head || dirty) throw new Error("Native review source changed");
+    };
     await preflightExecutionArtifacts(codex, { cwd: repository, env: launchEnv }, {
       absent: [attemptPath, receiptPath, resultPath, `${resultPath}.events.jsonl`,
-        path.join(canonicalRunDir, "native-review-content", packageId)]
+        path.join(canonicalRunDir, "native-review-content", packageId)],
+      assertFresh
     });
-    for (const [file, label] of [[packageFile, "package"], [manifestFile, "manifest"],
-      [instructionFile, "instruction"], [authorizationFile, "authorization"]]) {
-      await assertFileUnchanged(file, label);
-    }
-    await assertPhysicalSnapshot(repositorySnapshot, "Native review repository");
-    await assertPhysicalSnapshot(runDirectorySnapshot, "Native review run directory");
-    await assertPhysicalSnapshot(attemptDirectorySnapshot, "Native review attempt directory");
-    await assertPhysicalSnapshot(resultParentSnapshot, "Native review result parent");
-    const actualHead = String((await runSourceGit(repository, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout).trim();
-    const dirty = String((await runSourceGit(repository, ["status", "--porcelain=v1"])).stdout);
-    if (actualHead !== head || dirty) throw new Error("Native review source changed");
   }
   const preparedPath = path.join(canonicalRunDir, "native-review-content", packageId, "shard-preparation.json");
   let content;
@@ -1106,9 +1116,8 @@ export async function runNativeReview({
         path.join(content.directory, "shards"),
         ...["package", "manifest", "instruction", "authorization", "policy"]
           .map(name => path.join(content.directory, `${name}.snapshot`))],
-      prepared: preparedInputs, directory: preparedDirectory
+      prepared: preparedInputs, directory: preparedDirectory, assertFresh
     });
-    await assertFresh();
     const inputs = {};
     for (const [name, file] of Object.entries({ package: packageFile, manifest: manifestFile, instruction: instructionFile,
       authorization: authorizationFile, policy: shardPolicyFile })) {
