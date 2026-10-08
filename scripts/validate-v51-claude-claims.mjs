@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { validateV51Catalog } from './validate-v51-plan.mjs';
 
-const PLAN_DIGEST = 'bccbc7cf7450ab504856a120536f26a835b41d786cd7aabc5edd1c5671ff45e5';
+const PLAN_DIGEST = 'f73420f95a1b81656295c41b1e52e50b10a4acd2587a582d5da0c2b6280e241c';
 const PHASES = ['development', 'qualification', 'release'];
 const SHA40 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -20,7 +20,27 @@ function exact(value, keys, label) {
 function text(value, label) { assert.ok(typeof value === 'string' && value.trim(), `${label} missing`); }
 function hash(value, label) { assert.ok(typeof value === 'string' && SHA256.test(value), `${label} invalid`); }
 
+// Release evidence producers must be reachable through full-task dependencies.
+// This structural relationship does not authenticate the resulting receipts.
+export function validateClaudeReleaseDependencies(plan, backlog) {
+  const producers = { 'codex-conformance': 'B-04b', 'gemini-conformance': 'B-04c', 'qwen-conformance': 'B-04d' };
+  const claim = plan.claims.find(claim => claim.task === 'CC-07');
+  const tasks = new Map(backlog.tasks.map(task => [task.code, task]));
+  const reachable = new Set();
+  function visit(code) {
+    if (reachable.has(code)) return;
+    reachable.add(code);
+    for (const dependency of tasks.get(code)?.dependencies ?? []) visit(dependency);
+  }
+  visit('CC-07');
+  for (const [evidence, producer] of Object.entries(producers)) {
+    assert.ok(claim?.release.requiredEvidence.includes(evidence), `CC-07 release evidence missing: ${evidence}`);
+    assert.ok(tasks.has(producer) && reachable.has(producer), `CC-07 release producer dependency missing: ${producer}`);
+  }
+}
+
 export function validateV51ClaudeClaimPlan(plan, requirements, backlog) {
+  validateClaudeReleaseDependencies(plan, backlog);
   validateV51Catalog(requirements, backlog);
   assert.equal(claudeClaimDigest(plan), PLAN_DIGEST, 'reviewed Claude claim plan drift');
   assert.equal(plan.developmentBase, backlog.developmentBase, 'claim development base drift');

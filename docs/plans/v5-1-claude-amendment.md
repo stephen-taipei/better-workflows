@@ -17,7 +17,7 @@ omitted. The R10 catalog records the following full-task completion dependencies
 | CC-04 | B-08, CC-01, CC-03 |
 | CC-05 | CC-02, CC-03, CC-04 |
 | CC-06 | B-04a, B-08, CC-05 |
-| CC-07 | CC-01, CC-05, CC-06, REL-01 |
+| CC-07 | B-04b, B-04c, B-04d, CC-01, CC-05, CC-06, REL-01 |
 
 Requirement coverage is not synonymous with a direct dependency. W0-06 provides
 89a's scope-freeze contract; PL-01's Windows production work is not added as a
@@ -65,8 +65,8 @@ A dev PR does not authorize merge, activation, publication or GA.
 
 ## Phase vocabulary and limits
 
-`completionDependencies` preserves the full-task DAG, including CC-07's REL-01
-release dependency. It is not a qualification-only prerequisite list. The
+`completionDependencies` preserves the full-task DAG, including CC-07's B-04b/B-04c/B-04d host conformance and REL-01
+release dependencies. It is not a qualification-only prerequisite list. The
 separate phase scopes describe proposed subclaims, not completed capabilities.
 CC-07 development covers package design; qualification covers a V5.1-only
 candidate package; four-host same-source and marketplace readback remain release
@@ -87,6 +87,6 @@ The source `requirementDependencies` string retains the original matrix spelling
 `completionDependencies` is the machine-readable task list. The checker validates
 the complete requirements and backlog catalogs before checking these seven claims.
 The reviewed backlog metadata digest changes to
-`e911b5d2491ef597d76b888197ee7687644a29c7ef10fa07129704c68384cef9`
+`e5c8d530b36362a3a83bc1ee52651bc01963a4d750da3d48857e17b8fd6c9fcc`
 for the explicit dependency mapping and withheld private source locator. The
 original requirements row digest, leaf count and GA obligation count are unchanged.

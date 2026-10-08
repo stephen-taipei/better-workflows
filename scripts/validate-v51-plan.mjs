@@ -11,7 +11,7 @@ const R7_SOURCE_DIGEST = "2694daf569ea621e21bbb607631c037034399a7f21c81042a7188a
 // R9 (2026-10-07): owner added Claude Code host integration rows 93–99.
 const R8_ROWS_DIGEST = "cc1c46f746805d189dceccff3df43bbb294d08d2ef73ef6960d2e7903b28aee4";
 // Reviewed immutable planning metadata; mutable execution state stays outside.
-const REVIEWED_BACKLOG_METADATA_DIGEST = "e911b5d2491ef597d76b888197ee7687644a29c7ef10fa07129704c68384cef9";
+const REVIEWED_BACKLOG_METADATA_DIGEST = "e5c8d530b36362a3a83bc1ee52651bc01963a4d750da3d48857e17b8fd6c9fcc";
 // No READY packet is currently reviewed. Root must verify actual source/policy,
 // dependencies and admission before a reviewed revision adds a packet digest.
 // A digest declared by the packet itself cannot establish that frozen baseline.

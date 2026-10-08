@@ -471,6 +471,9 @@
         "mayCompleteTask": false
       },
       "completionDependencies": [
+        "B-04b",
+        "B-04c",
+        "B-04d",
         "CC-01",
         "CC-05",
         "CC-06",

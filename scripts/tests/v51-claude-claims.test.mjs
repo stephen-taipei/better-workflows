@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { validateV51ClaudeClaimPlan, validateV51ClaudeClaimObservation, validateV50ClaudeExclusion } from '../validate-v51-claude-claims.mjs';
+import { validateV51ClaudeClaimPlan, validateV51ClaudeClaimObservation, validateV50ClaudeExclusion, validateClaudeReleaseDependencies } from '../validate-v51-claude-claims.mjs';
 const root = new URL('../../docs/plans/', import.meta.url);
 const [plan, requirements, backlog] = await Promise.all(['v5-1-claude-claims.json', 'v5-1-requirements.json', 'v5-1-backlog.json']
   .map(async file => JSON.parse(await readFile(new URL(file, root), 'utf8'))));
@@ -97,3 +97,17 @@ test('current main-plan index and matrix counts derive from the full catalog', a
   assert.ok(doc.includes(`全表 ${requirements.rows.length} 個實體列＝${leaves.length} 個 leaf 加 ${requirements.rows.length - leaves.length} 個彙總列；${leaves.length} 個 leaf 包含 ${counts['必交']} 必交、${counts['決策']} 決策、${counts['條件']} 條件、${counts['研究']} 研究。扣除 ${counts['研究']} 個研究義務後為 ${ga} 個 GA obligations`));
   for (const line of doc.split('\n').filter(line => /\b(?:102|108|122)\b/.test(line))) assert.match(line, /R8 歷史/);
 });
+
+test('CC-07 release evidence producers are reachable through completion dependencies', () => {
+  validateClaudeReleaseDependencies(plan, backlog);
+  const task = backlog.tasks.find(task => task.code === 'CC-07');
+  assert.deepEqual(task.dependencies, plan.claims.find(claim => claim.task === 'CC-07').completionDependencies);
+});
+for (const producer of ['B-04b', 'B-04c', 'B-04d']) {
+  test(`CC-07 rejects missing release producer dependency ${producer}`, () => {
+    const b = clone(backlog), p = clone(plan);
+    b.tasks.find(task => task.code === 'CC-07').dependencies = b.tasks.find(task => task.code === 'CC-07').dependencies.filter(code => code !== producer);
+    p.claims.find(claim => claim.task === 'CC-07').completionDependencies = b.tasks.find(task => task.code === 'CC-07').dependencies;
+    assert.throws(() => validateV51ClaudeClaimPlan(p, requirements, b), new RegExp(`release producer dependency missing: ${producer}`));
+  });
+}
