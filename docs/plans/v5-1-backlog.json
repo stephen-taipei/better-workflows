@@ -1,0 +1,6292 @@
+{
+  "schemaVersion": 1,
+  "kind": "V51TaskCatalog",
+  "developmentBase": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+  "tasks": [
+    {
+      "code": "M-01",
+      "title": "版本總表、依賴圖與全部要求對照",
+      "version": "V5.1",
+      "sources": [
+        33
+      ],
+      "owner": "R",
+      "requirements": [
+        "1"
+      ],
+      "dependencies": [],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "5500a6f93c44fe2cd438ccc69f1662090c9d6b5e8422efc5c03bbd61830ba6f5",
+      "contract": {
+        "code": "M-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 1,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "M-02",
+      "title": "驗收清單、剩餘工作與最終整合總表",
+      "version": "V5.1",
+      "sources": [
+        103
+      ],
+      "owner": "R",
+      "requirements": [
+        "80"
+      ],
+      "dependencies": [
+        "M-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "23570b4ec3a07ae4d0f97471ff8a2e8967496a18a7bf7b615125a7ffb8ccb394",
+      "contract": {
+        "code": "M-02",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 2,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "GOV-01",
+      "title": "公開 dev、branch protection、PR 必要 checks 與 release PR 流程",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "R",
+      "requirements": [
+        "2"
+      ],
+      "dependencies": [],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "e2928af1b6aca849863eb4a8eb454d1a6627a0cadaad3b50f3e983397b87a21a",
+      "contract": {
+        "code": "GOV-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "Required checks Runtime / Node 22.23.3、Runtime / Node 24.21.0、test；strict freshness、admins enforced、no force/delete、conversation resolution；GitHub approval count0不替代獨立review artifacts。Root final release PR dev→main。",
+      "issueNumber": 3,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "W0-01",
+      "title": "公開基準差額、ADRM、source 與 rights closure",
+      "version": "V5.1",
+      "sources": [
+        34,
+        108,
+        113
+      ],
+      "owner": "R",
+      "requirements": [
+        "81",
+        "86"
+      ],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "c71a8de266f9a8e2b3503f0454e0de93fa3dd9593db3d0946eb1efaba37aed1e",
+      "contract": {
+        "code": "W0-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 4,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "W0-02",
+      "title": "版本化 sidecar、locator、reader／writer 與資料生命週期契約",
+      "version": "V5.1",
+      "sources": [
+        35
+      ],
+      "owner": "R",
+      "requirements": [
+        "88a"
+      ],
+      "dependencies": [
+        "W0-01",
+        "W0-08"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "f435b0d42a2466975adbc18d93c7d6df44282de7353622dd73e515a9ec427ff6",
+      "contract": {
+        "code": "W0-02",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 5,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "W0-03",
+      "title": "可信用量觀測、Node baseline harness",
+      "version": "V5.1",
+      "sources": [
+        36
+      ],
+      "owner": "W",
+      "requirements": [
+        "35",
+        "36a",
+        "52",
+        "53",
+        "54"
+      ],
+      "dependencies": [
+        "W0-02"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/w0-03.md"
+      ],
+      "contractDigest": "4c251881cb853b9d2e7eaee49c0932c258f175057abdb8999ef03bb94e0f832b",
+      "contract": {
+        "code": "W0-03",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/w0-03.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 6,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "W0-04",
+      "title": "P0 語義判斷成本、錯誤與返工基線",
+      "version": "V5.1",
+      "sources": [
+        37
+      ],
+      "owner": "Q",
+      "requirements": [
+        "82a"
+      ],
+      "dependencies": [
+        "W0-03"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/w0-04.md",
+        "plugins/better-workflows/scripts/tests/v51-w0-04.test.mjs"
+      ],
+      "contractDigest": "636050c41fae919818b7ecade2beb688dd94b0c6179bae8cdd203ef43da0a571",
+      "contract": {
+        "code": "W0-04",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/w0-04.md",
+          "plugins/better-workflows/scripts/tests/v51-w0-04.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 7,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "W0-05",
+      "title": "E2E 協定、oracle、joint power、樣本與預算可行性",
+      "version": "V5.1",
+      "sources": [
+        38
+      ],
+      "owner": "Q",
+      "requirements": [
+        "87a"
+      ],
+      "dependencies": [
+        "W0-04"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/w0-05.md",
+        "plugins/better-workflows/scripts/tests/v51-w0-05.test.mjs"
+      ],
+      "contractDigest": "30ab45506e0872545dfda57f70490f4ac731defd691dce263d21acf28d00cd00",
+      "contract": {
+        "code": "W0-05",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/w0-05.md",
+          "plugins/better-workflows/scripts/tests/v51-w0-05.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 8,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "W0-06",
+      "title": "正式平台及多寫者 pilot 範圍凍結",
+      "version": "V5.1",
+      "sources": [
+        39
+      ],
+      "owner": "R",
+      "requirements": [
+        "89a"
+      ],
+      "dependencies": [
+        "W0-02"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "01ccb0c5624b275d463bbc8136335828a8974993ddbe48f94e5d76cbfe95bc38",
+      "contract": {
+        "code": "W0-06",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 9,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "W0-07",
+      "title": "blocker AST 與 source-to-consumer inventory",
+      "version": "V5.1",
+      "sources": [
+        40
+      ],
+      "owner": "W",
+      "requirements": [
+        "4"
+      ],
+      "dependencies": [
+        "W0-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/w0-07.md"
+      ],
+      "contractDigest": "032c8480c6a842104f19e91f15f503c056d1d549bc44ed8b6ef6e9d9afd422a5",
+      "contract": {
+        "code": "W0-07",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/w0-07.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 10,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "W0-08",
+      "title": "WorkflowTask 型別與 validator 差額",
+      "version": "V5.1",
+      "sources": [
+        41
+      ],
+      "owner": "W",
+      "requirements": [
+        "3"
+      ],
+      "dependencies": [
+        "W0-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/w0-08.md"
+      ],
+      "contractDigest": "aa34b0100dfa8ae9b65ae755079bb3903645ed3705a4681387a3b7c3faad242f",
+      "contract": {
+        "code": "W0-08",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/w0-08.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 11,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "RF-01",
+      "title": "canonical serialization／digest 純模組與相容 fixtures",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "W",
+      "requirements": [],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rf-01.md",
+        "plugins/better-workflows/scripts/lib/v51-rf-01.mjs",
+        "plugins/better-workflows/scripts/tests/v51-rf-01.test.mjs"
+      ],
+      "contractDigest": "39ec28b67b8d35bcb4d7e70e5dc78413cccfa3ea356e19389d602f0fabde7f1d",
+      "contract": {
+        "code": "RF-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/rf-01.md",
+          "plugins/better-workflows/scripts/lib/v51-rf-01.mjs",
+          "plugins/better-workflows/scripts/tests/v51-rf-01.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": "core.mjs canonical serialization/digest",
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "只抽純函式；保留exports/error codes/digest/journal bytes/接受拒絕行為；leaf不反向import facade。Root接線；完整 packet 未凍結前保持 BLOCKED，可先做唯讀提案。",
+      "issueNumber": 12,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "RF-02",
+      "title": "CLI argv parser 純模組",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "W",
+      "requirements": [],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rf-02.md",
+        "plugins/better-workflows/scripts/lib/v51-rf-02.mjs",
+        "plugins/better-workflows/scripts/tests/v51-rf-02.test.mjs"
+      ],
+      "contractDigest": "e4e8322c387e9f566f100194b1a04c33151e9f4a6b80b8f71edd834ce9c60bad",
+      "contract": {
+        "code": "RF-02",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/rf-02.md",
+          "plugins/better-workflows/scripts/lib/v51-rf-02.mjs",
+          "plugins/better-workflows/scripts/tests/v51-rf-02.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": "sbw.mjs parseArgs",
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "只抽純函式；保留exports/error codes/digest/journal bytes/接受拒絕行為；leaf不反向import facade。Root接線；完整 packet 未凍結前保持 BLOCKED，可先做唯讀提案。",
+      "issueNumber": 13,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "RF-03",
+      "title": "evaluator policy、model catalog 與 argv 建構",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "W",
+      "requirements": [],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rf-03.md",
+        "plugins/better-workflows/scripts/lib/v51-rf-03.mjs",
+        "plugins/better-workflows/scripts/tests/v51-rf-03.test.mjs"
+      ],
+      "contractDigest": "e0e56c9cdae1f8bce7b2e4f70a0387056c0f839b88882ab37919a926e0bd6f6b",
+      "contract": {
+        "code": "RF-03",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/rf-03.md",
+          "plugins/better-workflows/scripts/lib/v51-rf-03.mjs",
+          "plugins/better-workflows/scripts/tests/v51-rf-03.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": "host-trust.mjs evaluator policy/model/argv",
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "只抽純函式；保留exports/error codes/digest/journal bytes/接受拒絕行為；leaf不反向import facade。Root接線；完整 packet 未凍結前保持 BLOCKED，可先做唯讀提案。",
+      "issueNumber": 14,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "RF-04",
+      "title": "evaluator header／SSE protocol validators",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "W",
+      "requirements": [],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rf-04.md",
+        "plugins/better-workflows/scripts/lib/v51-rf-04.mjs",
+        "plugins/better-workflows/scripts/tests/v51-rf-04.test.mjs"
+      ],
+      "contractDigest": "6a4e8836ede3f3b1674f8f496f6b4d191fb87fa0da11fe5960e9147eb3aa903a",
+      "contract": {
+        "code": "RF-04",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/rf-04.md",
+          "plugins/better-workflows/scripts/lib/v51-rf-04.mjs",
+          "plugins/better-workflows/scripts/tests/v51-rf-04.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": "host-trust.mjs headers/SSE",
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "只抽純函式；保留exports/error codes/digest/journal bytes/接受拒絕行為；leaf不反向import facade。Root接線；完整 packet 未凍結前保持 BLOCKED，可先做唯讀提案。",
+      "issueNumber": 15,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "RF-05",
+      "title": "runtime public record validators",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "W",
+      "requirements": [],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rf-05.md",
+        "plugins/better-workflows/scripts/lib/v51-rf-05.mjs",
+        "plugins/better-workflows/scripts/tests/v51-rf-05.test.mjs"
+      ],
+      "contractDigest": "54dcd72dd15c8b129e587857d7a6d79488ff5483f11ffc2ce0e83fe76074e218",
+      "contract": {
+        "code": "RF-05",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/rf-05.md",
+          "plugins/better-workflows/scripts/lib/v51-rf-05.mjs",
+          "plugins/better-workflows/scripts/tests/v51-rf-05.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": "execution-runtime-v1.mjs public DTO validators only; exclude journal/admission",
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "只抽純函式；保留exports/error codes/digest/journal bytes/接受拒絕行為；leaf不反向import facade。Root接線；完整 packet 未凍結前保持 BLOCKED，可先做唯讀提案。",
+      "issueNumber": 16,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "RF-06",
+      "title": "Native V3 checkpoint validators",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "W",
+      "requirements": [],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rf-06.md",
+        "plugins/better-workflows/scripts/lib/v51-rf-06.mjs",
+        "plugins/better-workflows/scripts/tests/v51-rf-06.test.mjs"
+      ],
+      "contractDigest": "350107abb5509b2d44e442f6980b73855233797f483f1b8d436100778ad3beba",
+      "contract": {
+        "code": "RF-06",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/rf-06.md",
+          "plugins/better-workflows/scripts/lib/v51-rf-06.mjs",
+          "plugins/better-workflows/scripts/tests/v51-rf-06.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": "native-v3-plan-runner-core.mjs checkpoint validators only; exclude runner/recovery",
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "只抽純函式；保留exports/error codes/digest/journal bytes/接受拒絕行為；leaf不反向import facade。Root接線；完整 packet 未凍結前保持 BLOCKED，可先做唯讀提案。",
+      "issueNumber": 17,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "A-01",
+      "title": "reason registry 與舊 verdict mapping",
+      "version": "V5.1",
+      "sources": [
+        42
+      ],
+      "owner": "W",
+      "requirements": [
+        "5",
+        "6",
+        "7",
+        "8"
+      ],
+      "dependencies": [
+        "W0-07",
+        "W0-02"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-01.md",
+        "plugins/better-workflows/scripts/lib/v51-a-01.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-01.test.mjs"
+      ],
+      "contractDigest": "b54d1715a3c2b16567e2103d2fbd867f1611e34878c7663cd03a73c9794149ac",
+      "contract": {
+        "code": "A-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-01.md",
+          "plugins/better-workflows/scripts/lib/v51-a-01.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-01.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 18,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-02a",
+      "title": "BlockerDiagnostic validator",
+      "version": "V5.1",
+      "sources": [
+        43
+      ],
+      "owner": "W",
+      "requirements": [
+        "9"
+      ],
+      "dependencies": [
+        "A-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-02a.md",
+        "plugins/better-workflows/scripts/lib/v51-a-02a.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-02a.test.mjs"
+      ],
+      "contractDigest": "0bd9acff74947f9699b9371bd62389d8d921183b064f463a5fae0997f490f097",
+      "contract": {
+        "code": "A-02a",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-02a.md",
+          "plugins/better-workflows/scripts/lib/v51-a-02a.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-02a.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 19,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-02b",
+      "title": "Episode、exact-key 診斷折疊與原始事件索引",
+      "version": "V5.1",
+      "sources": [
+        43
+      ],
+      "owner": "W",
+      "requirements": [
+        "9"
+      ],
+      "dependencies": [
+        "A-02a"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-02b.md",
+        "plugins/better-workflows/scripts/lib/v51-a-02b.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-02b.test.mjs"
+      ],
+      "contractDigest": "87849e4a3bb27051697944bfbddaa035d3cd66e36867de58135056069715f203",
+      "contract": {
+        "code": "A-02b",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-02b.md",
+          "plugins/better-workflows/scripts/lib/v51-a-02b.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-02b.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 20,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-03",
+      "title": "有限 disposition 與 transition table",
+      "version": "V5.1",
+      "sources": [
+        44
+      ],
+      "owner": "R",
+      "requirements": [
+        "10"
+      ],
+      "dependencies": [
+        "A-01",
+        "A-02a"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "bc8d5736fd2a7e1537936d99f83b75ab354a10d55c503e3cfd02217e40de0f00",
+      "contract": {
+        "code": "A-03",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 21,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-06",
+      "title": "Tarjan SCC wait-for 候選循環診斷",
+      "version": "V5.1",
+      "sources": [
+        47
+      ],
+      "owner": "W",
+      "requirements": [
+        "28"
+      ],
+      "dependencies": [
+        "W0-02"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-06.md",
+        "plugins/better-workflows/scripts/lib/v51-a-06.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-06.test.mjs"
+      ],
+      "contractDigest": "9d5150f792a8303801aea9a7e0971abf19c7e631af9baa737a35b1275bc52bc5",
+      "contract": {
+        "code": "A-06",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-06.md",
+          "plugins/better-workflows/scripts/lib/v51-a-06.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-06.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 22,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-09",
+      "title": "token observed／estimated／unknown 投影",
+      "version": "V5.1",
+      "sources": [
+        50
+      ],
+      "owner": "W",
+      "requirements": [
+        "32"
+      ],
+      "dependencies": [
+        "W0-03"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-09.md",
+        "plugins/better-workflows/scripts/lib/v51-a-09.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-09.test.mjs"
+      ],
+      "contractDigest": "bb7e5c0c301c77e9b7a555cb0268c4e4698447d56764c5c07823fcfad4c3c4ca",
+      "contract": {
+        "code": "A-09",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-09.md",
+          "plugins/better-workflows/scripts/lib/v51-a-09.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-09.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 23,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-12",
+      "title": "approved recipes、durable retry owner 與 no-progress 停止",
+      "version": "V5.1",
+      "sources": [
+        53
+      ],
+      "owner": "R",
+      "requirements": [
+        "12",
+        "16",
+        "17"
+      ],
+      "dependencies": [
+        "A-03",
+        "A-02b"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "005ffedd5112662049e96e197861cf5da51652c429ace56e580740cf4630dc59",
+      "contract": {
+        "code": "A-12",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 24,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-13",
+      "title": "standing directive 持久化、expiry 與撤銷",
+      "version": "V5.1",
+      "sources": [
+        54
+      ],
+      "owner": "R",
+      "requirements": [
+        "15"
+      ],
+      "dependencies": [
+        "A-03"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "55a88a85d526b3d40a95654c7c9c17d7905e37e6a255a0063096106d2a981303",
+      "contract": {
+        "code": "A-13",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 25,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-14",
+      "title": "BFS 受影響 worklist 與缺依賴 full fallback",
+      "version": "V5.1",
+      "sources": [
+        55
+      ],
+      "owner": "W",
+      "requirements": [
+        "18"
+      ],
+      "dependencies": [
+        "W0-07",
+        "W0-02"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-14.md",
+        "plugins/better-workflows/scripts/lib/v51-a-14.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-14.test.mjs"
+      ],
+      "contractDigest": "3a6ee0149637682b44293e85252eced5916f1bfbc82c5558307da6515a7281f6",
+      "contract": {
+        "code": "A-14",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-14.md",
+          "plugins/better-workflows/scripts/lib/v51-a-14.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-14.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 26,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-15",
+      "title": "多任務 DAG recovery、可信 frontier 與 resume 接線",
+      "version": "V5.1",
+      "sources": [
+        56
+      ],
+      "owner": "R",
+      "requirements": [
+        "13"
+      ],
+      "dependencies": [
+        "A-12",
+        "A-14",
+        "A-16"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "fde988bcd54330b4bf21dde1fc12bdc65a84e80bd10982b5156508b7050b8e95",
+      "contract": {
+        "code": "A-15",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 27,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-16",
+      "title": "純驗證與 sealed review reuse 的准入分離",
+      "version": "V5.1",
+      "sources": [
+        57
+      ],
+      "owner": "R",
+      "requirements": [
+        "21"
+      ],
+      "dependencies": [
+        "A-14"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "1442bd63abba6e2f7dac3ceaad66cf7aee9d789b63a88e0c9506143b35456108",
+      "contract": {
+        "code": "A-16",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 28,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-17a",
+      "title": "runner／CLI 並行上限一致為 32",
+      "version": "V5.1",
+      "sources": [
+        58
+      ],
+      "owner": "R",
+      "requirements": [
+        "22"
+      ],
+      "dependencies": [
+        "W0-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "a425f2830a48e6823e374554cd419766bfc9834284ccddbd07706c7a8280a28c",
+      "contract": {
+        "code": "A-17a",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "CLI1–32合法；33–64須在dispatch、manifest讀取、owner approval和runner準備之前拒絕。提高上限須另有資格。",
+      "issueNumber": 29,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-17b",
+      "title": "OptimizationProposal validator、合法排列與 baseline fallback",
+      "version": "V5.1",
+      "sources": [
+        58
+      ],
+      "owner": "W",
+      "requirements": [
+        "23",
+        "24"
+      ],
+      "dependencies": [
+        "A-17a",
+        "W0-03"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-17b.md",
+        "plugins/better-workflows/scripts/lib/v51-a-17b.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-17b.test.mjs"
+      ],
+      "contractDigest": "131b04234e2db2e12fa6017e410a9a4054b629c2e0f26c55310a7dac63008b87",
+      "contract": {
+        "code": "A-17b",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-17b.md",
+          "plugins/better-workflows/scripts/lib/v51-a-17b.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-17b.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 30,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "C-01",
+      "title": "ProblemFrame、未知欄位、需求 provenance 與清楚任務 fast path",
+      "version": "V5.1",
+      "sources": [
+        73
+      ],
+      "owner": "W",
+      "requirements": [
+        "63",
+        "65",
+        "67",
+        "68"
+      ],
+      "dependencies": [
+        "W0-02"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/c-01.md",
+        "plugins/better-workflows/scripts/lib/v51-c-01.mjs",
+        "plugins/better-workflows/scripts/tests/v51-c-01.test.mjs"
+      ],
+      "contractDigest": "c7f69f6f032cd5fe445aac7e01d73f8319ecd86cb9d4de0d434e230713349c6a",
+      "contract": {
+        "code": "C-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/c-01.md",
+          "plugins/better-workflows/scripts/lib/v51-c-01.mjs",
+          "plugins/better-workflows/scripts/tests/v51-c-01.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 31,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "C-02a",
+      "title": "選擇性澄清規則與決策影響投影",
+      "version": "V5.1",
+      "sources": [
+        74
+      ],
+      "owner": "W",
+      "requirements": [
+        "66"
+      ],
+      "dependencies": [
+        "C-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/c-02a.md",
+        "plugins/better-workflows/scripts/lib/v51-c-02a.mjs",
+        "plugins/better-workflows/scripts/tests/v51-c-02a.test.mjs"
+      ],
+      "contractDigest": "e3d282222a757da2bfbb3223e2608b47ae0ed6d86147825af60a510616457762",
+      "contract": {
+        "code": "C-02a",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/c-02a.md",
+          "plugins/better-workflows/scripts/lib/v51-c-02a.mjs",
+          "plugins/better-workflows/scripts/tests/v51-c-02a.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 32,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "C-02b",
+      "title": "澄清 owner、wakeup、budget 與退出状态轉移",
+      "version": "V5.1",
+      "sources": [
+        74
+      ],
+      "owner": "R",
+      "requirements": [
+        "66"
+      ],
+      "dependencies": [
+        "C-02a",
+        "A-03"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "14943375693dbacd7f697e0c83ea38f71b0817eaab2415a470371516ac21e7d2",
+      "contract": {
+        "code": "C-02b",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 33,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "C-04",
+      "title": "INT-0／LEX／FRAME／BOTH 對照及品質護欄",
+      "version": "V5.1",
+      "sources": [
+        76
+      ],
+      "owner": "Q",
+      "requirements": [
+        "69"
+      ],
+      "dependencies": [
+        "C-02b",
+        "C-03",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/c-04.md",
+        "plugins/better-workflows/scripts/tests/v51-c-04.test.mjs"
+      ],
+      "contractDigest": "c7a4e05e244ca45cd389c52a9d2ab475d6523f866bfbe0b89c702534dc71edb8",
+      "contract": {
+        "code": "C-04",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/c-04.md",
+          "plugins/better-workflows/scripts/tests/v51-c-04.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 34,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "D-01",
+      "title": "technical／delivery／outcome 三層驗收契約",
+      "version": "V5.1",
+      "sources": [
+        77
+      ],
+      "owner": "R",
+      "requirements": [
+        "70"
+      ],
+      "dependencies": [
+        "W0-02"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "544b37bed87756272b991a06b956628f588fc04ddbb8853cfabaa4b2aa051f70",
+      "contract": {
+        "code": "D-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 35,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "D-02a",
+      "title": "goal→requirement→task→evidence 雙向追溯",
+      "version": "V5.1",
+      "sources": [
+        78
+      ],
+      "owner": "W",
+      "requirements": [
+        "71"
+      ],
+      "dependencies": [
+        "D-01",
+        "C-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/d-02a.md",
+        "plugins/better-workflows/scripts/lib/v51-d-02a.mjs",
+        "plugins/better-workflows/scripts/tests/v51-d-02a.test.mjs"
+      ],
+      "contractDigest": "3195daa5784b21c792adebbc1228676eaa861d287ee073494ea0a43c40d23684",
+      "contract": {
+        "code": "D-02a",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/d-02a.md",
+          "plugins/better-workflows/scripts/lib/v51-d-02a.mjs",
+          "plugins/better-workflows/scripts/tests/v51-d-02a.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 36,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "D-02b",
+      "title": "重要主張、支持片段、來源版本與矛盾核對",
+      "version": "V5.1",
+      "sources": [
+        78
+      ],
+      "owner": "W",
+      "requirements": [
+        "71"
+      ],
+      "dependencies": [
+        "D-02a"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/d-02b.md",
+        "plugins/better-workflows/scripts/lib/v51-d-02b.mjs",
+        "plugins/better-workflows/scripts/tests/v51-d-02b.test.mjs"
+      ],
+      "contractDigest": "321decbe348c475169e93aeaf74f879e79b4133ebf524dfa7dc04c666c9f427d",
+      "contract": {
+        "code": "D-02b",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/d-02b.md",
+          "plugins/better-workflows/scripts/lib/v51-d-02b.mjs",
+          "plugins/better-workflows/scripts/tests/v51-d-02b.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 37,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "D-03a",
+      "title": "Outcome 非權威投影",
+      "version": "V5.1",
+      "sources": [
+        79
+      ],
+      "owner": "W",
+      "requirements": [
+        "72"
+      ],
+      "dependencies": [
+        "D-02b"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/d-03a.md",
+        "plugins/better-workflows/scripts/lib/v51-d-03a.mjs",
+        "plugins/better-workflows/scripts/tests/v51-d-03a.test.mjs"
+      ],
+      "contractDigest": "2526659f7668c673956f675ad62b160bb96cbc87015b6f034f858ef2120f432a",
+      "contract": {
+        "code": "D-03a",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/d-03a.md",
+          "plugins/better-workflows/scripts/lib/v51-d-03a.mjs",
+          "plugins/better-workflows/scripts/tests/v51-d-03a.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 38,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "D-03b",
+      "title": "最多三張下一步卡與冪等任務草稿",
+      "version": "V5.1",
+      "sources": [
+        79
+      ],
+      "owner": "W",
+      "requirements": [
+        "73"
+      ],
+      "dependencies": [
+        "D-03a"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/d-03b.md",
+        "plugins/better-workflows/scripts/lib/v51-d-03b.mjs",
+        "plugins/better-workflows/scripts/tests/v51-d-03b.test.mjs"
+      ],
+      "contractDigest": "37768a42eb4bc4b1e3b06240918577851775011e6b844dded30674abfd40cb68",
+      "contract": {
+        "code": "D-03b",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/d-03b.md",
+          "plugins/better-workflows/scripts/lib/v51-d-03b.mjs",
+          "plugins/better-workflows/scripts/tests/v51-d-03b.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 39,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "D-03c",
+      "title": "本輪結束、後續任務與自身改善循環邊界",
+      "version": "V5.1",
+      "sources": [
+        79
+      ],
+      "owner": "R",
+      "requirements": [
+        "74"
+      ],
+      "dependencies": [
+        "D-03b"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "d97cca136e09261f51e5cc74e3f31915e27550bfac5ca9e9f927b8cf972c267e",
+      "contract": {
+        "code": "D-03c",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 40,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-01a",
+      "title": "WorkItem 持久身分、plan revision 與 attempt mapping",
+      "version": "V5.1",
+      "sources": [
+        80
+      ],
+      "owner": "R",
+      "requirements": [
+        "44",
+        "45"
+      ],
+      "dependencies": [
+        "W0-02"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "c86a3ba387a6924d2ac9d253b68bf10dee9db8cc06bb140dc8f5922e6ff97657",
+      "contract": {
+        "code": "B-01a",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 41,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-01b",
+      "title": "唯讀看板與狀態投影",
+      "version": "V5.1",
+      "sources": [
+        80
+      ],
+      "owner": "W",
+      "requirements": [
+        "46"
+      ],
+      "dependencies": [
+        "B-01a"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/b-01b.md",
+        "plugins/better-workflows/scripts/lib/v51-b-01b.mjs",
+        "plugins/better-workflows/scripts/tests/v51-b-01b.test.mjs"
+      ],
+      "contractDigest": "a19a0ece959345d0fa5f0bd6df0a662eb645ce56b3a0550c10e119c7363eec7d",
+      "contract": {
+        "code": "B-01b",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/b-01b.md",
+          "plugins/better-workflows/scripts/lib/v51-b-01b.mjs",
+          "plugins/better-workflows/scripts/tests/v51-b-01b.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 42,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-02",
+      "title": "WIP、verification backlog 與 resource admission",
+      "version": "V5.1",
+      "sources": [
+        81
+      ],
+      "owner": "R",
+      "requirements": [
+        "47",
+        "48"
+      ],
+      "dependencies": [
+        "B-01a",
+        "W0-03"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "04b63149712c3bb747f974428535e128cdf306bd845b8eec73fac41cc22ffb56",
+      "contract": {
+        "code": "B-02",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 43,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-03",
+      "title": "確定性 ready-set 派工、nested fan-out 計數與停止",
+      "version": "V5.1",
+      "sources": [
+        82
+      ],
+      "owner": "R",
+      "requirements": [
+        "49",
+        "50"
+      ],
+      "dependencies": [
+        "B-02",
+        "A-17a"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "92a69e8a792fc363636f9292cadbd7f77a66da43f4bb799e8e5571155d5f7348",
+      "contract": {
+        "code": "B-03",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 44,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-04a",
+      "title": "provider quota bucket 觀測",
+      "version": "V5.1",
+      "sources": [
+        83
+      ],
+      "owner": "W",
+      "requirements": [
+        "51"
+      ],
+      "dependencies": [
+        "W0-03"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/b-04a.md",
+        "plugins/better-workflows/scripts/lib/v51-b-04a.mjs",
+        "plugins/better-workflows/scripts/tests/v51-b-04a.test.mjs"
+      ],
+      "contractDigest": "26c730110e203abd81857d15b3cb458e0233f9abf0ae7b46591bac0dad009771",
+      "contract": {
+        "code": "B-04a",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/b-04a.md",
+          "plugins/better-workflows/scripts/lib/v51-b-04a.mjs",
+          "plugins/better-workflows/scripts/tests/v51-b-04a.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 45,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-04b",
+      "title": "Codex host conformance",
+      "version": "V5.1",
+      "sources": [
+        83
+      ],
+      "owner": "W",
+      "requirements": [
+        "51",
+        "89b"
+      ],
+      "dependencies": [
+        "W0-06",
+        "B-04a"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/b-04b.md",
+        "plugins/better-workflows/scripts/lib/v51-b-04b.mjs",
+        "plugins/better-workflows/scripts/tests/v51-b-04b.test.mjs"
+      ],
+      "contractDigest": "b960212b10f8e0401cbaf27d9ec5395cea69c21ad0a2bbb84911dbe33d3e09da",
+      "contract": {
+        "code": "B-04b",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/b-04b.md",
+          "plugins/better-workflows/scripts/lib/v51-b-04b.mjs",
+          "plugins/better-workflows/scripts/tests/v51-b-04b.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 46,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-04c",
+      "title": "Gemini CLI host conformance",
+      "version": "V5.1",
+      "sources": [
+        83
+      ],
+      "owner": "W",
+      "requirements": [
+        "51",
+        "89b"
+      ],
+      "dependencies": [
+        "W0-06",
+        "B-04a"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/b-04c.md",
+        "plugins/better-workflows/scripts/lib/v51-b-04c.mjs",
+        "plugins/better-workflows/scripts/tests/v51-b-04c.test.mjs"
+      ],
+      "contractDigest": "21467af3deae0d45df86a24331fa2d0762c07bfeccf2462ce0df3786749b8d9d",
+      "contract": {
+        "code": "B-04c",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/b-04c.md",
+          "plugins/better-workflows/scripts/lib/v51-b-04c.mjs",
+          "plugins/better-workflows/scripts/tests/v51-b-04c.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "當次transport/auth/model/allowance/data授權及host gate全部成立才啟動provider；禁止帳號或不可用則HOLD，不登入、安裝或自動換模型。",
+      "issueNumber": 47,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-04d",
+      "title": "Qwen host conformance",
+      "version": "V5.1",
+      "sources": [
+        83
+      ],
+      "owner": "W",
+      "requirements": [
+        "51",
+        "89b"
+      ],
+      "dependencies": [
+        "W0-06",
+        "B-04a"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/b-04d.md",
+        "plugins/better-workflows/scripts/lib/v51-b-04d.mjs",
+        "plugins/better-workflows/scripts/tests/v51-b-04d.test.mjs"
+      ],
+      "contractDigest": "a3cd0b57de73a35ec6f88d3a74a439cea03d47e90f022a29e7080d3a34a89b01",
+      "contract": {
+        "code": "B-04d",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/b-04d.md",
+          "plugins/better-workflows/scripts/lib/v51-b-04d.mjs",
+          "plugins/better-workflows/scripts/tests/v51-b-04d.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "當次transport/auth/model/allowance/data授權及host gate全部成立才啟動provider；禁止帳號或不可用則HOLD，不登入、安裝或自動換模型。",
+      "issueNumber": 48,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-05",
+      "title": "task writeOwner.paths 與 role capability 的版本化 admission",
+      "version": "V5.1",
+      "sources": [
+        84
+      ],
+      "owner": "R",
+      "requirements": [
+        "55"
+      ],
+      "dependencies": [
+        "W0-02",
+        "B-02"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "3535c1d3eb985a1073865f992307dd3a6dc0df9d436eaf4439016acc4bb77c89",
+      "contract": {
+        "code": "B-05",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 49,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-06",
+      "title": "canonical Git common-dir provisioning coordinator",
+      "version": "V5.1",
+      "sources": [
+        85
+      ],
+      "owner": "R",
+      "requirements": [
+        "56"
+      ],
+      "dependencies": [
+        "W0-06",
+        "B-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "c8fe54ca530f4e4741ac4e4fff17a16c1f3f568f259b101b5ea224e5fa7bc440",
+      "contract": {
+        "code": "B-06",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "canonical common-dir/bw-coordination-v1，同host/principal/privatefilesystem；SQLite transactions/fencing短Git lease；enqueue不占model slot/WIP/port/workspace lease；owner death非刪鎖證據。",
+      "issueNumber": 50,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-07",
+      "title": "per-task workspace lease 接入 DAG",
+      "version": "V5.1",
+      "sources": [
+        86
+      ],
+      "owner": "R",
+      "requirements": [
+        "57"
+      ],
+      "dependencies": [
+        "B-06"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "9a73ef02ce5acb5b2b44f10474b400317c61c541c05ef61767c2f2c331f5d903",
+      "contract": {
+        "code": "B-07",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 51,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-08",
+      "title": "受限 implementation executor profile",
+      "version": "V5.1",
+      "sources": [
+        87
+      ],
+      "owner": "R",
+      "requirements": [
+        "58",
+        "59"
+      ],
+      "dependencies": [
+        "B-07",
+        "B-03"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "3ef92e3b1c8bccf14e6a5d2adca2390cf925c1510fd4f8967f82b5a0a9a13afa",
+      "contract": {
+        "code": "B-08",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 52,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-09a",
+      "title": "寫入權限隔離驗證",
+      "version": "V5.1",
+      "sources": [
+        88
+      ],
+      "owner": "Q",
+      "requirements": [
+        "61"
+      ],
+      "dependencies": [
+        "B-08"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/b-09a.md",
+        "plugins/better-workflows/scripts/tests/v51-b-09a.test.mjs"
+      ],
+      "contractDigest": "7e878a498aaad00ef9cc5ed15613da306315990f8c323481934d2f35fd6f1410",
+      "contract": {
+        "code": "B-09a",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/b-09a.md",
+          "plugins/better-workflows/scripts/tests/v51-b-09a.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "hook/config/path實際enforcement；worktree不是sandbox。",
+      "issueNumber": 53,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-09b",
+      "title": "共享資源隔離驗證",
+      "version": "V5.1",
+      "sources": [
+        88
+      ],
+      "owner": "Q",
+      "requirements": [
+        "61"
+      ],
+      "dependencies": [
+        "B-08"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/b-09b.md",
+        "plugins/better-workflows/scripts/tests/v51-b-09b.test.mjs"
+      ],
+      "contractDigest": "5e32b5e0ef45d9def72e815070346f63563e92dbae546c22e2cdbc9c8f26b0e3",
+      "contract": {
+        "code": "B-09b",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/b-09b.md",
+          "plugins/better-workflows/scripts/tests/v51-b-09b.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "資源namespace、ports/DB/locks/quota實際隔離。",
+      "issueNumber": 54,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-09c",
+      "title": "Git 權限隔離驗證",
+      "version": "V5.1",
+      "sources": [
+        88
+      ],
+      "owner": "Q",
+      "requirements": [
+        "61"
+      ],
+      "dependencies": [
+        "B-08"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/b-09c.md",
+        "plugins/better-workflows/scripts/tests/v51-b-09c.test.mjs"
+      ],
+      "contractDigest": "4b87448d78972989eada68cdb7da861f7129c8417e4195a52bf7e865475e0236",
+      "contract": {
+        "code": "B-09c",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/b-09c.md",
+          "plugins/better-workflows/scripts/tests/v51-b-09c.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "common-dir/hooks/config/index/refs隔離，worker不能commit/merge或改shared config。",
+      "issueNumber": 55,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-09d",
+      "title": "程序權限隔離驗證",
+      "version": "V5.1",
+      "sources": [
+        88
+      ],
+      "owner": "Q",
+      "requirements": [
+        "61"
+      ],
+      "dependencies": [
+        "B-08"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/b-09d.md",
+        "plugins/better-workflows/scripts/tests/v51-b-09d.test.mjs"
+      ],
+      "contractDigest": "2fb89ca451570d524422e8cb50022b496f2ee008368f64202eed12b522fba863",
+      "contract": {
+        "code": "B-09d",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/b-09d.md",
+          "plugins/better-workflows/scripts/tests/v51-b-09d.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "fresh owned PID/PPID/descendants/cwd/ports/socket enforcement與cleanup，不停unknown/shared。",
+      "issueNumber": 56,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-10",
+      "title": "組合 candidate、成果保全與取消／換模型 recovery",
+      "version": "V5.1",
+      "sources": [
+        89
+      ],
+      "owner": "R",
+      "requirements": [
+        "62"
+      ],
+      "dependencies": [
+        "B-09a",
+        "B-09b",
+        "B-09c",
+        "B-09d"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "f1a2dc355870a5a916d1a3386e4527fc7635905fe943e5b3c8969ca2900484b5",
+      "contract": {
+        "code": "B-10",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 57,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "B-11",
+      "title": "executor 公開安全契約",
+      "version": "V5.1",
+      "sources": [
+        90
+      ],
+      "owner": "W",
+      "requirements": [
+        "60"
+      ],
+      "dependencies": [
+        "B-10"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/b-11.md",
+        "plugins/better-workflows/scripts/lib/v51-b-11.mjs",
+        "plugins/better-workflows/scripts/tests/v51-b-11.test.mjs"
+      ],
+      "contractDigest": "32d694d58ecdf80f094ee74eccb0d0c19c3b5adf7af29eb260870cb7abd8a9e3",
+      "contract": {
+        "code": "B-11",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/b-11.md",
+          "plugins/better-workflows/scripts/lib/v51-b-11.mjs",
+          "plugins/better-workflows/scripts/tests/v51-b-11.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 58,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "SOP-01",
+      "title": "適用 AGENTS.md／CLAUDE.md 判讀與衝突規則",
+      "version": "V5.1",
+      "sources": [
+        102
+      ],
+      "owner": "R",
+      "requirements": [],
+      "dependencies": [
+        "W0-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "b6a73fd5fa715b33e3b9ecebb8a0084580ffbff61c464c3688cf9d7d5c93d8fc",
+      "contract": {
+        "code": "SOP-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 59,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "SOP-02",
+      "title": "適格拆分、dispatch packet、派工決定與整合收據",
+      "version": "V5.1",
+      "sources": [
+        102
+      ],
+      "owner": "W",
+      "requirements": [],
+      "dependencies": [
+        "SOP-01",
+        "B-11"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/sop-02.md"
+      ],
+      "contractDigest": "14d756797693c9ef89d158088b6710c6600dd2bef5668e14885bc0cf2e7421f9",
+      "contract": {
+        "code": "SOP-02",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/sop-02.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 60,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "G-01",
+      "title": "完整 fixture、消融及跨階段 vertical slice",
+      "version": "V5.1",
+      "sources": [
+        93
+      ],
+      "owner": "Q",
+      "requirements": [
+        "75"
+      ],
+      "dependencies": [
+        "A-15",
+        "A-17b",
+        "C-04",
+        "D-03c",
+        "B-10",
+        "PUB-03",
+        "PUB-04"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/g-01.md",
+        "plugins/better-workflows/scripts/tests/v51-g-01.test.mjs"
+      ],
+      "contractDigest": "41f483e3adee94088c72e2132cb35da50c499db99c7414433e9eea349c1a7e0d",
+      "contract": {
+        "code": "G-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/g-01.md",
+          "plugins/better-workflows/scripts/tests/v51-g-01.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 61,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "G-02",
+      "title": "mandatory safety coverage、負向案例與 unclassified 清冊",
+      "version": "V5.1",
+      "sources": [
+        94
+      ],
+      "owner": "Q",
+      "requirements": [
+        "76"
+      ],
+      "dependencies": [
+        "G-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/g-02.md",
+        "plugins/better-workflows/scripts/tests/v51-g-02.test.mjs"
+      ],
+      "contractDigest": "826878e5f7c64f4b2e16f513f5a2914b710f1072c4e4a9f9732fdafd7a5410be",
+      "contract": {
+        "code": "G-02",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/g-02.md",
+          "plugins/better-workflows/scripts/tests/v51-g-02.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 62,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "G-03",
+      "title": "bounded state explorer、liveness 與 fairness",
+      "version": "V5.1",
+      "sources": [
+        95
+      ],
+      "owner": "Q",
+      "requirements": [
+        "77"
+      ],
+      "dependencies": [
+        "G-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/g-03.md",
+        "plugins/better-workflows/scripts/tests/v51-g-03.test.mjs"
+      ],
+      "contractDigest": "432b864a48e797c160c3128ec31cf371718e53af986289678d055accdad02456",
+      "contract": {
+        "code": "G-03",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/g-03.md",
+          "plugins/better-workflows/scripts/tests/v51-g-03.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 63,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "G-04",
+      "title": "rollback、corruption、disk-full、migration 與舊 reader",
+      "version": "V5.1",
+      "sources": [
+        96
+      ],
+      "owner": "Q",
+      "requirements": [
+        "79",
+        "88b"
+      ],
+      "dependencies": [
+        "G-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/g-04.md",
+        "plugins/better-workflows/scripts/tests/v51-g-04.test.mjs"
+      ],
+      "contractDigest": "14034bbf6871fa085e497cd21a87b03b74be601ed2e3faef8c946ad1d6981164",
+      "contract": {
+        "code": "G-04",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/g-04.md",
+          "plugins/better-workflows/scripts/tests/v51-g-04.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 64,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "G-05",
+      "title": "正式平台及 pilot 組合驗收",
+      "version": "V5.1",
+      "sources": [
+        97
+      ],
+      "owner": "R",
+      "requirements": [
+        "89b"
+      ],
+      "dependencies": [
+        "W0-06",
+        "B-11",
+        "PL-01",
+        "PL-02",
+        "PL-03",
+        "PL-04",
+        "PL-05",
+        "PL-06",
+        "REL-E3"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "532eb7c6b5d09791c4bb238286f90d6007dd0bb1fc234c860b8a71b719c8cb61",
+      "contract": {
+        "code": "G-05",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 65,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "G-06",
+      "title": "E2E 主收益、品質、成功率、成本護欄與 promotion",
+      "version": "V5.1",
+      "sources": [
+        98
+      ],
+      "owner": "R",
+      "requirements": [
+        "78",
+        "87b"
+      ],
+      "dependencies": [
+        "G-02",
+        "G-03",
+        "G-04",
+        "G-05",
+        "W0-05",
+        "P-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "e21c0c9478f818d7109701b44787e068ddd098ebc681d9f1f48e56e9f2eb8541",
+      "contract": {
+        "code": "G-06",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 66,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "REL-A",
+      "title": "canonical policy bytes preflight",
+      "version": "V5.1",
+      "sources": [
+        101
+      ],
+      "owner": "W",
+      "requirements": [
+        "90"
+      ],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rel-a.md",
+        "plugins/better-workflows/scripts/lib/v51-rel-a.mjs",
+        "plugins/better-workflows/scripts/tests/v51-rel-a.test.mjs"
+      ],
+      "contractDigest": "7fb0f11667f1d0e246cc1af4c93d19ecd1cf3469d02645d0f07f2f40da23c982",
+      "contract": {
+        "code": "REL-A",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/rel-a.md",
+          "plugins/better-workflows/scripts/lib/v51-rel-a.mjs",
+          "plugins/better-workflows/scripts/tests/v51-rel-a.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 67,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "REL-B",
+      "title": "monotonic recovery stage timing 與失敗後 safety／cleanup",
+      "version": "V5.1",
+      "sources": [
+        36,
+        95
+      ],
+      "owner": "Q",
+      "requirements": [
+        "35",
+        "36a",
+        "77"
+      ],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rel-b.md",
+        "plugins/better-workflows/scripts/tests/v51-rel-b.test.mjs"
+      ],
+      "contractDigest": "801a44ca54ff996aa3639e78d2ddfa0158a5f69f715ebfeb5f0afbd2a0b527eb",
+      "contract": {
+        "code": "REL-B",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/rel-b.md",
+          "plugins/better-workflows/scripts/tests/v51-rel-b.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 68,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "REL-C",
+      "title": "完整 snapshot review coverage、raw final outcome 與 provenance",
+      "version": "V5.1",
+      "sources": [
+        93,
+        94
+      ],
+      "owner": "Q",
+      "requirements": [
+        "75",
+        "76",
+        "90"
+      ],
+      "dependencies": [
+        "W0-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rel-c.md",
+        "plugins/better-workflows/scripts/tests/v51-rel-c.test.mjs"
+      ],
+      "contractDigest": "5bee73209ec001e0b7cb006ed68491a9c50621a9d153c22df55ccbffae4cea0f",
+      "contract": {
+        "code": "REL-C",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/rel-c.md",
+          "plugins/better-workflows/scripts/tests/v51-rel-c.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 69,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "REL-D",
+      "title": "reviewed amendment、normal FF 與 receipt rebinding",
+      "version": "V5.1",
+      "sources": [
+        101
+      ],
+      "owner": "R",
+      "requirements": [
+        "90"
+      ],
+      "dependencies": [
+        "G-06",
+        "REL-C"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "62048fe2fa4f966023100032514e9eea1d811c5ef22604d0f21bc583138c69c0",
+      "contract": {
+        "code": "REL-D",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 70,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "REL-E1",
+      "title": "原始 signed bundle 取得、保存及驗證來源契約",
+      "version": "V5.1",
+      "sources": [
+        97,
+        101
+      ],
+      "owner": "R",
+      "requirements": [
+        "89b",
+        "90"
+      ],
+      "dependencies": [
+        "W0-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "a4729965aa9041bced23e8790af23771485744af7a0f0543cf65a9fdbc7444f5",
+      "contract": {
+        "code": "REL-E1",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "先凍結signed bundle原始來源、capture命令、bytes/digest；verify stdout JSON不是原始bundle。無來源保持HOLD。",
+      "issueNumber": 71,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "REL-E2",
+      "title": "gh 2.59.0 protobuf JSON normalized adapter",
+      "version": "V5.1",
+      "sources": [
+        97,
+        101
+      ],
+      "owner": "W",
+      "requirements": [
+        "89b",
+        "90"
+      ],
+      "dependencies": [
+        "REL-E1"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rel-e2.md",
+        "plugins/better-workflows/scripts/lib/v51-rel-e2.mjs",
+        "plugins/better-workflows/scripts/tests/v51-rel-e2.test.mjs"
+      ],
+      "contractDigest": "32b83ae04397b80dfc26b5a171434fe76c68a76c5eb14003c63837143cca44dd",
+      "contract": {
+        "code": "REL-E2",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/rel-e2.md",
+          "plugins/better-workflows/scripts/lib/v51-rel-e2.mjs",
+          "plugins/better-workflows/scripts/tests/v51-rel-e2.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "gh2.59.0 protobuf keys type/predicate_type；保留raw stdout、original signed bundle，normalized view獨立；未知schema/typeURL/predicate/subject/cert binding拒絕，核對兩個公開consumer。",
+      "issueNumber": 72,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "REL-E3",
+      "title": "same-run／runAttempt／candidate matrix 負例",
+      "version": "V5.1",
+      "sources": [
+        97,
+        101
+      ],
+      "owner": "Q",
+      "requirements": [
+        "89b",
+        "90"
+      ],
+      "dependencies": [
+        "REL-E2"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rel-e3.md",
+        "plugins/better-workflows/scripts/tests/v51-rel-e3.test.mjs"
+      ],
+      "contractDigest": "dee29a8ab1d473bdfbe30f7816e61af89b9474987294c0ad8432391347e00071",
+      "contract": {
+        "code": "REL-E3",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/rel-e3.md",
+          "plugins/better-workflows/scripts/tests/v51-rel-e3.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "全部lanes同workflow run/attempt/SHA；Node22 attempt1+Node24 attempt2拒絕；signature exit0不代替protected consumer PASS。",
+      "issueNumber": 73,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "REL-F1",
+      "title": "可重現封裝、raw tar member、AppleDouble 與路徑檢查",
+      "version": "V5.1",
+      "sources": [
+        101
+      ],
+      "owner": "W",
+      "requirements": [
+        "90"
+      ],
+      "dependencies": [
+        "W0-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rel-f1.md",
+        "plugins/better-workflows/scripts/lib/v51-rel-f1.mjs",
+        "plugins/better-workflows/scripts/tests/v51-rel-f1.test.mjs"
+      ],
+      "contractDigest": "71b585f6fed1763ec6369ca8607c68658b850729931d03c7ec5873feff62bafa",
+      "contract": {
+        "code": "REL-F1",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/rel-f1.md",
+          "plugins/better-workflows/scripts/lib/v51-rel-f1.mjs",
+          "plugins/better-workflows/scripts/tests/v51-rel-f1.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "raw tar member types/duplicates/traversal/links/AppleDouble/modes；固定packager/options/digest，不改RC1artifact。",
+      "issueNumber": 74,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "REL-F2",
+      "title": "BSD tar／GNU tar 實際解壓與 exact-tree 對照",
+      "version": "V5.1",
+      "sources": [
+        101
+      ],
+      "owner": "Q",
+      "requirements": [
+        "90"
+      ],
+      "dependencies": [
+        "REL-F1",
+        "W0-06"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rel-f2.md",
+        "plugins/better-workflows/scripts/tests/v51-rel-f2.test.mjs"
+      ],
+      "contractDigest": "ea7bb280fae4587372e2054aae2c025495be3bdc65e8cd46862a811351c7ef64",
+      "contract": {
+        "code": "REL-F2",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/rel-f2.md",
+          "plugins/better-workflows/scripts/tests/v51-rel-f2.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "actual BSD tar macOS與GNU tar Linux解壓同artifact、exact-tree比較；fixture不代替OS。",
+      "issueNumber": 75,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "REL-G",
+      "title": "isolated manifest.sha256 MIME／status／digest fixtures",
+      "version": "V5.1",
+      "sources": [
+        97,
+        101
+      ],
+      "owner": "W",
+      "requirements": [
+        "89b",
+        "90"
+      ],
+      "dependencies": [
+        "W0-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rel-g.md",
+        "plugins/better-workflows/scripts/lib/v51-rel-g.mjs",
+        "plugins/better-workflows/scripts/tests/v51-rel-g.test.mjs"
+      ],
+      "contractDigest": "d1e503563828097e302d27db43e463fa869b641233592ceb4cc4c609f913a24f",
+      "contract": {
+        "code": "REL-G",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/rel-g.md",
+          "plugins/better-workflows/scripts/lib/v51-rel-g.mjs",
+          "plugins/better-workflows/scripts/tests/v51-rel-g.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "generic isolated manifest.sha256：200/text/plain/digest；不改共用實機nginx。",
+      "issueNumber": 76,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "REL-H",
+      "title": "SSH launchd／agent／Keychain／local signer readiness",
+      "version": "V5.1",
+      "sources": [
+        101
+      ],
+      "owner": "W",
+      "requirements": [
+        "90"
+      ],
+      "dependencies": [
+        "W0-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/rel-h.md",
+        "plugins/better-workflows/scripts/lib/v51-rel-h.mjs",
+        "plugins/better-workflows/scripts/tests/v51-rel-h.test.mjs"
+      ],
+      "contractDigest": "216c67314567c0198c164cdea0c957d139ba656c1f3f843de4426d94e6f5df8a",
+      "contract": {
+        "code": "REL-H",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/rel-h.md",
+          "plugins/better-workflows/scripts/lib/v51-rel-h.mjs",
+          "plugins/better-workflows/scripts/tests/v51-rel-h.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "server acceptance/local signing分開；指定fingerprint、當次socket；不改共用agent/其他keys/hostkey policy；必要owner unlock用visible native dialog。",
+      "issueNumber": 77,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "REL-I",
+      "title": "原始 HTTP observation 保存與同 operation GET-only 對帳",
+      "version": "V5.1",
+      "sources": [
+        101
+      ],
+      "owner": "R",
+      "requirements": [
+        "90"
+      ],
+      "dependencies": [
+        "W0-02",
+        "REL-E1"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "0556f79bd87e686a390041e310a1a9ff6cbca860a20da7944cea2e34f23cdda3",
+      "contract": {
+        "code": "REL-I",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "raw HTTP status/body去除credential後先保存再parse；POST未知後同operation GET-only；事前固定端點及排程，最多3輪GET／60秒，不recreate；失配UNKNOWN/HOLD。",
+      "issueNumber": 78,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "REL-01",
+      "title": "canary、same-SHA publication、readback 與 cleanup",
+      "version": "V5.1",
+      "sources": [
+        101
+      ],
+      "owner": "R",
+      "requirements": [
+        "90"
+      ],
+      "dependencies": [
+        "G-06",
+        "REL-A",
+        "REL-B",
+        "REL-C",
+        "REL-D",
+        "REL-E3",
+        "REL-F2",
+        "REL-G",
+        "REL-H",
+        "REL-I",
+        "PUB-01",
+        "PUB-02"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "682992ec81455c7b255da4e46aea4b86ce4456d37f26ed2d756f8797c18ffdc7",
+      "contract": {
+        "code": "REL-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "30自然日、20連續適格starts、3repos；FAIL/HOLD/UNKNOWN保留分母；sameSHA qualification/readback；不改RC1終態。",
+      "issueNumber": 79,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "PL-01",
+      "title": "Windows production seam、native source closure 與 private-state backend",
+      "version": "V5.1",
+      "sources": [
+        32,
+        31
+      ],
+      "owner": "R",
+      "requirements": [
+        "89a",
+        "89b"
+      ],
+      "dependencies": [
+        "W0-06",
+        "PUB-03"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "3970c95080c26b31466e9d4585dd5eab642a638d28c769edfc0a256aad45b53f",
+      "contract": {
+        "code": "PL-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 80,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "PL-02",
+      "title": "Windows supervisor build／PE／imports 收據",
+      "version": "V5.1",
+      "sources": [
+        23
+      ],
+      "owner": "Q",
+      "requirements": [
+        "89b"
+      ],
+      "dependencies": [
+        "PL-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/pl-02.md",
+        "plugins/better-workflows/scripts/tests/v51-pl-02.test.mjs"
+      ],
+      "contractDigest": "174fb349da972fc8b78532fe539131bf0f721cefcfbc0225f879174bed6784b4",
+      "contract": {
+        "code": "PL-02",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/pl-02.md",
+          "plugins/better-workflows/scripts/tests/v51-pl-02.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 81,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "PL-03",
+      "title": "Windows private-state helper build／PE／imports 收據",
+      "version": "V5.1",
+      "sources": [
+        29
+      ],
+      "owner": "Q",
+      "requirements": [
+        "89b"
+      ],
+      "dependencies": [
+        "PL-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/pl-03.md",
+        "plugins/better-workflows/scripts/tests/v51-pl-03.test.mjs"
+      ],
+      "contractDigest": "0b5707f0d5c2a4dd6ea89cb1848f04e1a1a00068c274cecc2ed07c0220eccb72",
+      "contract": {
+        "code": "PL-03",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/pl-03.md",
+          "plugins/better-workflows/scripts/tests/v51-pl-03.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 82,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "PL-04",
+      "title": "Windows backend dispatch regression",
+      "version": "V5.1",
+      "sources": [
+        31
+      ],
+      "owner": "Q",
+      "requirements": [
+        "89b"
+      ],
+      "dependencies": [
+        "PL-02",
+        "PL-03"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/pl-04.md",
+        "plugins/better-workflows/scripts/tests/v51-pl-04.test.mjs"
+      ],
+      "contractDigest": "1bb10415c6b3fcdc446894b2548b7ba977a1c6a317fcec6f3be0580d0a001f5d",
+      "contract": {
+        "code": "PL-04",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/pl-04.md",
+          "plugins/better-workflows/scripts/tests/v51-pl-04.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 83,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "PL-05",
+      "title": "Linux × Node 22／24 真實同候選收據",
+      "version": "V5.1",
+      "sources": [
+        105
+      ],
+      "owner": "Q",
+      "requirements": [
+        "89b"
+      ],
+      "dependencies": [
+        "W0-06"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/pl-05.md",
+        "plugins/better-workflows/scripts/tests/v51-pl-05.test.mjs"
+      ],
+      "contractDigest": "f12e645f4376c0746c5bfbfa27d7cbb17f2163df80c7d57f08b4aefe935a6887",
+      "contract": {
+        "code": "PL-05",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/pl-05.md",
+          "plugins/better-workflows/scripts/tests/v51-pl-05.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 84,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "PL-06",
+      "title": "Windows × Node 22／24 真實同候選收據",
+      "version": "V5.1",
+      "sources": [
+        106
+      ],
+      "owner": "Q",
+      "requirements": [
+        "89b"
+      ],
+      "dependencies": [
+        "PL-04"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/pl-06.md",
+        "plugins/better-workflows/scripts/tests/v51-pl-06.test.mjs"
+      ],
+      "contractDigest": "a569bcba1ab81e631ece8ba503f4525ef2596c43d4bad1d32fc06e5aba509a8d",
+      "contract": {
+        "code": "PL-06",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/pl-06.md",
+          "plugins/better-workflows/scripts/tests/v51-pl-06.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 85,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "PUB-01",
+      "title": "維護文件、安裝、安全宣稱與版本同步",
+      "version": "V5.1",
+      "sources": [
+        99,
+        109
+      ],
+      "owner": "W",
+      "requirements": [
+        "92"
+      ],
+      "dependencies": [
+        "G-06",
+        "B-11"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/pub-01.md"
+      ],
+      "contractDigest": "b4cd047cee63c816e34b67d1ee6611e464d9b3fb541dea1bfa5efb43f439456c",
+      "contract": {
+        "code": "PUB-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/pub-01.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 86,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "PUB-02",
+      "title": "官網、頁面、導航與發布狀態同步",
+      "version": "V5.1",
+      "sources": [
+        100
+      ],
+      "owner": "W",
+      "requirements": [
+        "91"
+      ],
+      "dependencies": [
+        "PUB-01",
+        "RC2-SITE"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/pub-02.md"
+      ],
+      "contractDigest": "bdd2e1fc2de43eacd780dfdce016552e79739e67ef075a92603da3e56de60f46",
+      "contract": {
+        "code": "PUB-02",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/pub-02.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 87,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "PUB-03",
+      "title": "public runtime／test dependency closure",
+      "version": "V5.1",
+      "sources": [
+        108
+      ],
+      "owner": "Q",
+      "requirements": [
+        "75",
+        "90"
+      ],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/pub-03.md",
+        "plugins/better-workflows/scripts/tests/v51-pub-03.test.mjs"
+      ],
+      "contractDigest": "3f3f033ebeed21cc1406fc91a09ea856dcaf379d2db6dec99336ce8acb8669ff",
+      "contract": {
+        "code": "PUB-03",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/pub-03.md",
+          "plugins/better-workflows/scripts/tests/v51-pub-03.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 88,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "PUB-04",
+      "title": "Bash 3.2 argv、完整 ancestry 與 canonical Auto projection 回歸",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "Q",
+      "requirements": [
+        "75",
+        "90"
+      ],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/pub-04.md",
+        "plugins/better-workflows/scripts/tests/v51-pub-04.test.mjs"
+      ],
+      "contractDigest": "0826321af80b4c7f7897dc1060279a09ee84594109748a5b989dee6598a270ce",
+      "contract": {
+        "code": "PUB-04",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/pub-04.md",
+          "plugins/better-workflows/scripts/tests/v51-pub-04.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 89,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "A-04",
+      "title": "greedy preflight ordering 採用評估",
+      "version": "V5.1",
+      "sources": [
+        45
+      ],
+      "owner": "W",
+      "requirements": [
+        "11"
+      ],
+      "dependencies": [
+        "W0-03",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-04.md",
+        "plugins/better-workflows/scripts/lib/v51-a-04.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-04.test.mjs"
+      ],
+      "contractDigest": "847772203f2919b53c12243cf690caa93ebdacad96062f9cb13c6a1ab751c139",
+      "contract": {
+        "code": "A-04",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-04.md",
+          "plugins/better-workflows/scripts/lib/v51-a-04.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-04.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 90,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-05",
+      "title": "execution coalescing／singleflight／queue／heap 採用評估",
+      "version": "V5.1",
+      "sources": [
+        46
+      ],
+      "owner": "W",
+      "requirements": [
+        "14"
+      ],
+      "dependencies": [
+        "A-02b",
+        "W0-03",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-05.md",
+        "plugins/better-workflows/scripts/lib/v51-a-05.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-05.test.mjs"
+      ],
+      "contractDigest": "763dc800a38ece244315d0de2f8159ce338ced0c4802f41117f1b8efe4511a4b",
+      "contract": {
+        "code": "A-05",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-05.md",
+          "plugins/better-workflows/scripts/lib/v51-a-05.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-05.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 91,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-07",
+      "title": "CTX-BASE／SHARED／DELTA 評估",
+      "version": "V5.1",
+      "sources": [
+        48
+      ],
+      "owner": "Q",
+      "requirements": [
+        "29"
+      ],
+      "dependencies": [
+        "W0-03",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-07.md",
+        "plugins/better-workflows/scripts/tests/v51-a-07.test.mjs"
+      ],
+      "contractDigest": "177dff8a02f7b559247d0332032704d48c0f59e56aa18c67b6f235c5079d0d96",
+      "contract": {
+        "code": "A-07",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-07.md",
+          "plugins/better-workflows/scripts/tests/v51-a-07.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 92,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-08a",
+      "title": "frame envelope 縮減評估",
+      "version": "V5.1",
+      "sources": [
+        49
+      ],
+      "owner": "W",
+      "requirements": [
+        "30"
+      ],
+      "dependencies": [
+        "W0-03",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-08a.md",
+        "plugins/better-workflows/scripts/lib/v51-a-08a.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-08a.test.mjs"
+      ],
+      "contractDigest": "ac0c2642251987961f45ac4a24bc60c0af1340d296c899539a31ca820c9fd9e6",
+      "contract": {
+        "code": "A-08a",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-08a.md",
+          "plugins/better-workflows/scripts/lib/v51-a-08a.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-08a.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 93,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-08b",
+      "title": "arbitration envelope 縮減評估",
+      "version": "V5.1",
+      "sources": [
+        49
+      ],
+      "owner": "W",
+      "requirements": [
+        "31"
+      ],
+      "dependencies": [
+        "W0-03",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-08b.md",
+        "plugins/better-workflows/scripts/lib/v51-a-08b.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-08b.test.mjs"
+      ],
+      "contractDigest": "4c8e1a06740ebe9beb1d6fc0fb1fbe5052dc4982af1f8b6e983153e0cfde1296",
+      "contract": {
+        "code": "A-08b",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-08b.md",
+          "plugins/better-workflows/scripts/lib/v51-a-08b.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-08b.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 94,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-10",
+      "title": "addUnknown Set／shardDigest 等價與收益",
+      "version": "V5.1",
+      "sources": [
+        51
+      ],
+      "owner": "W",
+      "requirements": [
+        "33a",
+        "33b"
+      ],
+      "dependencies": [
+        "W0-03",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-10.md",
+        "plugins/better-workflows/scripts/lib/v51-a-10.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-10.test.mjs"
+      ],
+      "contractDigest": "72823913a3f20479391c576d146294d9275e5744296f436b1d7a562116e00391",
+      "contract": {
+        "code": "A-10",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-10.md",
+          "plugins/better-workflows/scripts/lib/v51-a-10.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-10.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 95,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-11",
+      "title": "storage 熱點及壓縮格式條件評估",
+      "version": "V5.1",
+      "sources": [
+        52
+      ],
+      "owner": "Q",
+      "requirements": [
+        "34"
+      ],
+      "dependencies": [
+        "W0-03",
+        "W0-05"
+      ],
+      "state": "UNTRIGGERED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-11.md",
+        "plugins/better-workflows/scripts/tests/v51-a-11.test.mjs"
+      ],
+      "contractDigest": "18e9274611c9c79a911af415f759040ad1cdd3a8b977599ec54fc749c5e55f58",
+      "contract": {
+        "code": "A-11",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-11.md",
+          "plugins/better-workflows/scripts/tests/v51-a-11.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 96,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-18",
+      "title": "immutable I/O reuse 評估",
+      "version": "V5.1",
+      "sources": [
+        59
+      ],
+      "owner": "W",
+      "requirements": [
+        "33c"
+      ],
+      "dependencies": [
+        "W0-03",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-18.md",
+        "plugins/better-workflows/scripts/lib/v51-a-18.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-18.test.mjs"
+      ],
+      "contractDigest": "039056347de70c4367e809407aebc9da257648d88cda21dd920be0e9b4d2d9e1",
+      "contract": {
+        "code": "A-18",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-18.md",
+          "plugins/better-workflows/scripts/lib/v51-a-18.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-18.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 97,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-19",
+      "title": "shard bytes reuse 評估",
+      "version": "V5.1",
+      "sources": [
+        60
+      ],
+      "owner": "W",
+      "requirements": [
+        "33d"
+      ],
+      "dependencies": [
+        "W0-03",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-19.md",
+        "plugins/better-workflows/scripts/lib/v51-a-19.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-19.test.mjs"
+      ],
+      "contractDigest": "513887c82e526a0a1709e69cf78c4c02543c4cefee8cd73cc8491e33e3a3e6fc",
+      "contract": {
+        "code": "A-19",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-19.md",
+          "plugins/better-workflows/scripts/lib/v51-a-19.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-19.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 98,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-20",
+      "title": "canonical serialization 與 replay reuse 評估",
+      "version": "V5.1",
+      "sources": [
+        61
+      ],
+      "owner": "W",
+      "requirements": [
+        "33e",
+        "33f"
+      ],
+      "dependencies": [
+        "W0-03",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-20.md",
+        "plugins/better-workflows/scripts/lib/v51-a-20.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-20.test.mjs"
+      ],
+      "contractDigest": "cc2842b185ddce0b6090a66d5fdca239b87c8417596fbfb0c61af0e3ef1423e9",
+      "contract": {
+        "code": "A-20",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-20.md",
+          "plugins/better-workflows/scripts/lib/v51-a-20.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-20.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 99,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-21",
+      "title": "incremental qualification 採用評估",
+      "version": "V5.1",
+      "sources": [
+        62
+      ],
+      "owner": "Q",
+      "requirements": [
+        "19"
+      ],
+      "dependencies": [
+        "A-14",
+        "A-16",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-21.md",
+        "plugins/better-workflows/scripts/tests/v51-a-21.test.mjs"
+      ],
+      "contractDigest": "71b3cf9577bcee25a802837b20080077c2dd14756c40907bf62aee879ed0a1cf",
+      "contract": {
+        "code": "A-21",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-21.md",
+          "plugins/better-workflows/scripts/tests/v51-a-21.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 100,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-22",
+      "title": "scoped continuation 採用評估",
+      "version": "V5.1",
+      "sources": [
+        63
+      ],
+      "owner": "Q",
+      "requirements": [
+        "20"
+      ],
+      "dependencies": [
+        "A-15",
+        "B-10",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-22.md",
+        "plugins/better-workflows/scripts/tests/v51-a-22.test.mjs"
+      ],
+      "contractDigest": "43eecaa786abd87464661165d176d0ea9e45ff1b2eaf4d030fff3fa640075a0f",
+      "contract": {
+        "code": "A-22",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-22.md",
+          "plugins/better-workflows/scripts/tests/v51-a-22.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 101,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-23",
+      "title": "critical-path DP 評估",
+      "version": "V5.1",
+      "sources": [
+        64
+      ],
+      "owner": "W",
+      "requirements": [
+        "25"
+      ],
+      "dependencies": [
+        "A-17b",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-23.md",
+        "plugins/better-workflows/scripts/lib/v51-a-23.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-23.test.mjs"
+      ],
+      "contractDigest": "b76bc63f6c0f5e0cd74f82809ba602cbbde24c68b91735cd279213f087a0d3e3",
+      "contract": {
+        "code": "A-23",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-23.md",
+          "plugins/better-workflows/scripts/lib/v51-a-23.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-23.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 102,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-24",
+      "title": "greedy scheduling 評估",
+      "version": "V5.1",
+      "sources": [
+        65
+      ],
+      "owner": "W",
+      "requirements": [
+        "26"
+      ],
+      "dependencies": [
+        "A-17b",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-24.md",
+        "plugins/better-workflows/scripts/lib/v51-a-24.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-24.test.mjs"
+      ],
+      "contractDigest": "3cb145c69884cf3e99bb93c9f57a732d25328f4d01e605ea57cbdc0d9ce97b98",
+      "contract": {
+        "code": "A-24",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-24.md",
+          "plugins/better-workflows/scripts/lib/v51-a-24.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-24.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 103,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "A-25",
+      "title": "dependency sharding 評估",
+      "version": "V5.1",
+      "sources": [
+        66
+      ],
+      "owner": "W",
+      "requirements": [
+        "27"
+      ],
+      "dependencies": [
+        "A-17b",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/a-25.md",
+        "plugins/better-workflows/scripts/lib/v51-a-25.mjs",
+        "plugins/better-workflows/scripts/tests/v51-a-25.test.mjs"
+      ],
+      "contractDigest": "0939279f613d5d12aab2a4c838c1f8ae254dc19cbe3b4926414bd2db441b3903",
+      "contract": {
+        "code": "A-25",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/a-25.md",
+          "plugins/better-workflows/scripts/lib/v51-a-25.mjs",
+          "plugins/better-workflows/scripts/tests/v51-a-25.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 104,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "C-03",
+      "title": "語義詞彙擴展評估",
+      "version": "V5.1",
+      "sources": [
+        75
+      ],
+      "owner": "Q",
+      "requirements": [
+        "64"
+      ],
+      "dependencies": [
+        "C-01",
+        "W0-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/c-03.md",
+        "plugins/better-workflows/scripts/tests/v51-c-03.test.mjs"
+      ],
+      "contractDigest": "81d56836097428aa1aead06e35e06b4631b9c2b0887e61145450576dc206a053",
+      "contract": {
+        "code": "C-03",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/c-03.md",
+          "plugins/better-workflows/scripts/tests/v51-c-03.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 105,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "R-01",
+      "title": "Node worker pool 與局部原生熱點准入",
+      "version": "V5.1",
+      "sources": [
+        67
+      ],
+      "owner": "W",
+      "requirements": [
+        "37"
+      ],
+      "dependencies": [
+        "W0-03",
+        "W0-05"
+      ],
+      "state": "UNTRIGGERED",
+      "reservedPaths": [
+        "docs/reports/v5.1/r-01.md",
+        "plugins/better-workflows/scripts/lib/v51-r-01.mjs",
+        "plugins/better-workflows/scripts/tests/v51-r-01.test.mjs"
+      ],
+      "contractDigest": "d89127dc638e498e6da4561dc4e62cd2a582c04e15d5eb1f0994aba197b949eb",
+      "contract": {
+        "code": "R-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/r-01.md",
+          "plugins/better-workflows/scripts/lib/v51-r-01.mjs",
+          "plugins/better-workflows/scripts/tests/v51-r-01.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 106,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "R-02",
+      "title": "Rust／Wasm 候選與契約",
+      "version": "V5.1",
+      "sources": [
+        68
+      ],
+      "owner": "W",
+      "requirements": [
+        "38"
+      ],
+      "dependencies": [
+        "R-01"
+      ],
+      "state": "UNTRIGGERED",
+      "reservedPaths": [
+        "docs/reports/v5.1/r-02.md",
+        "plugins/better-workflows/scripts/lib/v51-r-02.mjs",
+        "plugins/better-workflows/scripts/tests/v51-r-02.test.mjs"
+      ],
+      "contractDigest": "0fa4b5fe2ca8c395bf58b4ecd0aaa88da164077c5c8054f0a997f3210f3a160b",
+      "contract": {
+        "code": "R-02",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/r-02.md",
+          "plugins/better-workflows/scripts/lib/v51-r-02.mjs",
+          "plugins/better-workflows/scripts/tests/v51-r-02.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 107,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "R-03",
+      "title": "原生加速 fallback 與等價驗證",
+      "version": "V5.1",
+      "sources": [
+        69
+      ],
+      "owner": "Q",
+      "requirements": [
+        "39"
+      ],
+      "dependencies": [
+        "R-02"
+      ],
+      "state": "UNTRIGGERED",
+      "reservedPaths": [
+        "docs/reports/v5.1/r-03.md",
+        "plugins/better-workflows/scripts/tests/v51-r-03.test.mjs"
+      ],
+      "contractDigest": "b03a365e96617ea188da4c1e9e264e2f53f03c7adc882105688e92428b389b4c",
+      "contract": {
+        "code": "R-03",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/r-03.md",
+          "plugins/better-workflows/scripts/tests/v51-r-03.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 108,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "R-04",
+      "title": "原生供應鏈、build 與 distribution",
+      "version": "V5.1",
+      "sources": [
+        70
+      ],
+      "owner": "W",
+      "requirements": [
+        "40",
+        "41"
+      ],
+      "dependencies": [
+        "R-02"
+      ],
+      "state": "UNTRIGGERED",
+      "reservedPaths": [
+        "docs/reports/v5.1/r-04.md",
+        "plugins/better-workflows/scripts/lib/v51-r-04.mjs",
+        "plugins/better-workflows/scripts/tests/v51-r-04.test.mjs"
+      ],
+      "contractDigest": "51095cdb400d03f70be7818b6e62f75baf8ff6e0f7acde9a4f3a85a309340ec4",
+      "contract": {
+        "code": "R-04",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/r-04.md",
+          "plugins/better-workflows/scripts/lib/v51-r-04.mjs",
+          "plugins/better-workflows/scripts/tests/v51-r-04.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 109,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "R-05",
+      "title": "原生 sandbox 與 resource limits",
+      "version": "V5.1",
+      "sources": [
+        71
+      ],
+      "owner": "Q",
+      "requirements": [
+        "42"
+      ],
+      "dependencies": [
+        "R-02"
+      ],
+      "state": "UNTRIGGERED",
+      "reservedPaths": [
+        "docs/reports/v5.1/r-05.md",
+        "plugins/better-workflows/scripts/tests/v51-r-05.test.mjs"
+      ],
+      "contractDigest": "e5717a320f2aaf6abde7d656fc07a5ab828d24a5c93ce2168bf0739adad1df11",
+      "contract": {
+        "code": "R-05",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/r-05.md",
+          "plugins/better-workflows/scripts/tests/v51-r-05.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 110,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "R-06",
+      "title": "Node／worker／Rust 公平 benchmark",
+      "version": "V5.1",
+      "sources": [
+        72
+      ],
+      "owner": "Q",
+      "requirements": [
+        "36b",
+        "43"
+      ],
+      "dependencies": [
+        "R-03",
+        "R-04",
+        "R-05"
+      ],
+      "state": "UNTRIGGERED",
+      "reservedPaths": [
+        "docs/reports/v5.1/r-06.md",
+        "plugins/better-workflows/scripts/tests/v51-r-06.test.mjs"
+      ],
+      "contractDigest": "8a6e9c3a929c8c6e898f59acbc71d2b106ee7fa1b9c79cee72b726067c123b50",
+      "contract": {
+        "code": "R-06",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/r-06.md",
+          "plugins/better-workflows/scripts/tests/v51-r-06.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 111,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "P-01",
+      "title": "P0 C cohort 與 P1 啟動結論",
+      "version": "V5.1",
+      "sources": [
+        91
+      ],
+      "owner": "Q",
+      "requirements": [
+        "82b",
+        "83"
+      ],
+      "dependencies": [
+        "W0-04",
+        "C-04"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/p-01.md",
+        "plugins/better-workflows/scripts/tests/v51-p-01.test.mjs"
+      ],
+      "contractDigest": "3f318eb48d6dc52b3f32997cd8bbbbca0f55d5f66e2201dcbf0801453d3dcca3",
+      "contract": {
+        "code": "P-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/p-01.md",
+          "plugins/better-workflows/scripts/tests/v51-p-01.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 112,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "P-02a",
+      "title": "離線本機 Shadow harness",
+      "version": "V5.1",
+      "sources": [
+        92
+      ],
+      "owner": "W",
+      "requirements": [
+        "84"
+      ],
+      "dependencies": [
+        "P-01"
+      ],
+      "state": "UNTRIGGERED",
+      "reservedPaths": [
+        "docs/reports/v5.1/p-02a.md",
+        "plugins/better-workflows/scripts/lib/v51-p-02a.mjs",
+        "plugins/better-workflows/scripts/tests/v51-p-02a.test.mjs"
+      ],
+      "contractDigest": "7c96b38f46bbcf393b89eb6ade5ac70349a18c590300ba4accb67d87793d2879",
+      "contract": {
+        "code": "P-02a",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/p-02a.md",
+          "plugins/better-workflows/scripts/lib/v51-p-02a.mjs",
+          "plugins/better-workflows/scripts/tests/v51-p-02a.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "未觸發；原任務結束後離線研究，無正式import/query/wait/decision/effect/completion；不進GA。",
+      "issueNumber": 113,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "P-02b",
+      "title": "DecisionBench 與 calibration",
+      "version": "V5.1",
+      "sources": [
+        92
+      ],
+      "owner": "Q",
+      "requirements": [
+        "85"
+      ],
+      "dependencies": [
+        "P-02a"
+      ],
+      "state": "UNTRIGGERED",
+      "reservedPaths": [
+        "docs/reports/v5.1/p-02b.md",
+        "plugins/better-workflows/scripts/tests/v51-p-02b.test.mjs"
+      ],
+      "contractDigest": "77042057e2449ca367225f60833ccca7c995b95c15c3ed85cb69eabd71726ba9",
+      "contract": {
+        "code": "P-02b",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/p-02b.md",
+          "plugins/better-workflows/scripts/tests/v51-p-02b.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "未觸發；held-out/時間分割/繁中英文/風險slice/calibration/成本；負面與樣本不足如實結案。",
+      "issueNumber": 114,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "V50-01",
+      "title": "reviewer aggregate source budget 驗收差額",
+      "version": "V5.0",
+      "sources": [
+        107
+      ],
+      "owner": "Q",
+      "requirements": [],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.0/v50-01.md",
+        "plugins/better-workflows/scripts/tests/v51-v50-01.test.mjs"
+      ],
+      "contractDigest": "244c6b0c24cd9b543522e565cb88ac7b4b061d38858f708124cb403067193a52",
+      "contract": {
+        "code": "V50-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.0/v50-01.md",
+          "plugins/better-workflows/scripts/tests/v51-v50-01.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "source已存在aggregate MAX65536 budget；核對實際consumer及negative，僅补缺口。",
+      "issueNumber": 115,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "V50-02",
+      "title": "strict JSON parser 驗收差額",
+      "version": "V5.0",
+      "sources": [
+        114
+      ],
+      "owner": "Q",
+      "requirements": [],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.0/v50-02.md",
+        "plugins/better-workflows/scripts/tests/v51-v50-02.test.mjs"
+      ],
+      "contractDigest": "8248c02543e0b891def8ca73ae34d0db23c562bd7019c5258a296245fecd6895",
+      "contract": {
+        "code": "V50-02",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.0/v50-02.md",
+          "plugins/better-workflows/scripts/tests/v51-v50-02.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "strict-json-v1已存在；重複keys/trailing bytes/consumer當次驗收，僅補差額。",
+      "issueNumber": 116,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "V50-03",
+      "title": "private input snapshot consumer 驗收差額",
+      "version": "V5.0",
+      "sources": [
+        115
+      ],
+      "owner": "Q",
+      "requirements": [],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.0/v50-03.md",
+        "plugins/better-workflows/scripts/tests/v51-v50-03.test.mjs"
+      ],
+      "contractDigest": "3c07c3f11429ddc1fa85ebefd8f96f5ec2073aefbab604433cf48016b2628a9f",
+      "contract": {
+        "code": "V50-03",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.0/v50-03.md",
+          "plugins/better-workflows/scripts/tests/v51-v50-03.test.mjs"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "private-input-snapshot-v1已接線；getter/prototype/aliasing/byte-limits核對，僅補差額。",
+      "issueNumber": 117,
+      "dispatchMode": "read-only-proposal",
+      "readOnlyInspectionAllowed": true,
+      "readinessBlocker": "尚未凍結完整 dispatch packet：exact dev SHA、接口、dependency receipts、驗收命令與停止条件。唯讀調查可先行，不能派實作。"
+    },
+    {
+      "code": "RC2-L12",
+      "title": "RC2 延後語系第一組 12 語系",
+      "version": "V5.0",
+      "sources": [
+        110,
+        116
+      ],
+      "owner": "W",
+      "requirements": [],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.0/rc2-l12.md"
+      ],
+      "contractDigest": "c321859288abd67f0ca9ba59b4458572bcafcd558fa188129b919f99cb994c9a",
+      "contract": {
+        "code": "RC2-L12",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.0/rc2-l12.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ],
+        "localeIds": [
+          "zh-Hant",
+          "zh-Hant-HK",
+          "zh-Hans",
+          "vi",
+          "uk",
+          "tr",
+          "th",
+          "sv",
+          "sk",
+          "ru",
+          "ro",
+          "pt"
+        ],
+        "provenance": "old audit shards 110/111/112 excluding en and zh-Hant-TW; public import/content rights still required"
+      },
+      "detail": "精確locale IDs：zh-Hant, zh-Hant-HK, zh-Hans, vi, uk, tr, th, sv, sk, ru, ro, pt。此身份清單不是內容或source rights closure；公共實作輸入未閉合保持BLOCKED。翻譯/generator output須語義審查、QA及sameSHA readback；共享catalog/generator由Root接線。",
+      "issueNumber": 118,
+      "dispatchMode": "requires-root-packet",
+      "localeIds": [
+        "zh-Hant",
+        "zh-Hant-HK",
+        "zh-Hans",
+        "vi",
+        "uk",
+        "tr",
+        "th",
+        "sv",
+        "sk",
+        "ru",
+        "ro",
+        "pt"
+      ]
+    },
+    {
+      "code": "RC2-L14",
+      "title": "RC2 延後語系第二組 14 語系",
+      "version": "V5.0",
+      "sources": [
+        111,
+        116
+      ],
+      "owner": "W",
+      "requirements": [],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.0/rc2-l14.md"
+      ],
+      "contractDigest": "ca4efe41c4de2433dd6759018536bfeef1d6eb976eb07e2be9378f483ac37dac",
+      "contract": {
+        "code": "RC2-L14",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.0/rc2-l14.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ],
+        "localeIds": [
+          "pt-BR",
+          "pl",
+          "nl",
+          "nb",
+          "my",
+          "ms",
+          "lo",
+          "ko",
+          "km",
+          "ja",
+          "it",
+          "id",
+          "hu",
+          "hr"
+        ],
+        "provenance": "old audit shards 110/111/112 excluding en and zh-Hant-TW; public import/content rights still required"
+      },
+      "detail": "精確locale IDs：pt-BR, pl, nl, nb, my, ms, lo, ko, km, ja, it, id, hu, hr。此身份清單不是內容或source rights closure；公共實作輸入未閉合保持BLOCKED。翻譯/generator output須語義審查、QA及sameSHA readback；共享catalog/generator由Root接線。",
+      "issueNumber": 119,
+      "dispatchMode": "requires-root-packet",
+      "localeIds": [
+        "pt-BR",
+        "pl",
+        "nl",
+        "nb",
+        "my",
+        "ms",
+        "lo",
+        "ko",
+        "km",
+        "ja",
+        "it",
+        "id",
+        "hu",
+        "hr"
+      ]
+    },
+    {
+      "code": "RC2-L13",
+      "title": "RC2 延後語系第三組 13 語系",
+      "version": "V5.0",
+      "sources": [
+        112,
+        116
+      ],
+      "owner": "W",
+      "requirements": [],
+      "dependencies": [
+        "GOV-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.0/rc2-l13.md"
+      ],
+      "contractDigest": "d6d3f0090048b716f6d9ed1f0cda1c2209c6465c504b1d1d81d67cbf31a39ea6",
+      "contract": {
+        "code": "RC2-L13",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.0/rc2-l13.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ],
+        "localeIds": [
+          "hi",
+          "he",
+          "fr",
+          "fil",
+          "fi",
+          "es",
+          "es-MX",
+          "el",
+          "de",
+          "da",
+          "cs",
+          "ca",
+          "ar"
+        ],
+        "provenance": "old audit shards 110/111/112 excluding en and zh-Hant-TW; public import/content rights still required"
+      },
+      "detail": "精確locale IDs：hi, he, fr, fil, fi, es, es-MX, el, de, da, cs, ca, ar。此身份清單不是內容或source rights closure；公共實作輸入未閉合保持BLOCKED。翻譯/generator output須語義審查、QA及sameSHA readback；共享catalog/generator由Root接線。",
+      "issueNumber": 120,
+      "dispatchMode": "requires-root-packet",
+      "localeIds": [
+        "hi",
+        "he",
+        "fr",
+        "fil",
+        "fi",
+        "es",
+        "es-MX",
+        "el",
+        "de",
+        "da",
+        "cs",
+        "ca",
+        "ar"
+      ]
+    },
+    {
+      "code": "RC2-SITE",
+      "title": "RC2 語系網站接回與 41 語系核對",
+      "version": "V5.0",
+      "sources": [
+        117
+      ],
+      "owner": "W",
+      "requirements": [],
+      "dependencies": [
+        "RC2-L12",
+        "RC2-L14",
+        "RC2-L13"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.0/rc2-site.md"
+      ],
+      "contractDigest": "7d46d0b2b424e37bf11f2282e8ef488c7b92091f1fcc0272f91494e0f5ab5071",
+      "contract": {
+        "code": "RC2-SITE",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.0/rc2-site.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 121,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "RC2-ROOT",
+      "title": "RC2 candidate 最終整合與 release gates",
+      "version": "V5.0",
+      "sources": [
+        20,
+        32,
+        118
+      ],
+      "owner": "R",
+      "requirements": [],
+      "dependencies": [
+        "RC2-SITE"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "Root serialized integration; exact files must be frozen in dispatch packet"
+      ],
+      "contractDigest": "2d72e6402ce025f75e43667da7e0125d83c4a1a6d579dcb720c8ef82ec48cac7",
+      "contract": {
+        "code": "RC2-ROOT",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "Root serialized integration; exact files must be frozen in dispatch packet"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "",
+      "issueNumber": 122,
+      "dispatchMode": "requires-root-packet"
+    },
+    {
+      "code": "CC-01",
+      "title": "Claude Code host trust 與 attestation",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "W",
+      "requirements": [
+        "93"
+      ],
+      "dependencies": [
+        "B-08",
+        "W0-01",
+        "W0-06"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/cc-01.md"
+      ],
+      "contractDigest": "0e8857b9e782ee582f380ba483733effeeb5b0104ed25cb35b229e60ad0a92d4",
+      "contract": {
+        "code": "CC-01",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/cc-01.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "Claude Code host trust 與 attestation：`claude-code` 加入 `V5_HOST_IDS`、`host-support-v1.json` 與 host conformance matrix；host 身分、CLI 版本與 plugin 安裝來源由實際觀察綁定",
+      "issueNumber": null,
+      "dispatchMode": "requires-root-packet",
+      "readinessBlocker": "Full qualification remains BLOCKED. Phase-specific preparation is not implementation admission; see v5-1-claude-claims.json and the reviewed dispatch SOP."
+    },
+    {
+      "code": "CC-02",
+      "title": "Claude critic native producer",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "W",
+      "requirements": [
+        "94"
+      ],
+      "dependencies": [
+        "B-08",
+        "CC-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/cc-02.md"
+      ],
+      "contractDigest": "c5eea4a218ff661a1a4a61c7a9bec80a34f9d0eb6fa0003b62d3faa29bb0a122",
+      "contract": {
+        "code": "CC-02",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/cc-02.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "Native critic producer：隔離的 Claude critic 只產出 advisory review；經 host-signed producer 封裝後才可進 deep／critical evidence；Claude CLI 呼叫限制 argv、環境、逾時與輸出上限",
+      "issueNumber": null,
+      "dispatchMode": "requires-root-packet",
+      "readinessBlocker": "Full qualification remains BLOCKED. Phase-specific preparation is not implementation admission; see v5-1-claude-claims.json and the reviewed dispatch SOP."
+    },
+    {
+      "code": "CC-03",
+      "title": "Claude Code security semantics",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "W",
+      "requirements": [
+        "95"
+      ],
+      "dependencies": [
+        "B-09a",
+        "B-09b",
+        "B-09c",
+        "B-09d",
+        "B-11",
+        "CC-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/cc-03.md"
+      ],
+      "contractDigest": "41b1c5cb8a2801a68645b23d7e4f8b2c9d2ebb59771c5e0cef268e14165ecb51",
+      "contract": {
+        "code": "CC-03",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/cc-03.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "Claude Code security semantics：hooks、agents、session context 與 permission 模式對照 Better Workflows authority 邊界；Root-only mutation 與 fail-closed 不因 host 不同而放寬",
+      "issueNumber": null,
+      "dispatchMode": "requires-root-packet",
+      "readinessBlocker": "Full qualification remains BLOCKED. Phase-specific preparation is not implementation admission; see v5-1-claude-claims.json and the reviewed dispatch SOP."
+    },
+    {
+      "code": "CC-04",
+      "title": "Claude Code bounded-autopilot 能力宣告",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "W",
+      "requirements": [
+        "96"
+      ],
+      "dependencies": [
+        "B-08",
+        "CC-01",
+        "CC-03"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/cc-04.md"
+      ],
+      "contractDigest": "5d8e6b7a453ad94cbeed4de459a6c4c2c79a05309736a49734adc1bbf08a620f",
+      "contract": {
+        "code": "CC-04",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/cc-04.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "Host-aware bounded-autopilot contract：`bounded-autopilot-v1` 加入 Claude Code 能力宣告；未宣告或不支援的能力明確 HOLD，不以其他 host 的能力推定",
+      "issueNumber": null,
+      "dispatchMode": "requires-root-packet",
+      "readinessBlocker": "Full qualification remains BLOCKED. Phase-specific preparation is not implementation admission; see v5-1-claude-claims.json and the reviewed dispatch SOP."
+    },
+    {
+      "code": "CC-05",
+      "title": "Claude Code 四個真實登入 evaluation",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "Q",
+      "requirements": [
+        "97"
+      ],
+      "dependencies": [
+        "CC-02",
+        "CC-03",
+        "CC-04"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/cc-05.md"
+      ],
+      "contractDigest": "d61ce662762bbbb505994f5a3dff866ecb718a6137d8c66c4318ffa5a4afc524",
+      "contract": {
+        "code": "CC-05",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "Q",
+        "reservedPaths": [
+          "docs/reports/v5.1/cc-05.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "四個真實登入 evaluation：auto 綁定已安裝 helper、autopilot hold、critical 使用唯讀子代理、self-improve hold；以 owner 登入的真實 Claude Code 執行並保存原始輸出",
+      "issueNumber": null,
+      "dispatchMode": "requires-root-packet",
+      "readinessBlocker": "Full qualification remains BLOCKED. Phase-specific preparation is not implementation admission; see v5-1-claude-claims.json and the reviewed dispatch SOP."
+    },
+    {
+      "code": "CC-06",
+      "title": "Claude Code model pinning",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "W",
+      "requirements": [
+        "98"
+      ],
+      "dependencies": [
+        "B-04a",
+        "B-08",
+        "CC-05"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/cc-06.md"
+      ],
+      "contractDigest": "3d6932e5d75ab57389dc4f8483bd60cdb6c81b5dcdae5077ba772403daca0ce0",
+      "contract": {
+        "code": "CC-06",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "W",
+        "reservedPaths": [
+          "docs/reports/v5.1/cc-06.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "Model pinning：Claude Code 執行的模型 ID 與 CLI 版本以實際觀察記錄並釘選；漂移時重新驗證",
+      "issueNumber": null,
+      "dispatchMode": "requires-root-packet",
+      "readinessBlocker": "Full qualification remains BLOCKED. Phase-specific preparation is not implementation admission; see v5-1-claude-claims.json and the reviewed dispatch SOP."
+    },
+    {
+      "code": "CC-07",
+      "title": "Claude Code release receipts",
+      "version": "V5.1",
+      "sources": [],
+      "owner": "R",
+      "requirements": [
+        "99"
+      ],
+      "dependencies": [
+        "B-04b",
+        "B-04c",
+        "B-04d",
+        "CC-01",
+        "CC-05",
+        "CC-06",
+        "REL-01"
+      ],
+      "state": "BLOCKED",
+      "reservedPaths": [
+        "docs/reports/v5.1/cc-07.md"
+      ],
+      "contractDigest": "0c8999a533e29bf49dc270013dc46a9bf5f0993461cb71e146c6c9d8cbe176b4",
+      "contract": {
+        "code": "CC-07",
+        "base": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+        "owner": "R",
+        "reservedPaths": [
+          "docs/reports/v5.1/cc-07.md"
+        ],
+        "forbidden": [
+          "shared facade edits without Root",
+          "Git/provider mutations",
+          "release/activation",
+          "authority expansion"
+        ],
+        "compatibility": null,
+        "beforeWrite": [
+          "exact module exports/error/bytes",
+          "frozen acceptance commands",
+          "rollback",
+          "stop conditions",
+          "dependency receipts"
+        ]
+      },
+      "detail": "Claude Code release receipts：`.claude-plugin/plugin.json`／`marketplace.json`、`rc-publication-source-rights` 允許清單、`tierOneConformanceReceipts` 由 3 增為 4、product scope 與 host conformance 的 same-SHA 收據，以及 marketplace 安裝 smoke",
+      "issueNumber": null,
+      "dispatchMode": "requires-root-packet",
+      "readinessBlocker": "Full qualification remains BLOCKED. Phase-specific preparation is not implementation admission; see v5-1-claude-claims.json and the reviewed dispatch SOP."
+    }
+  ],
+  "sourceRepository": "withheld-private-source",
+  "sourceNumberNamespace": "sources = old issue numbers; requirements = matrix leaf IDs"
+}

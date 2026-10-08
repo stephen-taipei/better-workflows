@@ -17,6 +17,7 @@ import { digestObject } from "./core.mjs";
 import { runSourceGit } from "./git.mjs";
 import { fixedToolPath } from "./formal-evaluator.mjs";
 import { spawnCapture } from "./process-capture.mjs";
+import { SUPPORTED_CODEX_VERSIONS } from "./native-review-version.mjs";
 import {
   SHARD_PROTOCOL, validateShardPolicy, createShardPlan, shardDigest
 } from "./native-review-shards.mjs";
@@ -203,8 +204,69 @@ async function pathAbsent(target) {
   }
 }
 
+// A version probe must not occupy the execution namespace or replace prepared inputs.
+// Preserve drift artifacts for diagnosis; never delete/reuse an existing attempt.
+async function preflightExecutionArtifacts(codex, options, { absent, prepared = [], directory = null }) {
+  const assertArtifacts = async () => {
+    try {
+      for (const target of absent) if (!(await pathAbsent(target))) throw new Error("Artifact exists");
+      if (directory) await assertPhysicalSnapshot(directory, "Prepared native review directory");
+      for (const file of prepared) await assertFileUnchanged(file, "Prepared native review input");
+    } catch {
+      const code = "native-review-cli-preflight-cleanup-incomplete";
+      throw Object.assign(new Error(code), { code });
+    }
+  };
+  await assertArtifacts();
+  let probeError;
+  try { await preflightCodexVersion(codex, options); } catch (error) { probeError = error; }
+  await assertArtifacts();
+  if (probeError) throw probeError;
+}
+
 async function executable(target) {
   try { await access(target, fsConstants.X_OK); return true; } catch { return false; }
+}
+
+export function parseNativeReviewCodexCliVersionV1(stdout) {
+  const match = /^codex-cli (\d+\.\d+\.\d+)$/.exec(String(stdout ?? "").trim());
+  return match?.[1] ?? null;
+}
+
+async function preflightCodexVersion(codex, { cwd, env }) {
+  let result;
+  try {
+    result = await spawnCapture(codex, ["--version"], {
+      cwd, env, timeoutMs: 5_000, maxOutputBytes: 8_192
+    });
+  } catch (error) {
+    const code = error.execution?.groupTerminated === false
+      ? "native-review-cli-preflight-cleanup-incomplete"
+      : "native-review-cli-version-unavailable";
+    throw Object.assign(new Error(code), { code });
+  }
+  if (result.groupTerminated !== true) {
+    throw Object.assign(new Error("native-review-cli-preflight-cleanup-incomplete"), {
+      code: "native-review-cli-preflight-cleanup-incomplete"
+    });
+  }
+  if (result.timedOut || result.outputExceeded || result.code !== 0) {
+    throw Object.assign(new Error("native-review-cli-version-unavailable"), {
+      code: "native-review-cli-version-unavailable"
+    });
+  }
+  const version = parseNativeReviewCodexCliVersionV1(result.stdout);
+  if (!version) {
+    throw Object.assign(new Error("native-review-cli-version-format-invalid"), {
+      code: "native-review-cli-version-format-invalid"
+    });
+  }
+  if (!SUPPORTED_CODEX_VERSIONS.includes(version)) {
+    throw Object.assign(new Error("native-review-cli-version-unsupported"), {
+      code: "native-review-cli-version-unsupported"
+    });
+  }
+  return version;
 }
 
 async function locateCodex() {
@@ -944,6 +1006,7 @@ export async function runNativeReview({
     toolPath,
     process.env.PATH
   ].filter(Boolean).flatMap((value) => value.split(path.delimiter)))].join(path.delimiter);
+  const launchEnv = { ...process.env, PATH: reviewPath };
   const bridge = fileURLToPath(new URL("../native-review-app-server.mjs", import.meta.url));
   const receiptPath = `${resultPath}.receipt.json`;
   const attemptDirectory = path.join(canonicalRunDir, "native-review-attempts");
@@ -958,6 +1021,24 @@ export async function runNativeReview({
   }
   if (!(await pathAbsent(receiptPath))) {
     throw new Error("Native review receipt path must be absent before consuming the package attempt");
+  }
+  // Single content/job creation is exclusive. Reject an unavailable CLI first.
+  if (!shardPolicy) {
+    await preflightExecutionArtifacts(codex, { cwd: repository, env: launchEnv }, {
+      absent: [attemptPath, receiptPath, resultPath, `${resultPath}.events.jsonl`,
+        path.join(canonicalRunDir, "native-review-content", packageId)]
+    });
+    for (const [file, label] of [[packageFile, "package"], [manifestFile, "manifest"],
+      [instructionFile, "instruction"], [authorizationFile, "authorization"]]) {
+      await assertFileUnchanged(file, label);
+    }
+    await assertPhysicalSnapshot(repositorySnapshot, "Native review repository");
+    await assertPhysicalSnapshot(runDirectorySnapshot, "Native review run directory");
+    await assertPhysicalSnapshot(attemptDirectorySnapshot, "Native review attempt directory");
+    await assertPhysicalSnapshot(resultParentSnapshot, "Native review result parent");
+    const actualHead = String((await runSourceGit(repository, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout).trim();
+    const dirty = String((await runSourceGit(repository, ["status", "--porcelain=v1"])).stdout);
+    if (actualHead !== head || dirty) throw new Error("Native review source changed");
   }
   const preparedPath = path.join(canonicalRunDir, "native-review-content", packageId, "shard-preparation.json");
   let content;
@@ -1016,6 +1097,18 @@ export async function runNativeReview({
       await verifyContent(content);
     };
     await assertFresh();
+    // Prepared index/plan may exist; execution snapshots must follow preflight.
+    const preparedDirectory = await assertPhysicalPath(content.directory, "Prepared native review directory", { directory: true });
+    const preparedInputs = await Promise.all([content.indexPath, planPath, preparedPath]
+      .map(target => boundedFile(target, "Prepared native review input")));
+    await preflightExecutionArtifacts(codex, { cwd: repository, env: launchEnv }, {
+      absent: [attemptPath, receiptPath, resultPath, `${receiptPath}.completion-candidate.json`,
+        path.join(content.directory, "shards"),
+        ...["package", "manifest", "instruction", "authorization", "policy"]
+          .map(name => path.join(content.directory, `${name}.snapshot`))],
+      prepared: preparedInputs, directory: preparedDirectory
+    });
+    await assertFresh();
     const inputs = {};
     for (const [name, file] of Object.entries({ package: packageFile, manifest: manifestFile, instruction: instructionFile,
       authorization: authorizationFile, policy: shardPolicyFile })) {
@@ -1030,7 +1123,7 @@ export async function runNativeReview({
       binding: disclosureBinding, planPath, resultPath, receiptPath });
     return executeShardedReview({ plan, content, binding: disclosureBinding, instruction: instructionFile.bytes.toString("utf8"),
       codex, bridge, repository, resultPath, receiptPath, attemptPath, startedAt, verification,
-      env: { ...process.env, PATH: reviewPath },
+      env: launchEnv,
       io: { createJson, createBytes, atomicJson, boundedFile, verifyContent, assertFresh, spawnReview, validateReview, reviewProtocol } });
   }
   const protocol = reviewProtocol({ base, head, packageId, manifestPaths, content });
@@ -1085,7 +1178,7 @@ export async function runNativeReview({
     execution = await spawnReview(process.execPath, args, {
       cwd: repository,
       input: "",
-      env: { ...process.env, PATH: reviewPath },
+      env: launchEnv,
       timeoutMs,
       timeoutGraceMs,
       maxOutputBytes: MAX_TRACE_BYTES

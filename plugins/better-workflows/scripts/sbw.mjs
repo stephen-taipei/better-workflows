@@ -4773,6 +4773,13 @@ function productQualificationScope(product, hostId, osId) {
 }
 
 async function commandHost(root, subcommand, hostId, options) {
+  if (subcommand === "binding") {
+    assertKnownOptions(options, ["os"]);
+    if (hostId !== "claude-code") throw new Error("host binding requires claude-code");
+    const { observeClaudeHostBindingV1 } = await import("./lib/claude-host-binding-v1.mjs");
+    return observeClaudeHostBindingV1({ osId: String(options.os ?? normalizeHostOs()) });
+  }
+
   if (subcommand === "list") {
     assertKnownOptions(options, []);
     const [hosts, historicalMatrix, product, productMatrix] = await Promise.all([
@@ -4827,7 +4834,7 @@ async function commandHost(root, subcommand, hostId, options) {
       currentProductQualification
     };
   }
-  throw new Error("host subcommand must be list, doctor, or conformance");
+  throw new Error("host subcommand must be list, doctor, conformance, or binding");
 }
 
 async function commandWorkspace(root, subcommand, options) {
@@ -5137,7 +5144,7 @@ function automaticUpdateEligible({ command, options, positional = [], env = proc
   if (!command || command === "help" || command === "version" || command === "update") return false;
   if (!PUBLIC_AUTO_COMMANDS.has(command) || command === "try") return false;
   // Private host consent commands never enter update preparation.
-  if (command === "host" && positional[1] === "consent") return false;
+  if (command === "host" && ["consent", "binding"].includes(positional[1])) return false;
   if (command === "eval") return false;
   if (command === "doctor" && optionEnabled(options?.capabilities)) return false;
   if (emergencyUpdateCommand(positional)) return false;
@@ -5425,6 +5432,7 @@ function help() {
       "sbw doctor --capabilities",
       "sbw host list",
       "sbw host doctor [host-id] [--os macos|linux|windows]",
+      "sbw host binding claude-code [--os macos]",
       "sbw host conformance [host-id] [--os macos|linux|windows] [--write-receipt]",
       "sbw workspace preflight [--intent read-only|modify] [--task-id <id>] [--integration-target <local-branch>] [--profile-target <local-branch>]",
       "sbw workspace create --goal <text> [--task-id <id>] [--integration-target <local-branch>] [--profile-target <local-branch>]",
@@ -6282,7 +6290,7 @@ async function launch() {
   try {
     const result = await main(parsed);
     if (result !== undefined) print(result);
-    if (result?.ok === false) process.exitCode = 2;
+    if (result?.ok === false || (result?.kind === "ClaudeHostBindingObservationV1" && result.result === "HOLD")) process.exitCode = 2;
     if (result?.ok !== false) await finishAutomaticUpdate(updateRoot, automaticUpdate);
   } catch (error) {
     fail(error, error?.exitCode ?? 1);

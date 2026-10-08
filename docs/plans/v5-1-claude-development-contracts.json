@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "kind": "V51RootDevelopmentContractV1",
+  "id": "CC-DEV-01",
+  "parentTask": "CC-01",
+  "phase": "local-development",
+  "authority": "none",
+  "taskCompletion": "BLOCKED",
+  "fullCompletionDependencies": {
+    "CC-01": [
+      "B-08",
+      "W0-01",
+      "W0-06"
+    ],
+    "CC-02": [
+      "B-08",
+      "CC-01"
+    ],
+    "CC-03": [
+      "B-09a",
+      "B-09b",
+      "B-09c",
+      "B-09d",
+      "B-11",
+      "CC-01"
+    ],
+    "CC-04": [
+      "B-08",
+      "CC-01",
+      "CC-03"
+    ],
+    "CC-05": [
+      "CC-02",
+      "CC-03",
+      "CC-04"
+    ],
+    "CC-06": [
+      "B-04a",
+      "B-08",
+      "CC-05"
+    ],
+    "CC-07": [
+      "B-04b",
+      "B-04c",
+      "B-04d",
+      "CC-01",
+      "CC-05",
+      "CC-06",
+      "REL-01"
+    ]
+  },
+  "implementationSource": "51eddd9cecaf3aacaac773f7b54aa2f00d323325",
+  "originalCatalogBase": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+  "sourceDelta": "H4 adds planning/validators/CI only; plugin runtime bytes unchanged from catalog base",
+  "policyDigest": "c3dfddbab919ba0cc309a5aeec0f1ca43cda2b4986dbe46249c9775fd50c3d1f",
+  "workspace": {
+    "bindingStatus": "PRIVATE_EVIDENCE_REQUIRED",
+    "evidenceVisibility": "private",
+    "baseRevision": "51eddd9cecaf3aacaac773f7b54aa2f00d323325",
+    "resourceOrigin": "host-provided",
+    "cleanupDisposition": "preserve-host-provided"
+  },
+  "writeOwner": "root",
+  "writePaths": [
+    "docs/plans/v5-1-claude-development-contracts.json",
+    "docs/plans/v5-1-claude-development.md",
+    "scripts/validate-v51-claude-development.mjs",
+    "scripts/tests/v51-claude-development.test.mjs",
+    "plugins/better-workflows/scripts/lib/claude-host-binding-v1.mjs",
+    "plugins/better-workflows/scripts/sbw.mjs",
+    "plugins/better-workflows/scripts/tests/claude-host-binding-v1.test.mjs",
+    "docs/reports/v5.1/cc-01.md"
+  ],
+  "entryPrerequisites": [
+    {
+      "id": "current-source",
+      "evidence": "Actual clean H4 source and base/runtime delta inspected"
+    },
+    {
+      "id": "task-lease",
+      "evidence": "Official workspace registration and actual lease/branch/integration bindings must be read from private current evidence; this public projection does not verify them"
+    },
+    {
+      "id": "development-contract-review",
+      "evidence": "Independent exact-byte review required before runtime edits"
+    }
+  ],
+  "fullTaskPrerequisiteStatus": {
+    "B-08": "NOT_ACCEPTED",
+    "W0-01": "NOT_ACCEPTED",
+    "W0-06": "NOT_ACCEPTED"
+  },
+  "prerequisiteCoverageReason": "This root-only read-only observer has no restricted implementation dispatch, admission, pilot, release or mutation effects. Full-task upstream contracts remain mandatory for CC-01 qualification/completion. This slice cannot be dispatched as a full CC task.",
+  "runtimeContract": {
+    "module": "plugins/better-workflows/scripts/lib/claude-host-binding-v1.mjs",
+    "exports": [
+      "observeClaudeHostBindingV1",
+      "validateClaudeHostBindingV1"
+    ],
+    "cli": [
+      "host",
+      "binding",
+      "claude-code"
+    ],
+    "cliOptions": [
+      "os"
+    ],
+    "sourceRoot": "derived from executing module; no caller/env override",
+    "sourceBinding": "sorted inventory of executing plugin bundle; no invented commit SHA on installed bundles",
+    "manifestState": "must contain a safe regular .claude-plugin/plugin.json for PASS; missing manifest yields HOLD",
+    "installedSourceAssurance": "Executing-helper bundle only; actual Claude plugin installation not inferred",
+    "cliIdentity": "resolve PATH claude, digest actual regular executable, bounded --version only, check file identity before and after; not a privileged binary execution attestation",
+    "modelIdentity": "not observed by version command; never derive it from requested model",
+    "observationSchema": "ClaudeHostBindingObservationV1",
+    "result": [
+      "PASS",
+      "HOLD"
+    ],
+    "effectFields": {
+      "authority": "observation-only",
+      "releaseEligible": false,
+      "provenanceVerified": false
+    },
+    "bytes": "UTF-8 JSON stdout with canonical SHA-256 observationDigest; CLI PASS exits 0, HOLD exits 2; no receipt file writes, no raw stderr or unrelated environment",
+    "errors": [
+      "host-binding-platform-unavailable",
+      "host-binding-executable-unavailable",
+      "host-binding-executable-unsafe",
+      "host-binding-version-probe-failed",
+      "host-binding-version-format-invalid",
+      "host-binding-manifest-unavailable",
+      "host-binding-manifest-invalid",
+      "host-binding-bundle-unsafe",
+      "host-binding-bundle-limit-exceeded",
+      "host-binding-source-drift",
+      "host-binding-registry-drift"
+    ],
+    "bounds": {
+      "executableBytes": 268435456,
+      "fileBytes": 8388608,
+      "bundleBytes": 67108864,
+      "files": 4096,
+      "versionTimeoutMs": 10000,
+      "versionOutputBytes": 65536,
+      "directories": 4096,
+      "entries": 8192,
+      "depth": 64
+    },
+    "processLifecycle": "Reuse bound-process executor with isolated version environment; verify owned child group termination; no persistent service",
+    "cliExitCodes": {
+      "PASS": 0,
+      "HOLD": 2,
+      "invalidInvocation": 1
+    },
+    "inventoryEnumeration": "Bounded opendir streaming before sorting; directory and total entry counts are bounded including empty directories",
+    "inventoryDepthSemantics": "Executing bundle root is depth 0; each descendant directory or file adds 1. Depth 64 is allowed; depth 65 yields host-binding-bundle-limit-exceeded before the CLI probe."
+  },
+  "acceptanceCommands": [
+    "node --test scripts/tests/v51-claude-development.test.mjs",
+    "node --test plugins/better-workflows/scripts/tests/claude-host-binding-v1.test.mjs plugins/better-workflows/scripts/tests/public-host-safety-v1.test.mjs",
+    "node scripts/validate-v51-plan.mjs",
+    "node scripts/validate-v51-claude-claims.mjs",
+    "node scripts/validate-v51-claude-development.mjs",
+    "node plugins/better-workflows/scripts/sbw.mjs host binding claude-code --os macos"
+  ],
+  "positiveCases": [
+    "Stable complete future-V5.1 bundle produces observation with matching actual byte digests",
+    "CLI command invokes same module and returns stable observation schema",
+    "Installed bundle without .git is observed without fabricated source revision"
+  ],
+  "negativeCases": [
+    "Missing descriptor yields HOLD even if component/plugin validate passed",
+    "Symlink/non-regular/oversized files and replaced executable are rejected",
+    "Source/registry/bundle changes invalidate observation",
+    "Requested model and self-asserted trusted/release/completion fields rejected",
+    "Unsupported OS and unknown CLI options rejected",
+    "Output overrun/timeout/descendants fail closed and are cleaned up",
+    "V5.0 conformance still HOLD for Claude and three-host public scope remains unchanged",
+    "HOLD CLI status is nonzero even when JSON is printed",
+    "Large empty-directory and single-directory entry sets fail within fixed enumeration bounds",
+    "An inventory entry at depth 65 is rejected before CLI execution; an entry at depth 64 remains observable"
+  ],
+  "limits": {
+    "implementationAttempts": 3,
+    "validationRepairAttempts": 3,
+    "processDeadlineMs": 10000,
+    "phaseDeadline": "2026-10-08T08:00:00Z",
+    "aggregateModelTokenCap": null
+  },
+  "rollback": "Revert only this slice files and CLI branch; no installed artifacts or product scope changed",
+  "stopConditions": [
+    "Source/lease/reviewed contract drift",
+    "Unexpected mutation/credential output/release eligibility",
+    "Missing source manifest never converted to successful qualification"
+  ],
+  "completionMeaning": "Local development implementation plus accepted slice evidence only. Does not satisfy full CC-01 READY/DONE or any of CC-02 through CC-07."
+}

@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "kind": "RootDevelopmentContractPublicProjectionV1",
+  "id": "NATIVE-REVIEW-PREFLIGHT-01",
+  "status": "HISTORICAL_PROJECTION",
+  "goal": "Repair the real pre-model native-review startup defect required for full CC01–CC07 delivery; no qualification or guard bypass",
+  "sourceRevision": null,
+  "catalogBase": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+  "sourceBinding": null,
+  "owner": "root",
+  "writePaths": [
+    "docs/plans/v5-1-native-review-preflight-contract.json",
+    "docs/plans/v5-1-native-review-preflight.md",
+    "docs/reports/v5.1/native-review-preflight.md",
+    "plugins/better-workflows/scripts/lib/native-review-runner.mjs",
+    "plugins/better-workflows/scripts/tests/native-review-preflight-v1.test.mjs"
+  ],
+  "parentAcceptanceStatus": "CC-01 through CC-07 BLOCKED; all dependencies unchanged",
+  "authority": "none",
+  "entryEvidence": [
+    "actual clean source/tree and original blocked shard receipt",
+    "existing supported absolute Codex 0.153.4 binary and model catalog",
+    "independent exact-contract review"
+  ],
+  "interface": {
+    "runNativeReview": "existing signature unchanged",
+    "publicExports": "No new authority factory or caller execution callback. A pure version parser may be exported for direct tests; process preflight remains private.",
+    "selectedBinary": "Use the same locateCodex absolute resolved binary and launch environment; task-level CODEX_BINARY existing 0.153.4 selection is explicit, no global setting change.",
+    "order": "Validate immutable input/disclosure and existing once guard; prepareOnly returns without process launch. Actual launch preflights selected --version before any package attempt consumption, then follows existing native bridge and immutable once semantics.",
+    "argv": [
+      "--version"
+    ],
+    "stdoutFormat": "Exactly codex-cli plus one semantic version after trimming, no additional version/text; version must belong to unchanged native-review-version.mjs supported list.",
+    "limits": {
+      "timeoutMs": 5000,
+      "combinedOutputBytes": 8192
+    },
+    "executor": "Reuse existing bounded process capture and require confirmed group cleanup; no persistent services",
+    "successMeaning": "Startup compatibility preflight only. Not model readiness, execution provenance, signed review, host qualification or release.",
+    "errors": [
+      "native-review-cli-version-unavailable",
+      "native-review-cli-version-format-invalid",
+      "native-review-cli-version-unsupported",
+      "native-review-cli-preflight-cleanup-incomplete"
+    ],
+    "errorData": "Stable error codes; no raw stderr/environment/credentials in returned error."
+  },
+  "forbiddenPaths": [
+    "plugins/better-workflows/scripts/lib/native-review-version.mjs",
+    "plugins/better-workflows/scripts/native-review-app-server.mjs",
+    "installed plugin bundle",
+    "global Codex config",
+    "original native-review-attempts/receipt state"
+  ],
+  "invariants": [
+    "existing supported version list unchanged; 0.160.1 remains rejected",
+    "app-server actual handshake guard remains mandatory",
+    "consumed old package remains permanently rejected",
+    "no old attempt deletion/reset, same-HEAD duplicate package or dummy commit",
+    "candidate runner is never substituted for immutable installed reviewer to accept itself",
+    "no changed full CC denominator/READY/qualification/authorization"
+  ],
+  "verification": {
+    "commands": [
+      "node --test plugins/better-workflows/scripts/tests/native-review-preflight-v1.test.mjs",
+      "node --test plugins/better-workflows/scripts/tests/claude-host-binding-v1.test.mjs plugins/better-workflows/scripts/tests/public-host-safety-v1.test.mjs scripts/tests/v51-claude-development.test.mjs",
+      "node plugins/better-workflows/scripts/sbw.mjs eval",
+      "node scripts/validate-v51-plan.mjs",
+      "node scripts/validate-v51-claude-claims.mjs",
+      "node scripts/validate-v51-claude-development.mjs"
+    ],
+    "nodeVersions": [
+      "22.23.1",
+      "24.12.0"
+    ],
+    "positiveCases": [
+      "supported preflight proceeds to original handshake and attempt path",
+      "prepareOnly does not execute selected binary",
+      "sharded and non-sharded entry preserve behavior"
+    ],
+    "negativeCases": [
+      "unsupported selected version creates no consumed attempt and starts no app-server/model",
+      "malformed/nonzero/timeout/output-overrun reject before consuming attempt",
+      "owned descendants terminated, cleanup UNKNOWN rejected",
+      "supported --version never bypasses actual unsupported handshake",
+      "already-consumed package still rejected"
+    ],
+    "formalNewHeadReview": "Original installed reviewer with task-only existing supported Codex 0.153.4; complete candidate scope; formal source/output/budget bindings required."
+  },
+  "budget": {
+    "priorImplementationAttempts": 1,
+    "remainingImplementationAttempts": 2,
+    "priorSourceValidationRepairAttempts": 1,
+    "remainingSourceValidationRepairAttempts": 2,
+    "priorLaunchEnvironmentRepairAttempts": 1,
+    "priorDeliveryReviewStageAttempts": 1,
+    "currentReviewStageAttempts": 1,
+    "currentPreModelBlockedLaunchAttempts": 1,
+    "remainingReviewStageAttempts": 3,
+    "deadline": "2026-10-08T08:00:00Z",
+    "aggregateModelTokenCap": null,
+    "noProgressLimit": 2
+  },
+  "rollback": "Revert only these source files and new local commit; no installed artifact/key/config changed. Preserve original blocked receipt and all predecessor history.",
+  "lifecycle": {
+    "owner": "root",
+    "recordPidPpidDescendants": true,
+    "recordCwd": true,
+    "recordPortsSockets": true,
+    "cleanup": "Bounded capture group termination plus current PID/group readback; retain only test/reproduction evidence."
+  },
+  "stopConditions": [
+    "independent contract not accepted",
+    "unknown selected binary/version or group cleanup",
+    "source or exact ownership drift",
+    "remaining inherited attempts/deadline exhausted",
+    "required commit action authority absent"
+  ],
+  "createdAt": "2026-10-08T05:49:44.427042+00:00",
+  "sourceRevisionVisibility": "private-evidence-required",
+  "sourceBindingVisibility": "private-evidence-required",
+  "projectionMeaning": "Historical development interface/budget reference only; original exact-source contract and review remain in private evidence. No source, lease, policy, dispatch or runtime admission is established by this projection."
+}

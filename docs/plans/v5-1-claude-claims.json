@@ -1,0 +1,484 @@
+{
+  "schemaVersion": 1,
+  "kind": "V51ClaudeClaimPlanV1",
+  "authority": "none",
+  "developmentBase": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+  "sourceDigest": "2694daf569ea621e21bbb607631c037034399a7f21c81042a7188acab4c4934b",
+  "trackedLeaves": 109,
+  "gaObligations": 107,
+  "taskCompletion": "BLOCKED",
+  "claims": [
+    {
+      "task": "CC-01",
+      "requirement": "93",
+      "requirementDependencies": "58、81、89a",
+      "development": {
+        "state": "PROPOSAL",
+        "receiptClass": "local-development",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "observed-host-identity",
+            "installed-source-binding"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "contract-review",
+          "positive-tests",
+          "negative-tests"
+        ],
+        "mayCompleteTask": false
+      },
+      "qualification": {
+        "state": "HOLD",
+        "receiptClass": "live-qualification",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "observed-host-identity",
+            "installed-source-binding"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "live-host-observation",
+          "independent-verification"
+        ],
+        "mayCompleteTask": false
+      },
+      "release": {
+        "state": "HOLD",
+        "receiptClass": "protected-release",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "observed-host-identity",
+            "installed-source-binding"
+          ]
+        },
+        "requiredEvidence": [
+          "qualified-claim",
+          "same-source-release-binding"
+        ],
+        "mayCompleteTask": false
+      },
+      "completionDependencies": [
+        "B-08",
+        "W0-01",
+        "W0-06"
+      ]
+    },
+    {
+      "task": "CC-02",
+      "requirement": "94",
+      "requirementDependencies": "58、93",
+      "development": {
+        "state": "PROPOSAL",
+        "receiptClass": "local-development",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "advisory-only-critic",
+            "host-signed-producer-required"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "contract-review",
+          "positive-tests",
+          "negative-tests"
+        ],
+        "mayCompleteTask": false
+      },
+      "qualification": {
+        "state": "HOLD",
+        "receiptClass": "live-qualification",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "advisory-only-critic",
+            "host-signed-producer-required"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "live-host-observation",
+          "independent-verification"
+        ],
+        "mayCompleteTask": false
+      },
+      "release": {
+        "state": "HOLD",
+        "receiptClass": "protected-release",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "advisory-only-critic",
+            "host-signed-producer-required"
+          ]
+        },
+        "requiredEvidence": [
+          "qualified-claim",
+          "same-source-release-binding"
+        ],
+        "mayCompleteTask": false
+      },
+      "completionDependencies": [
+        "B-08",
+        "CC-01"
+      ]
+    },
+    {
+      "task": "CC-03",
+      "requirement": "95",
+      "requirementDependencies": "60、61、93",
+      "development": {
+        "state": "PROPOSAL",
+        "receiptClass": "local-development",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "root-only-mutation",
+            "permission-fail-closed"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "contract-review",
+          "positive-tests",
+          "negative-tests"
+        ],
+        "mayCompleteTask": false
+      },
+      "qualification": {
+        "state": "HOLD",
+        "receiptClass": "live-qualification",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "root-only-mutation",
+            "permission-fail-closed"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "live-host-observation",
+          "independent-verification"
+        ],
+        "mayCompleteTask": false
+      },
+      "release": {
+        "state": "HOLD",
+        "receiptClass": "protected-release",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "root-only-mutation",
+            "permission-fail-closed"
+          ]
+        },
+        "requiredEvidence": [
+          "qualified-claim",
+          "same-source-release-binding"
+        ],
+        "mayCompleteTask": false
+      },
+      "completionDependencies": [
+        "B-09a",
+        "B-09b",
+        "B-09c",
+        "B-09d",
+        "B-11",
+        "CC-01"
+      ]
+    },
+    {
+      "task": "CC-04",
+      "requirement": "96",
+      "requirementDependencies": "59、93、95",
+      "development": {
+        "state": "PROPOSAL",
+        "receiptClass": "local-development",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "autopilot-hold",
+            "self-improve-hold"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "contract-review",
+          "positive-tests",
+          "negative-tests"
+        ],
+        "mayCompleteTask": false
+      },
+      "qualification": {
+        "state": "HOLD",
+        "receiptClass": "live-qualification",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "autopilot-hold",
+            "self-improve-hold"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "live-host-observation",
+          "independent-verification"
+        ],
+        "mayCompleteTask": false
+      },
+      "release": {
+        "state": "HOLD",
+        "receiptClass": "protected-release",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "autopilot-hold",
+            "self-improve-hold"
+          ]
+        },
+        "requiredEvidence": [
+          "qualified-claim",
+          "same-source-release-binding"
+        ],
+        "mayCompleteTask": false
+      },
+      "completionDependencies": [
+        "B-08",
+        "CC-01",
+        "CC-03"
+      ]
+    },
+    {
+      "task": "CC-05",
+      "requirement": "97",
+      "requirementDependencies": "94、95、96",
+      "development": {
+        "state": "PROPOSAL",
+        "receiptClass": "local-development",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "auto-helper-binding",
+            "autopilot-hold",
+            "critical-read-only-children",
+            "self-improve-hold"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "contract-review",
+          "positive-tests",
+          "negative-tests"
+        ],
+        "mayCompleteTask": false
+      },
+      "qualification": {
+        "state": "HOLD",
+        "receiptClass": "live-qualification",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "auto-helper-binding",
+            "autopilot-hold",
+            "critical-read-only-children",
+            "self-improve-hold"
+          ]
+        },
+        "requiredEvidence": [
+          "auto-raw",
+          "auto-grader",
+          "autopilot-raw",
+          "autopilot-grader",
+          "critical-raw",
+          "critical-grader",
+          "self-improve-raw",
+          "self-improve-grader",
+          "installed-helper",
+          "host-observation"
+        ],
+        "mayCompleteTask": false
+      },
+      "release": {
+        "state": "HOLD",
+        "receiptClass": "protected-release",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "auto-helper-binding",
+            "autopilot-hold",
+            "critical-read-only-children",
+            "self-improve-hold"
+          ]
+        },
+        "requiredEvidence": [
+          "qualified-claim",
+          "same-source-release-binding"
+        ],
+        "mayCompleteTask": false
+      },
+      "completionDependencies": [
+        "CC-02",
+        "CC-03",
+        "CC-04"
+      ]
+    },
+    {
+      "task": "CC-06",
+      "requirement": "98",
+      "requirementDependencies": "51、58、97",
+      "development": {
+        "state": "PROPOSAL",
+        "receiptClass": "local-development",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "observed-model-pinning",
+            "cli-version-pinning"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "contract-review",
+          "positive-tests",
+          "negative-tests"
+        ],
+        "mayCompleteTask": false
+      },
+      "qualification": {
+        "state": "HOLD",
+        "receiptClass": "live-qualification",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "observed-model-pinning",
+            "cli-version-pinning"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "live-host-observation",
+          "independent-verification"
+        ],
+        "mayCompleteTask": false
+      },
+      "release": {
+        "state": "HOLD",
+        "receiptClass": "protected-release",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "observed-model-pinning",
+            "cli-version-pinning"
+          ]
+        },
+        "requiredEvidence": [
+          "qualified-claim",
+          "same-source-release-binding"
+        ],
+        "mayCompleteTask": false
+      },
+      "completionDependencies": [
+        "B-04a",
+        "B-08",
+        "CC-05"
+      ]
+    },
+    {
+      "task": "CC-07",
+      "requirement": "99",
+      "requirementDependencies": "90、93、97、98",
+      "development": {
+        "state": "PROPOSAL",
+        "receiptClass": "local-development",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "v51-package-design"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "contract-review",
+          "positive-tests",
+          "negative-tests"
+        ],
+        "mayCompleteTask": false
+      },
+      "qualification": {
+        "state": "HOLD",
+        "receiptClass": "live-qualification",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "v51-only-package"
+          ]
+        },
+        "requiredEvidence": [
+          "source-inventory",
+          "live-host-observation",
+          "independent-verification"
+        ],
+        "mayCompleteTask": false
+      },
+      "release": {
+        "state": "HOLD",
+        "receiptClass": "protected-release",
+        "scope": {
+          "host": "claude-code",
+          "platform": "macos",
+          "capabilities": [
+            "v51-only-package",
+            "four-host-same-source",
+            "marketplace-readback"
+          ]
+        },
+        "requiredEvidence": [
+          "REL-01",
+          "codex-conformance",
+          "gemini-conformance",
+          "qwen-conformance",
+          "claude-conformance",
+          "marketplace-readback",
+          "source-rights",
+          "owner-publication-authorization"
+        ],
+        "mayCompleteTask": false
+      },
+      "completionDependencies": [
+        "B-04b",
+        "B-04c",
+        "B-04d",
+        "CC-01",
+        "CC-05",
+        "CC-06",
+        "REL-01"
+      ]
+    }
+  ]
+}
