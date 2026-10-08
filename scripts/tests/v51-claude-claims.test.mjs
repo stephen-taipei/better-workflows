@@ -85,3 +85,15 @@ test('current dispatch baseline matches actual catalogs and labels older counts 
   assert.ok(sop.includes(`R10 當前基線：${backlog.tasks.length} 張 task、${requirements.leafTrackingTotal} tracked leaves、${requirements.gaEligibleTotal} GA obligations。`));
   for (const line of sop.split('\n').filter(line => /102／100/.test(line))) assert.match(line, /歷史/);
 });
+
+test('current main-plan index and matrix counts derive from the full catalog', async () => {
+  const doc = await readFile(new URL('v5-1.md', root), 'utf8');
+  const leaves = requirements.rows.filter(row => row.category !== '彙總');
+  const counts = Object.fromEntries(['必交', '決策', '條件', '研究'].map(category =>
+    [category, leaves.filter(row => row.category === category).length]));
+  const ga = leaves.length - counts['研究'];
+  assert.ok(doc.includes(`[${backlog.tasks.length} 張 task、依賴與舊編號對照](v5-1-backlog.json)`));
+  assert.ok(doc.includes(`[${leaves.length} tracked leaves／${ga} GA obligations 契約及 coverage](v5-1-requirements.json)`));
+  assert.ok(doc.includes(`全表 ${requirements.rows.length} 個實體列＝${leaves.length} 個 leaf 加 ${requirements.rows.length - leaves.length} 個彙總列；${leaves.length} 個 leaf 包含 ${counts['必交']} 必交、${counts['決策']} 決策、${counts['條件']} 條件、${counts['研究']} 研究。扣除 ${counts['研究']} 個研究義務後為 ${ga} 個 GA obligations`));
+  for (const line of doc.split('\n').filter(line => /\b(?:102|108|122)\b/.test(line))) assert.match(line, /R8 歷史/);
+});
