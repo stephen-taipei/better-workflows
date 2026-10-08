@@ -2,6 +2,8 @@
 
 ## 使用方式
 
+R10 當前基線：129 張 task、109 tracked leaves、107 GA obligations。122 僅為原始 issue 對照數；新增的七張 CC task 仍為 BLOCKED。下文標示 R8 歷史的 102／100／122 數字只描述當時修訂，不作為 R10 派工或驗收分母。
+
 先由 Root 核對新總表與當次 source。完整工作封包未凍結前保持 BLOCKED；唯讀調查可先行。READY 表示封包及直接前置已驗證，仍不自行授予 effect 權限。BLOCKED 與 UNTRIGGERED 不派實作。
 
 每張 issue 指定 R（Root）、W（開發）或 Q（独立驗證）。角色名稱不授權 effect。適用的 AGENTS.md／CLAUDE.md 允許 delegation 時，積極拆出可獨立驗證、低歧義工作；衝突依指令優先層級處理，未明確授予的寫權不增加。
@@ -29,7 +31,7 @@ Root 在 BLOCKED→READY 前保存 `schemaVersion: 2` 的 `dispatchPacket`。頂
 | conditionalTrigger | 任務含條件leaf時必填，其他任務拒絕；`{evaluatedAt, bindings}`，逐leaf綁定見下節 |
 | packetDigest | 排除packetDigest欄位後，遞迴按物件key排序、保留陣列順序的compact JSON之UTF-8 SHA-256 |
 
-catalog另固定122張工作單的來源對照、owner、版本、leaf mapping、依賴、排他路徑及contract（包含forbidden／beforeWrite）。這個reviewed metadata digest獨立於每張contract自算digest；39個RC2語系須全域唯一，並維持已核定12／14／13組別成員。state、dispatchPacket及執行收據不進此不可變投影。刻意變更planning metadata或base時，必須先提出可審閱的版本差額，再同步修訂catalog與固定digest；不能重算個別contract後自行改寫規劃。
+R10 catalog另固定129張 task（含原122張工作單及7張CC task）的來源對照、owner、版本、leaf mapping、依賴、排他路徑及contract（包含forbidden／beforeWrite）。這個reviewed metadata digest獨立於每張contract自算digest；39個RC2語系須全域唯一，並維持已核定12／14／13組別成員。state、dispatchPacket及執行收據不進此不可變投影。刻意變更planning metadata或base時，必須先提出可審閱的版本差額，再同步修訂catalog與固定digest；不能重算個別contract後自行改寫規劃。
 
 結構checker只檢查schema、固定baseline與封包內binding，不驗證真實身份、policy、檔案bytes、lease有效性、host能力或receipt結果，也不授予effect。Root在固定經審閱的packet digest及標READY之前，須依可信的當次身份與授權證據，核對owner／integrationOwner／reviewers的實際身份、角色、適用授權及審查者依policy要求的獨立性；另須讀回實際host／工具能力、版本與可用性，以及當次dev SHA、來源及policy、直接前置收據、實際worktree／lease與截止時間，完成適用admission。身份、授權、獨立性或host／工具能力缺證據、僅有synthetic值或失配時保持BLOCKED；base已變更時也保持BLOCKED。Root也須核對每项直接前置的當次實際收據，其來源／base／版本與結果符合該前置contract的可接受終態；FAIL／HOLD／UNKNOWN／NOT_RUN或僅有格式正確的digest不能通過。off／未觸發結論只在該前置contract明確接受、已有核定理由與實際收據時成立；否則依賴工作保持BLOCKED。固定packet digest前，Root須核對本批次所有可派工的實際寫入路徑，包含Root保留路徑與共享facade；重疊須先序列化或透過明確owner交接解除，未完成不得READY。UTC時間的結構驗證是確定性snapshot檢查，執行前另核對是否到期。測試中的synthetic owner／lease／receipt不是實際派工證據。
 
@@ -85,7 +87,7 @@ Windows 名稱規則來源：[Microsoft Naming Files, Paths, and Namespaces](htt
 
 Root依evidenceDigest讀回實際證據，核對門檻、預註冊、結果、來源與policy規定的有效期限，才固定獨立經審閱packet digest。row34的門檻預註冊須早於查看codec結果，無須早於W0原始量測。執行前重新核對觸發證據、lease與budget有效性；缺證據、過期、結果不符或來源失配保持BLOCKED。未成立且有合格實際理由時維持UNTRIGGERED；off／未觸發不是觸發成立的證明。不存在`triggered:true`、自述批准狀態或任意criterion字串的通行方式。
 
-完整synthetic conditional packet可以通過結構驗證，但catalog READY仍要求獨立固定packet digest及Root實際admission。當前固定READY表仍為空、條件task仍未啟動；本次修訂不變更requirements rows、task mapping、固定metadata digests或102／100分母。
+完整synthetic conditional packet可以通過結構驗證，但catalog READY仍要求獨立固定packet digest及Root實際admission。當前固定READY表仍為空、條件task仍未啟動；R8 歷史修訂當時未變更requirements rows、task mapping、固定metadata digests或102／100分母；R10 當前值與 metadata digest 以本頁首段及 Claude amendment 為準。
 
 
 ## 規劃投影的封閉來源語法
@@ -105,7 +107,7 @@ inline code／HTML；backtick 不得跨欄配對，欄內 escaped pipe 保留。
 只接受 column-zero 且位於文件起點或 ASCII 空行之後的頂層區塊；縮排開啟或
 緊接容器文字的歧義位置拒絕，不能用清單 fence 遮罩已退出容器的需求表。
 此來源契約收緊需經獨立 source review；本機測試、header registry 或結構通過不建立
-READY、authority、runtime qualification、啟用、部署或 GA。102／100／122 分母不變。
+READY、authority、runtime qualification、啟用、部署或 GA。R8 歷史：102／100／122 分母不變；此歷史敘述不適用 R10 當前分母。
 
 ## R10 Claude phase／claim 邊界
 

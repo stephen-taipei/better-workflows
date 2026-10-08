@@ -79,3 +79,9 @@ test('rejects deleted unrelated requirement rows even when declared totals remai
 test('a supplied empty inventory never attests projection completeness', () => {
   assert.equal(validateV50ClaudeExclusion([], []).inventoryCompletenessVerified, false);
 });
+
+test('current dispatch baseline matches actual catalogs and labels older counts historical', async () => {
+  const sop = await readFile(new URL('v5-1-dispatch.md', root), 'utf8');
+  assert.ok(sop.includes(`R10 當前基線：${backlog.tasks.length} 張 task、${requirements.leafTrackingTotal} tracked leaves、${requirements.gaEligibleTotal} GA obligations。`));
+  for (const line of sop.split('\n').filter(line => /102／100/.test(line))) assert.match(line, /歷史/);
+});
