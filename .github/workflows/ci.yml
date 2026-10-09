@@ -96,6 +96,8 @@ jobs:
             plugins/better-workflows/scripts/tests/skills.test.mjs
       - name: Exercise Apache wire package
         run: npm test --prefix packages/better-workflows-wire
+      - name: Exercise V6 Core package
+        run: npm test --prefix packages/bw-core
       - name: Check exact RC1 generated documents
         shell: bash
         run: |
@@ -167,9 +169,29 @@ jobs:
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: ${{ steps.runtime.outputs.receipt }}
+  core-linux:
+    name: Core / Linux / Node ${{ matrix.node }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.23.3', '24.21.0']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Exercise V6 Core package
+        run: npm test --prefix packages/bw-core
   test:
     name: test
-    needs: runtime
+    needs: [runtime, core-linux]
     if: always()
     runs-on: ubuntu-24.04
     permissions:
@@ -179,6 +201,8 @@ jobs:
         shell: bash
         env:
           RUNTIME_RESULT: ${{ needs.runtime.result }}
+          CORE_LINUX_RESULT: ${{ needs.core-linux.result }}
         run: |
           set -euo pipefail
           test "${RUNTIME_RESULT}" = success
+          test "${CORE_LINUX_RESULT}" = success
