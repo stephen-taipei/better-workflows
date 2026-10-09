@@ -33,6 +33,8 @@ Simple changes move fast. Important work must prove each stage. Git changes run 
 
 [Quick start](docs/guide/getting-started.md) · [Workflows](docs/guide/workflows.md) · [Convergence](docs/guide/convergence-and-authorization.md) · [Architecture](docs/guide/architecture.md) · [Security](docs/guide/security.md) · [CLI](docs/guide/cli-reference.md) · [Full details](docs/details/en.md)
 
+> **Direction change (2026-10-09):** V5 is frozen at RC1 and the V5.1 plan has stopped. Development continues as V6 "Core": evidence binding, action gate, provider reconciliation and permission boundaries, with Claude Code as the first host. See the [roadmap](ROADMAP.md).
+
 **V5 status:** [V5.0 RC1](https://github.com/stephen-taipei/better-workflows/releases/tag/V5.0.rc1) (`5.0.0-rc.1`, tag `V5.0.rc1`) is publicly available as a controlled prerelease, published on October 3, 2026 (Asia/Taipei). It covers one public Auto entrypoint, Codex/Gemini CLI/Qwen Code on macOS, and Node 22/24. RC1 is not GA or a V5 completion claim. GA `5.0.0` remains pending and requires at least 30 natural canary days, 20 consecutive eligible starts, and three distinct repositories. Claude Code, Linux, and Windows qualification is deferred to V5.1.
 
 **Licensing:** The free first-party core is **AGPL-3.0-only**; the physically separate wire package is **Apache-2.0** under its `LICENSE` and `NOTICE`. Professional Pack is planned as proprietary; Cloud is a separate later product. The historical V4 support matrix does not expand the V5.0 RC1 release scope.
