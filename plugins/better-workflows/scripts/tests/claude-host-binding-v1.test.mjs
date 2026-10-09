@@ -148,6 +148,20 @@ async function notExecuted(f, marker, blocker) {
   assert.equal(value.execution.attempted, false);
   assert.ok(value.blockers.includes(blocker), JSON.stringify(value.blockers));
   assert.equal(await lstat(marker).then(() => true, () => false), false);
+  return value;
+}
+for (const [label, file] of [['descriptor', '.claude-plugin/plugin.json'], ['package', 'package.json']]) {
+  for (const [shape, invalid] of [['null', null], ['scalar', 'invalid-manifest'], ['array', []]]) {
+    test(`${label} ${shape} reports the manifest blocker before executing`, mac, async t => {
+      const f = await fixture(t), marker = await markExecution(f);
+      await writeFile(path.join(f.bundle, file), JSON.stringify(invalid));
+      const value = await notExecuted(f, marker, 'host-binding-manifest-invalid');
+      assert.deepEqual(value.blockers, ['host-binding-manifest-invalid']);
+      assert.equal(value.provenanceVerified, false);
+      assert.equal(value.releaseEligible, false);
+      f.module.validateClaudeHostBindingV1(value);
+    });
+  }
 }
 for (const [entryDepth, allowed] of [[64, true], [65, false]]) {
   test(`bundle traversal depth ${entryDepth} ${allowed ? 'remains observable' : 'rejects before execution'}`, mac, async t => {

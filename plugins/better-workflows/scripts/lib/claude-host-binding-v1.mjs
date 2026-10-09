@@ -227,6 +227,8 @@ export async function observeClaudeHostBindingV1(options = {}) {
         manifest = JSON.parse((await regularBytes(path.join(root, MANIFEST), LIMITS.fileBytes)).bytes.toString('utf8'));
         pkg = JSON.parse((await regularBytes(path.join(root, 'package.json'), LIMITS.fileBytes)).bytes.toString('utf8'));
       } catch { fail('host-binding-manifest-invalid'); }
+      if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest) ||
+          pkg === null || typeof pkg !== 'object' || Array.isArray(pkg)) fail('host-binding-manifest-invalid');
       if (manifest.name !== 'better-workflows' || !VERSION.test(manifest.version ?? '') || manifest.version !== pkg.version) fail('host-binding-manifest-invalid');
     }
     const cli = await executable(env);
