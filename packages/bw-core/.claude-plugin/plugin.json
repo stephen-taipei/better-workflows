@@ -1,0 +1,10 @@
+{
+  "name": "better-workflows-core",
+  "version": "0.0.0",
+  "description": "Blocks completion claims on stale test evidence, gates side effects through a policy file, and reconciles unknown results before anything else runs.",
+  "author": { "name": "Better Workflows contributors" },
+  "homepage": "https://github.com/stephen-taipei/better-workflows/tree/main/packages/bw-core",
+  "repository": "https://github.com/stephen-taipei/better-workflows",
+  "license": "Apache-2.0",
+  "keywords": ["evidence", "guardrails", "hooks", "ci", "reconciliation"]
+}

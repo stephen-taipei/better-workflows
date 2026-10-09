@@ -88,7 +88,7 @@ async function pushExpectation(repo, target, branch) {
   return { remote, refs };
 }
 
-export async function beginActions(repo, evaluation, { command, tree, policyDigest, host = null }) {
+export async function beginActions(repo, evaluation, { command, tree, policyDigest, host = null, toolUseId = null }) {
   const [head, branch] = await Promise.all([headCommit(repo), currentBranch(repo)]);
   const ids = [];
   for (const action of evaluation.actions) {
@@ -96,7 +96,7 @@ export async function beginActions(repo, evaluation, { command, tree, policyDige
     const expect = action.kind === "git-push" ? await pushExpectation(repo, action.target, branch) : null;
     await appendEvent(repo, "action.begun", {
       id, kind: action.kind, key: actionKey(action, head), argv: action.argv, target: action.target,
-      command, head, branch, tree, expect, policyDigest, host,
+      command, head, branch, tree, expect, policyDigest, host, toolUseId,
     });
     ids.push(id);
   }
@@ -109,4 +109,10 @@ export async function endActions(repo, ids, { exitCode, detail = null }) {
   const outcome = exitCode === 0 ? "success" : "unknown";
   for (const id of ids) await appendEvent(repo, "action.ended", { id, outcome, exitCode: exitCode ?? null, detail });
   return outcome;
+}
+
+// Only for a call the host proves it refused before running, so nothing
+// can have reached the provider.
+export async function markNotRun(repo, id, detail) {
+  return appendEvent(repo, "action.ended", { id, outcome: "failed", exitCode: null, detail });
 }

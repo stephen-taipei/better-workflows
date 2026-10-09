@@ -8,6 +8,7 @@ import { loadPolicy, POLICY_PATH } from "./policy.mjs";
 import { reconcileManually, reconcileOpen } from "./reconcile.mjs";
 import { openRepo, headCommit, treeState, worktreeTree } from "./repo.mjs";
 import { loadState, openActions } from "./state.mjs";
+import { handleClaudeCodeHook } from "./adapters/claude-code.mjs";
 
 const USAGE = `Usage: bw <command>
 
@@ -20,7 +21,8 @@ const USAGE = `Usage: bw <command>
   reconcile <id> --outcome success|failed --note <text>
                                  Settle an action by hand after checking it yourself
   verify                         Verify the ledger hash chain
-  log [--limit n]                Print recent ledger entries`;
+  log [--limit n]                Print recent ledger entries
+  hook claude-code               Claude Code hook entrypoint (reads the event JSON on stdin)`;
 
 class UsageError extends Error {}
 
@@ -146,6 +148,25 @@ const COMMANDS = {
     for (const entry of entries.slice(-limit)) print(io, `${entry.seq} ${entry.at} ${entry.type} ${JSON.stringify(entry.data)}`);
     return 0;
   },
+};
+
+async function readStdin(stream) {
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+COMMANDS.hook = async (args, { io }) => {
+  if (args[0] !== "claude-code") throw new UsageError("hook supports: claude-code");
+  let input;
+  try {
+    input = JSON.parse(await readStdin(io.stdin ?? process.stdin));
+  } catch {
+    throw new UsageError("hook expects the event JSON on stdin");
+  }
+  const { output, exitCode } = await handleClaudeCodeHook(input);
+  if (output) io.stdout.write(`${JSON.stringify(output)}\n`);
+  return exitCode;
 };
 
 export async function main(argv, { cwd = process.cwd(), io = process } = {}) {

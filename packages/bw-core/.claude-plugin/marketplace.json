@@ -1,0 +1,14 @@
+{
+  "name": "better-workflows",
+  "owner": {
+    "name": "Better Workflows contributors"
+  },
+  "description": "Better Workflows Core for Claude Code: evidence-bound completion, policy-gated side effects and provider reconciliation.",
+  "plugins": [
+    {
+      "name": "better-workflows-core",
+      "source": "./",
+      "description": "Evidence-bound completion, policy-gated side effects and provider reconciliation for Claude Code."
+    }
+  ]
+}

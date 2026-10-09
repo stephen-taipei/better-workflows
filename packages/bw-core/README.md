@@ -4,7 +4,7 @@
 
 Stops an AI coding agent from claiming "done" on stale evidence, from repeating or stacking side effects whose result is unknown, and from taking permissions out of prompt text.
 
-Status: pre-alpha, part of the [V6 roadmap](../../ROADMAP.md). The Claude Code plugin that calls this package from hooks comes next.
+Status: pre-alpha, part of the [V6 roadmap](../../ROADMAP.md). Claude Code is the first host, through the hooks plugin in this package.
 
 ## What it checks
 
@@ -28,6 +28,23 @@ bw reconcile                             # settle unknown actions by probing the
 bw reconcile <id> --outcome success --note "checked the deploy dashboard"
 bw status | bw verify | bw log
 ```
+
+## Claude Code
+
+Until the alpha release, load the plugin from a checkout:
+
+```bash
+claude --plugin-dir path/to/better-workflows/packages/bw-core
+```
+
+| Hook | What it does |
+| --- | --- |
+| `SessionStart` | Records the starting tree and tells the agent which evidence completion needs and which side effects are still unsettled. |
+| `PreToolUse` | Runs the action gate on Bash commands. `deny` blocks the call, `ask` sends it to the permission prompt, `allow` defers to Claude Code's own permission rules and never grants more. Edits to `.better-workflows/` or `.git/` and `bw init` / `bw reconcile <id>` are refused. |
+| `PostToolUse`, `PostToolUseFailure` | Records the exit code: 0 is success, anything else or an interrupt is `unknown`. Records evidence for test, lint, typecheck and build commands. |
+| `Stop`, `SubagentStop` | If files changed in the session and the required evidence is not fresh, sends the agent back once with what is missing; the second time it only warns. |
+
+A side effect refused at the permission prompt never runs and gets no `PostToolUse`. The adapter settles it as `failed` only when the session transcript shows Claude Code's refusal as the tool's result. Any other missing result, an interrupt included, stays `unknown`.
 
 ## Policy
 

@@ -17,7 +17,10 @@
   "files": [
     "bin",
     "src",
+    ".claude-plugin",
+    "hooks",
     "README.md",
+    "README.zh-TW.md",
     "LICENSE",
     "NOTICE"
   ],

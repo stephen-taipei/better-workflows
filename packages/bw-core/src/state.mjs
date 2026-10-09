@@ -9,7 +9,7 @@ export function reduceEntries(entries) {
   const sessions = new Map();
   for (const { type, data, at, seq } of entries) {
     if (type === "evidence.recorded") evidence.push({ ...data, at, seq });
-    else if (type === "session.started") sessions.set(data.session, { ...data, at, seq });
+    else if (type === "session.started" && !sessions.has(data.session)) sessions.set(data.session, { ...data, at, seq });
     else if (type === "action.begun") actions.set(data.id, { ...data, status: "pending", at, seq, history: [] });
     else if (type === "action.ended" || type === "action.reconciled") {
       const action = actions.get(data.id);

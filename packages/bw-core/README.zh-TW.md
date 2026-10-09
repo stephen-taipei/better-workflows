@@ -4,7 +4,7 @@
 
 防止 AI coding agent 拿過期的證據宣稱「完成」、在結果不明的副作用之後繼續疊加動作，以及從 prompt 文字取得權限。
 
-狀態：pre-alpha，屬於 [V6 路線圖](../../docs/ROADMAP.zh-TW.md)。下一步是從 hooks 呼叫本套件的 Claude Code plugin。
+狀態：pre-alpha，屬於 [V6 路線圖](../../docs/ROADMAP.zh-TW.md)。第一個 host 是 Claude Code，透過本套件內的 hooks plugin 接入。
 
 ## 檢查什麼
 
@@ -30,6 +30,24 @@ bw status | bw verify | bw log
 ```
 
 Policy 格式見[英文版](README.md#policy)。policy 檔無效時，所有副作用都會被拒絕，不會退回預設值；過期的規則退回 `ask`。
+
+
+## Claude Code
+
+alpha 發佈前，從 checkout 載入 plugin：
+
+```bash
+claude --plugin-dir path/to/better-workflows/packages/bw-core
+```
+
+| Hook | 行為 |
+| --- | --- |
+| `SessionStart` | 記錄起始 tree，並告訴 agent 完成需要哪些證據、哪些副作用仍未結案。 |
+| `PreToolUse` | 對 Bash 指令執行 action gate。`deny` 擋下，`ask` 交給權限提示，`allow` 交回 Claude Code 自己的權限規則，絕不多給權限。修改 `.better-workflows/`、`.git/` 以及 `bw init`／`bw reconcile <id>` 一律拒絕。 |
+| `PostToolUse`、`PostToolUseFailure` | 記錄 exit code：0 為成功，其他或中斷為 `unknown`。test、lint、typecheck、build 指令同時記錄證據。 |
+| `Stop`、`SubagentStop` | session 內檔案有變更但必要證據不新鮮時，把 agent 退回一次並說明缺什麼；第二次只警告。 |
+
+在權限提示被拒絕的副作用沒有執行，也不會觸發 `PostToolUse`。只有 session transcript 顯示 Claude Code 的拒絕訊息是該工具的結果時，adapter 才會把它結案為 `failed`；其他缺少結果的情況（包含中斷）一律維持 `unknown`。
 
 ## 限制
 
