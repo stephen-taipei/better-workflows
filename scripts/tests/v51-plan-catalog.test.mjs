@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { validateV51Catalog, validateV51DispatchPacket, validateV51PlanProjection } from "../validate-v51-plan.mjs";
+import { validateV51Catalog, validateV51DispatchPacket, validateV51PlanProjection, validateV51AmendmentMetadataDigest } from "../validate-v51-plan.mjs";
 
 const base = new URL("../../docs/plans/", import.meta.url);
 const [requirements, backlog] = await Promise.all(["v5-1-requirements.json", "v5-1-backlog.json"]
@@ -929,4 +929,44 @@ test("GOV-01 forged contract digest rejects despite pinned report paths", () => 
   const changed = structuredClone(backlog);
   changed.tasks.find(item => item.code === "GOV-01").contractDigest = "0".repeat(64);
   assert.throws(() => validateV51Catalog(requirements, changed), /contract digest drift GOV-01/);
+});
+
+// Reproduces the stale documentation anchor that blocked the native review.
+const amendmentText = await readFile(new URL("v5-1-claude-amendment.md", base), "utf8");
+const amendmentDeclaration = "The current reviewed backlog metadata digest is";
+const amendmentDigest = "a5b5a5f3da8050d1673f5c9e8a9683d943876edceb9beee3ad522d3a06af4e00";
+
+test("amendment projects the current reviewed backlog metadata anchor", () => {
+  assert.deepEqual(validateV51AmendmentMetadataDigest(amendmentText), { metadataDigest: amendmentDigest });
+  assert.deepEqual(validateV51AmendmentMetadataDigest(amendmentText.replace(/\n/g, "\r\n")),
+    { metadataDigest: amendmentDigest });
+});
+
+test("amendment rejects the historical stale metadata anchor", () => {
+  const stale = amendmentText.replace(amendmentDigest,
+    "e5c8d530b36362a3a83bc1ee52651bc01963a4d750da3d48857e17b8fd6c9fcc");
+  assert.notEqual(stale, amendmentText);
+  assert.throws(() => validateV51AmendmentMetadataDigest(stale), /amendment metadata digest drift/);
+});
+
+test("amendment rejects a missing current metadata declaration", () => {
+  assert.throws(() => validateV51AmendmentMetadataDigest(amendmentText.replace(amendmentDeclaration, "Removed declaration")),
+    /exactly one current metadata digest declaration/);
+});
+
+test("amendment rejects duplicate and contradictory current metadata declarations", () => {
+  for (const extra of [amendmentDigest, "0".repeat(64), "malformed"]) {
+    assert.throws(() => validateV51AmendmentMetadataDigest(amendmentText +
+      "\n" + amendmentDeclaration + "\n`" + extra + "`\n"), /exactly one current metadata digest declaration/);
+  }
+});
+
+test("amendment rejects noncanonical digest text and missing projection input", () => {
+  for (const bad of [amendmentDigest.toUpperCase(), "0".repeat(63), "g".repeat(64)])
+    assert.throws(() => validateV51AmendmentMetadataDigest(amendmentText.replace(amendmentDigest, bad)),
+      /amendment metadata digest format drift/);
+  for (const value of [null, undefined, {}, []])
+    assert.throws(() => validateV51AmendmentMetadataDigest(value), /amendment projection text missing/);
+  assert.throws(() => validateV51AmendmentMetadataDigest(amendmentText.replace(/\n/g, "\r")),
+    /amendment bare carriage return unsupported/);
 });

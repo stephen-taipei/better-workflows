@@ -86,7 +86,9 @@ coverage. PL-01 and every other requirement remain in the full catalog.
 The source `requirementDependencies` string retains the original matrix spelling;
 `completionDependencies` is the machine-readable task list. The checker validates
 the complete requirements and backlog catalogs before checking these seven claims.
-The reviewed backlog metadata digest changes to
-`e5c8d530b36362a3a83bc1ee52651bc01963a4d750da3d48857e17b8fd6c9fcc`
-for the explicit dependency mapping and withheld private source locator. The
+The current reviewed backlog metadata digest is
+`a5b5a5f3da8050d1673f5c9e8a9683d943876edceb9beee3ad522d3a06af4e00`
+for the public development catalog with the explicit dependency mapping and
+private-evidence-required projection. `scripts/validate-v51-plan.mjs` checks this
+current trust anchor; the documentation does not grant runtime admission. The
 original requirements row digest, leaf count and GA obligation count are unchanged.

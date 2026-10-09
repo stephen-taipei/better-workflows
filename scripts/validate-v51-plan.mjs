@@ -55,6 +55,18 @@ function canonical(value) {
   return value;
 }
 
+// The amendment projects the reviewed catalog anchor; it cannot choose one.
+export function validateV51AmendmentMetadataDigest(amendmentText) {
+  assert.equal(typeof amendmentText, "string", "amendment projection text missing");
+  assert.ok(!/\r(?!\n)/.test(amendmentText), "amendment bare carriage return unsupported");
+  const declarations = amendmentText.match(/^The current reviewed backlog metadata digest is\r?$/gm) ?? [];
+  assert.equal(declarations.length, 1, "amendment needs exactly one current metadata digest declaration");
+  const declaration = amendmentText.match(/^The current reviewed backlog metadata digest is\r?\n`([a-f0-9]{64})`\r?$/m);
+  assert.ok(declaration, "amendment metadata digest format drift");
+  assert.equal(declaration[1], REVIEWED_BACKLOG_METADATA_DIGEST, "amendment metadata digest drift");
+  return { metadataDigest: REVIEWED_BACKLOG_METADATA_DIGEST };
+}
+
 function validatedRequirementsContext(requirements, base, sourceDigest) {
   assert.ok(requirements && typeof requirements === "object" && !Array.isArray(requirements), "dispatch requirements context missing");
   exact(requirements, REQUIREMENTS_ROOT_FIELDS, "requirements root");
@@ -777,5 +789,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     .map(async name => JSON.parse(await readFile(new URL(name, base), "utf8"))));
   const result = validateV51Catalog(requirements, backlog);
   validateV51PlanProjection(requirements, await readFile(new URL("v5-1.md", base), "utf8"));
+  validateV51AmendmentMetadataDigest(await readFile(new URL("v5-1-claude-amendment.md", base), "utf8"));
   console.log(JSON.stringify(result, null, 2));
 }
