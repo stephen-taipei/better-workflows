@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beginActions, endActions, evaluateCommand, markNotRun } from "../actions.mjs";
 import { completionStatus, describeEvidence, recordEvidence } from "../evidence.mjs";
@@ -30,6 +30,23 @@ const preDecision = (decision, reason) => ({
 
 function pendingFile(repo, toolUseId) {
   return path.join(repo.stateDir, "pending", `${String(toolUseId).replace(/[^A-Za-z0-9_-]/g, "_")}.json`);
+}
+
+// Resolves symlinks in the longest existing prefix, so a path reached
+// through a link (macOS /var -> /private/var) compares like the real one.
+async function physicalPath(target) {
+  let existing = target;
+  const rest = [];
+  for (;;) {
+    try {
+      return path.join(await realpath(existing), ...rest);
+    } catch {
+      const parent = path.dirname(existing);
+      if (parent === existing) return target;
+      rest.unshift(path.basename(existing));
+      existing = parent;
+    }
+  }
 }
 
 function isInside(child, parent) {
@@ -107,8 +124,10 @@ async function preToolUse(input, repo) {
   if (FILE_TOOLS.has(input.tool_name)) {
     const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
     if (!target) return null;
-    const absolute = path.resolve(input.cwd ?? repo.root, target);
-    if (isInside(absolute, path.join(repo.root, ".better-workflows")) || isInside(absolute, repo.gitDir)) {
+    const [absolute, root, gitDir] = await Promise.all([
+      physicalPath(path.resolve(input.cwd ?? repo.root, target)), physicalPath(repo.root), physicalPath(repo.gitDir),
+    ]);
+    if (isInside(absolute, path.join(root, ".better-workflows")) || isInside(absolute, gitDir)) {
       return preDecision("deny", `${target} is protected; the policy and ledger are changed by a person, not the agent`);
     }
     return null;
