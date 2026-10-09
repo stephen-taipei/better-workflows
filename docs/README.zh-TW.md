@@ -19,6 +19,8 @@
 
 [快速開始](guide/getting-started.md) · [工作流程](guide/workflows.md) · [收斂與授權（English）](guide/convergence-and-authorization.md) · [架構](guide/architecture.md) · [安全](guide/security.md) · [CLI](guide/cli-reference.md) · [完整細節](details/zh-TW.md) · [透過 USDT (TRC20) 單次贊助](https://betterworkflows.dev/#sponsor)
 
+> **方向調整（2026-10-09）：** V5 定格在 RC1，V5.1 計畫已停止。後續以 V6「Core」繼續開發：證據綁定、action gate、provider 對帳、權限邊界，第一個支援的工具是 Claude Code。詳見[路線圖](ROADMAP.zh-TW.md)。
+
 **V5 狀態與授權：** V5.0 GA（`5.0.0`）尚未發布。[V5.0 RC1](https://github.com/stephen-taipei/better-workflows/releases/tag/V5.0.rc1)（`5.0.0-rc.1`，tag `V5.0.rc1`）已於台灣時間 2026 年 10 月 3 日公開上架，屬受控預發行版本。GA 仍需至少 30 個自然 canary 日、20 次連續符合資格的啟動，以及三個不同儲存庫。第一方核心採 **AGPL-3.0-only**；實體獨立的 minimal wire package 依自己的 `LICENSE` 與 `NOTICE` 採 **Apache-2.0**。基本產品免費；Professional Pack 規劃為專有產品，Cloud 是後續獨立產品。V4 支援矩陣仍屬歷史文件範圍，不擴大 V5.0 RC1 的公開發布範圍。
 
 V5.0 RC1 公開範圍：入口、模板與 skill 僅有 Auto；涵蓋 macOS 上的 Codex、Gemini CLI、Qwen Code，以及 Node 22/24。Claude Code、Linux 與 Windows 的驗收延至 V5.1。
