@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
+import { symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { handleClaudeCodeHook } from "../src/adapters/claude-code.mjs";
 import { loadState } from "../src/state.mjs";
@@ -114,4 +114,15 @@ test("a side effect refused at the prompt is settled from the transcript, an une
   assert.equal(decision(third), "deny");
   state = await loadState(repo);
   assert.equal([...state.actions.values()].find((a) => a.toolUseId === "toolu_retry").status, "unknown");
+});
+
+test("a protected path reached through a symlinked directory is still protected", async (t) => {
+  const { root, base } = await fixtureRepo(t);
+  const link = path.join(base, "linked");
+  await symlink(root, link);
+  const result = await handleClaudeCodeHook({
+    hook_event_name: "PreToolUse", cwd: link, session_id: "s1", tool_name: "Write",
+    tool_input: { file_path: path.join(link, ".better-workflows", "policy.json"), content: "{}" }, tool_use_id: "w2",
+  });
+  assert.equal(decision(result), "deny");
 });
