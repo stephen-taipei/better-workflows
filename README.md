@@ -4,6 +4,56 @@
 
 # Better Workflows
 
+**Your AI coding agent cannot finish on a stale green test, and cannot repeat or stack side effects whose result it never saw.**
+
+[![Core](https://img.shields.io/badge/V6_Core-pre--alpha-B45309?style=flat-square)](packages/bw-core)
+[![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.14.0-3C873A?style=flat-square)](packages/bw-core/package.json)
+[![Core license](https://img.shields.io/badge/Core_license-Apache--2.0-64748B?style=flat-square)](packages/bw-core/LICENSE)
+
+**English** · [繁體中文（台灣）](docs/README.zh-TW.md)
+
+</div>
+
+## What it stops
+
+```text
+agent  runs npm test                  → passes
+agent  edits src/sum.ts               → breaks it
+agent  "Done. Tests pass."
+bw     ✗ Stop blocked. test: last result was for an older tree; files changed since then.
+
+agent  git push origin main           → times out after the push landed
+agent  git push origin main           (retry)
+bw     ✗ Denied. git-push: the same action already succeeded at this commit.
+```
+
+The agent is held to the files as they are now, and to what the provider actually did. Permissions come only from a policy file the agent cannot edit, never from prompt text.
+
+See both stories run in about 2 seconds, without Claude:
+
+```bash
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+```
+
+## Install for Claude Code
+
+```bash
+claude plugin marketplace add ~/.better-workflows/packages/bw-core               # once per machine
+claude plugin install better-workflows-core@better-workflows --scope local    # in your repository
+node ~/.better-workflows/packages/bw-core/bin/bw.mjs init                     # writes .better-workflows/policy.json
+```
+
+Then ask Claude Code for a change and tell it not to run the tests: it is sent back when it tries to finish. [Getting started](packages/bw-core/docs/getting-started.md) covers policies, unknown results and limits. Core is pre-alpha, Apache-2.0, and has no runtime dependencies. Direction and milestones are in the [roadmap](ROADMAP.md).
+
+---
+
+## V5 (frozen at RC1)
+
+V5 is frozen at RC1 and V5.1 has stopped (2026-10-09). The rest of this page describes V5 as released; it is kept for existing users and is no longer extended.
+
+<div align="center">
+
 **Evidence-first AI engineering QA + delivery gatekeeper**
 
 Simple changes move fast. Important work must prove each stage. Git changes run in a task-owned worktree and are integrated only when the target is safe.
@@ -32,8 +82,6 @@ Simple changes move fast. Important work must prove each stage. Git changes run 
 </div>
 
 [Quick start](docs/guide/getting-started.md) · [Workflows](docs/guide/workflows.md) · [Convergence](docs/guide/convergence-and-authorization.md) · [Architecture](docs/guide/architecture.md) · [Security](docs/guide/security.md) · [CLI](docs/guide/cli-reference.md) · [Full details](docs/details/en.md)
-
-> **Direction change (2026-10-09):** V5 is frozen at RC1 and the V5.1 plan has stopped. Development continues as V6 "Core": evidence binding, action gate, provider reconciliation and permission boundaries, with Claude Code as the first host. See the [roadmap](ROADMAP.md).
 
 **V5 status:** [V5.0 RC1](https://github.com/stephen-taipei/better-workflows/releases/tag/V5.0.rc1) (`5.0.0-rc.1`, tag `V5.0.rc1`) is publicly available as a controlled prerelease, published on October 3, 2026 (Asia/Taipei). It covers one public Auto entrypoint, Codex/Gemini CLI/Qwen Code on macOS, and Node 22/24. RC1 is not GA or a V5 completion claim. GA `5.0.0` remains pending and requires at least 30 natural canary days, 20 consecutive eligible starts, and three distinct repositories. Claude Code, Linux, and Windows qualification is deferred to V5.1.
 

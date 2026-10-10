@@ -4,6 +4,56 @@
 
 # Better Workflows
 
+**AI coding agent 不能拿過時的綠燈宣稱完成，也不能在副作用結果不明時重複執行或繼續疊加。**
+
+[![Core](https://img.shields.io/badge/V6_Core-pre--alpha-B45309?style=flat-square)](../packages/bw-core)
+[![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.14.0-3C873A?style=flat-square)](../packages/bw-core/package.json)
+[![Core license](https://img.shields.io/badge/Core_license-Apache--2.0-64748B?style=flat-square)](../packages/bw-core/LICENSE)
+
+[English](../README.md) · **繁體中文（台灣）**
+
+</div>
+
+## 它擋下什麼
+
+```text
+agent  執行 npm test                  → 通過
+agent  修改 src/sum.ts                → 改壞了
+agent  「完成了，測試都通過。」
+bw     ✗ Stop 被擋下。test: last result was for an older tree; files changed since then.
+
+agent  git push origin main           → push 已到達 remote，但呼叫逾時
+agent  git push origin main           （重試）
+bw     ✗ 拒絕。git-push: the same action already succeeded at this commit.
+```
+
+agent 只能依據「現在的檔案」與「provider 實際發生的事」宣稱結果。權限只來自 agent 不能修改的 policy 檔，不來自 prompt 文字。
+
+不需要 Claude，約 2 秒就能看到這兩個故事實際跑一次：
+
+```bash
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+```
+
+## 安裝到 Claude Code
+
+```bash
+claude plugin marketplace add ~/.better-workflows/packages/bw-core               # 每台機器一次
+claude plugin install better-workflows-core@better-workflows --scope local    # 在你的 repository 裡
+node ~/.better-workflows/packages/bw-core/bin/bw.mjs init                     # 寫出 .better-workflows/policy.json
+```
+
+接著請 Claude Code 做一個改動，並告訴它不要跑測試：它要結束時會被退回。policy 設定、結果不明時的處理與限制，請見[快速開始](../packages/bw-core/docs/getting-started.zh-TW.md)。Core 目前是 pre-alpha、Apache-2.0、沒有 runtime 相依套件。方向與里程碑見[路線圖](ROADMAP.zh-TW.md)。
+
+---
+
+## V5（定格於 RC1）
+
+V5 定格在 RC1，V5.1 已停止（2026-10-09）。本頁以下內容描述已發佈的 V5，為既有使用者保留，不再擴充。
+
+<div align="center">
+
 **Goal-first · Evidence-driven · Fail-closed · Risk-adaptive**
 
 讓多品牌 AI agent 依風險選擇驗證強度，在明確授權與工作範圍內執行，並以可重新檢查的證據回報結果。
@@ -13,13 +63,9 @@
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-AGPL--3.0--only-64748B?style=flat-square)](../LICENSE)
 
-[English](../README.md) · **繁體中文（台灣）**
-
 </div>
 
 [快速開始](guide/getting-started.md) · [工作流程](guide/workflows.md) · [收斂與授權（English）](guide/convergence-and-authorization.md) · [架構](guide/architecture.md) · [安全](guide/security.md) · [CLI](guide/cli-reference.md) · [完整細節](details/zh-TW.md) · [透過 USDT (TRC20) 單次贊助](https://betterworkflows.dev/#sponsor)
-
-> **方向調整（2026-10-09）：** V5 定格在 RC1，V5.1 計畫已停止。後續以 V6「Core」繼續開發：證據綁定、action gate、provider 對帳、權限邊界，第一個支援的工具是 Claude Code。詳見[路線圖](ROADMAP.zh-TW.md)。
 
 **V5 狀態與授權：** V5.0 GA（`5.0.0`）尚未發布。[V5.0 RC1](https://github.com/stephen-taipei/better-workflows/releases/tag/V5.0.rc1)（`5.0.0-rc.1`，tag `V5.0.rc1`）已於台灣時間 2026 年 10 月 3 日公開上架，屬受控預發行版本。GA 仍需至少 30 個自然 canary 日、20 次連續符合資格的啟動，以及三個不同儲存庫。第一方核心採 **AGPL-3.0-only**；實體獨立的 minimal wire package 依自己的 `LICENSE` 與 `NOTICE` 採 **Apache-2.0**。基本產品免費；Professional Pack 規劃為專有產品，Cloud 是後續獨立產品。V4 支援矩陣仍屬歷史文件範圍，不擴大 V5.0 RC1 的公開發布範圍。
 

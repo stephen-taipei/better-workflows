@@ -19,6 +19,8 @@
     "src",
     ".claude-plugin",
     "hooks",
+    "examples",
+    "docs",
     "README.md",
     "README.zh-TW.md",
     "LICENSE",

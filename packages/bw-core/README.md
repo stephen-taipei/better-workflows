@@ -4,7 +4,7 @@
 
 Stops an AI coding agent from claiming "done" on stale evidence, from repeating or stacking side effects whose result is unknown, and from taking permissions out of prompt text.
 
-Status: pre-alpha, part of the [V6 roadmap](../../ROADMAP.md). Claude Code is the first host, through the hooks plugin in this package.
+Status: pre-alpha, part of the [V6 roadmap](../../ROADMAP.md). Claude Code is the first host, through the hooks plugin in this package. Start with [Getting started](docs/getting-started.md), or run the [stale-green demo](examples/stale-green/demo.mjs) (`node examples/stale-green/demo.mjs`, about 2 seconds, no Claude needed).
 
 ## What it checks
 
@@ -31,10 +31,12 @@ bw status | bw verify | bw log
 
 ## Claude Code
 
-Until the alpha release, load the plugin from a checkout:
+Until the alpha release, install it from a checkout (details in [Getting started](docs/getting-started.md)):
 
 ```bash
-claude --plugin-dir path/to/better-workflows/packages/bw-core
+claude plugin marketplace add path/to/better-workflows/packages/bw-core
+claude plugin install better-workflows-core@better-workflows --scope local
+node path/to/better-workflows/packages/bw-core/bin/bw.mjs init
 ```
 
 | Hook | What it does |
