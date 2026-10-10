@@ -4,7 +4,7 @@
 
 防止 AI coding agent 拿過期的證據宣稱「完成」、在結果不明的副作用之後繼續疊加動作，以及從 prompt 文字取得權限。
 
-狀態：pre-alpha，屬於 [V6 路線圖](../../docs/ROADMAP.zh-TW.md)。第一個 host 是 Claude Code，透過本套件內的 hooks plugin 接入。
+狀態：pre-alpha，屬於 [V6 路線圖](../../docs/ROADMAP.zh-TW.md)。第一個 host 是 Claude Code，透過本套件內的 hooks plugin 接入。請從[快速開始](docs/getting-started.zh-TW.md)入手，或執行 [stale-green demo](examples/stale-green/demo.mjs)（`node examples/stale-green/demo.mjs`，約 2 秒，不需要 Claude）。
 
 ## 檢查什麼
 
@@ -34,10 +34,12 @@ Policy 格式見[英文版](README.md#policy)。policy 檔無效時，所有副�
 
 ## Claude Code
 
-alpha 發佈前，從 checkout 載入 plugin：
+alpha 發佈前，從 checkout 安裝（細節見[快速開始](docs/getting-started.zh-TW.md)）：
 
 ```bash
-claude --plugin-dir path/to/better-workflows/packages/bw-core
+claude plugin marketplace add path/to/better-workflows/packages/bw-core
+claude plugin install better-workflows-core@better-workflows --scope local
+node path/to/better-workflows/packages/bw-core/bin/bw.mjs init
 ```
 
 | Hook | 行為 |
