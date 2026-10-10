@@ -1,0 +1,10 @@
+Better Workflows Core
+Copyright 2026 Better Workflows contributors
+
+This is an original, standalone implementation in the Better Workflows
+repository. No third-party source code or runtime dependency is included in
+this package. The package does not import the AGPL-licensed Better Workflows
+V5 plugin.
+
+The Apache License 2.0 text is reproduced from the official source:
+https://www.apache.org/licenses/LICENSE-2.0.txt

@@ -1,0 +1,30 @@
+{
+  "name": "@better-workflows/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Evidence binding, action gate and provider reconciliation for AI coding agents.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "bin": {
+    "bw": "./bin/bw.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    ".claude-plugin",
+    "hooks",
+    "README.md",
+    "README.zh-TW.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}
