@@ -68,7 +68,7 @@ A side effect refused at the permission prompt never runs and gets no `PostToolU
 }
 ```
 
-Each evidence `argv` is a command prefix added to the built-in list for that kind. Add `"exact": true` to an evidence entry to replace the built-in list for that kind and count only the whole command, so `pnpm test -- one.spec.ts` does not stand in for `pnpm test`.
+Each evidence `argv` is a command prefix added to the built-in list for that kind. Add `"exact": true` to an evidence entry to replace the built-in list for that kind and count only the whole command run from the repository root, so neither `pnpm test -- one.spec.ts` nor `pnpm test` inside one workspace package stands in for the suite. `"cwd": "plugins/x"` names another directory; a `cd` on the same line is followed, and one the hook cannot read (`cd $DIR`) does not count.
 
 An invalid policy file denies every side effect rather than falling back to defaults. An expired rule falls back to `ask`.
 

@@ -82,6 +82,14 @@ test("an exact evidence kind replaces the built-in commands and needs the whole 
   assert.throws(() => normalizePolicy({ evidence: { kinds: [{ kind: "test", argv: [["a"]], exact: true }, { kind: "test", argv: [["b"]] }] } }), /mixes exact and prefix/);
   assert.throws(() => normalizePolicy({ evidence: { kinds: [{ kind: "test", argv: [["a"]] }, { kind: "test", argv: [["b"]], exact: true }] } }), /mixes exact and prefix/);
   assert.throws(() => normalizePolicy({ evidence: { kinds: [{ kind: "test", argv: [["a"]], exact: "yes" }] } }), /true or false/);
+  assert.throws(() => normalizePolicy({ evidence: { kinds: [{ kind: "test", argv: [["a"]], cwd: "pkg" }] } }), /needs exact/);
+  assert.throws(() => normalizePolicy({ evidence: { kinds: [{ kind: "test", argv: [["a"]], exact: true, cwd: "../x" }] } }), /inside the repository/);
+  assert.throws(() => normalizePolicy({ evidence: { kinds: [{ kind: "test", argv: [["a"]], exact: true, cwd: "/tmp" }] } }), /inside the repository/);
+  assert.deepEqual(splitCommand("cd a; (cd b && make) && cd c && make").directories, [[], ["a"], ["a", "b"], ["a"], ["a", "c"]]);
+  assert.deepEqual(splitCommand("cd ~/x && make").directories, [[], null]);
+  assert.deepEqual(splitCommand("(cd a && true) && (cd b && npm test)").directories, [[], ["a"], [], ["b"]], "a group closing then another opening starts again from the outer directory");
+  assert.deepEqual(splitCommand("env cd pkg; npm test").directories, [[], null], "a wrapped cd changes no shell directory, so the result is unreadable");
+  assert.deepEqual(splitCommand("FOO=1 cd pkg && npm test").directories, [[], ["pkg"]]);
 });
 
 test("policy validation fails closed on unknown fields and kinds", () => {

@@ -82,7 +82,7 @@ node ~/.better-workflows/packages/bw-core/bin/bw.mjs status
 
 檢查只有在它自己的 exit code 決定整行結果時才算數。`pnpm test | tail -20`、`pnpm test; echo done`、`pnpm test || true` 即使測試失敗也會 exit 0，所以一律不算；請用 `&&`，或在行首加 `set -o pipefail`。
 
-證據指令預設是前綴比對，所以 `pnpm test -- one.spec.ts` 也算 `test`。要求必須跑完整套件時，把該種類標成 exact，它會取代該種類的內建指令：
+證據指令預設是前綴比對，所以 `pnpm test -- one.spec.ts` 也算 `test`。要求必須跑完整套件時，把該種類標成 exact。它會取代該種類的內建指令，且只有在 repo 根目錄（或 `"cwd"` 指定的目錄）執行時才算數：
 
 ```json
 "evidence": { "kinds": [{ "kind": "test", "argv": [["pnpm", "test"]], "exact": true }] }

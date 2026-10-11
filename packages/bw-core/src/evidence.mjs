@@ -1,12 +1,13 @@
 import { appendEvent } from "./ledger.mjs";
 
-// `attributed` is false when the exit code belongs to something else on the
-// command line, as in `npm test | tail`; such a run never counts as a pass.
-export async function recordEvidence(repo, { kind, command, exitCode, attributed = true, treeBefore, treeAfter, head, outputDigest = null, host = null }) {
+// `excluded` names why a run cannot count as a pass: "exit-code" when the
+// line's exit code belongs to another command (`npm test | tail`), and
+// "directory" when an exact rule's command ran outside its directory.
+export async function recordEvidence(repo, { kind, command, exitCode, excluded = null, treeBefore, treeAfter, head, outputDigest = null, host = null }) {
   if (typeof kind !== "string" || !kind) throw new TypeError("Evidence needs a kind");
   if (!Number.isInteger(exitCode) && exitCode !== null) throw new TypeError("Evidence exitCode must be an integer or null");
   const payload = { kind, command, exitCode, treeBefore, treeAfter, head, outputDigest, host };
-  return appendEvent(repo, "evidence.recorded", attributed ? payload : { ...payload, attributed: false });
+  return appendEvent(repo, "evidence.recorded", excluded ? { ...payload, attributed: false, excluded } : payload);
 }
 
 // Evidence counts only when it passed and the tree did not change while it
@@ -34,7 +35,10 @@ export function describeEvidence(result) {
   switch (result.status) {
     case "fresh": return `${result.kind}: passed on the current tree`;
     case "failed": return `${result.kind}: last run on the current tree failed (exit ${result.evidence.exitCode})`;
-    case "unattributed": return `${result.kind}: the last run's exit code came from another command on the same line (\`${result.evidence.command}\`); run it alone or join commands with &&`;
+    case "unattributed":
+      return result.evidence.excluded === "directory"
+        ? `${result.kind}: the last run (\`${result.evidence.command}\`) was not in the directory the policy names for it, so it checked only part of the repository`
+        : `${result.kind}: the last run's exit code came from another command on the same line (\`${result.evidence.command}\`); run it alone or join commands with &&`;
     case "unstable": return `${result.kind}: files changed while it ran, so the result does not belong to one tree`;
     case "stale": return `${result.kind}: last result was for an older tree; files changed since then`;
     default: return `${result.kind}: never run`;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { symlink, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { handleClaudeCodeHook } from "../src/adapters/claude-code.mjs";
 import { loadState } from "../src/state.mjs";
@@ -130,4 +130,40 @@ test("a protected path reached through a symlinked directory is still protected"
     tool_input: { file_path: path.join(link, ".better-workflows", "policy.json"), content: "{}" }, tool_use_id: "w2",
   });
   assert.equal(decision(result), "deny");
+});
+
+test("an exact check counts only when it runs in the directory the policy names", async (t) => {
+  const { root, base } = await fixtureRepo(t);
+  await mkdir(path.join(root, "pkg"));
+  await writeFile(path.join(root, "pkg", "a.txt"), "a\n");
+  await writePolicy(root, {
+    completion: { require: ["test", "unit"] },
+    evidence: { kinds: [{ kind: "test", argv: [["npm", "test"]], exact: true }, { kind: "unit", argv: [["make", "unit"]], exact: true, cwd: "pkg" }] },
+  });
+  const run = async (command, cwd = root) => {
+    const tool = { tool_name: "Bash", tool_input: { command }, tool_use_id: `toolu_${next += 1}` };
+    await handleClaudeCodeHook({ hook_event_name: "PreToolUse", cwd, session_id: "s1", ...tool });
+    await handleClaudeCodeHook({ hook_event_name: "PostToolUse", cwd, session_id: "s1", ...tool, tool_response: { stdout: "", stderr: "", interrupted: false } });
+  };
+  const missing = async () => (await hook(root, "Stop", { stop_hook_active: false })).output?.reason ?? "";
+  await hook(root, "SessionStart", { source: "startup" });
+  await writeFile(path.join(root, "app.txt"), "edited\n");
+
+  await run("cd pkg && npm test");
+  await run("npm test", path.join(root, "pkg"));
+  await run("make unit");
+  assert.match(await missing(), /test: the last run .* was not in the directory the policy names/);
+  assert.match(await missing(), /unit: the last run .* was not in the directory/);
+
+  const link = path.join(base, "linked");
+  await symlink(root, link);
+  await run("npm test", link); // the same root reached through a symlink
+  await run("(cd pkg && make unit) && echo done");
+  assert.equal(await missing(), "", "both ran where the policy says");
+
+  await writeFile(path.join(root, "app.txt"), "edited again\n");
+  await run("cd $PKG && make unit");
+  await run("cd pkg; cd .. && npm test");
+  assert.match(await missing(), /unit: the last run .* was not in the directory/, "a cd the hook cannot read does not count");
+  assert.doesNotMatch(await missing(), /test:/);
 });
