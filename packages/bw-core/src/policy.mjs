@@ -82,12 +82,22 @@ export function normalizePolicy(raw) {
 
   const evidence = plainObject(top.evidence, "evidence");
   onlyKeys(evidence, ["kinds"], "evidence");
-  const kinds = new Map(DEFAULT_EVIDENCE.map((rule) => [rule.kind, rule.argv]));
+  // A kind marked exact drops the built-in commands for that kind and counts
+  // only whole command lines, so `pnpm test -- one.spec.ts` is not `pnpm test`.
+  const kinds = new Map(DEFAULT_EVIDENCE.map((rule) => [rule.kind, { argv: rule.argv, exact: false }]));
+  const declared = new Map(); // kind -> exact, as the policy file declares it
   for (const [i, rule] of (evidence.kinds ?? []).entries()) {
     const entry = plainObject(rule, `evidence.kinds[${i}]`);
-    onlyKeys(entry, ["kind", "argv"], `evidence.kinds[${i}]`);
+    onlyKeys(entry, ["kind", "argv", "exact"], `evidence.kinds[${i}]`);
     if (!KIND.test(entry.kind ?? "")) fail(`evidence.kinds[${i}].kind is invalid`);
-    kinds.set(entry.kind, [...(kinds.get(entry.kind) ?? []), ...argvList(entry.argv, `evidence.kinds[${i}].argv`)]);
+    if (entry.exact !== undefined && typeof entry.exact !== "boolean") fail(`evidence.kinds[${i}].exact must be true or false`);
+    const argv = argvList(entry.argv, `evidence.kinds[${i}].argv`);
+    const exact = entry.exact === true;
+    if (declared.has(entry.kind) && declared.get(entry.kind) !== exact) fail(`evidence.kinds[${i}] mixes exact and prefix commands for ${entry.kind}`);
+    if (exact && !declared.has(entry.kind)) kinds.set(entry.kind, { argv: [], exact: true });
+    declared.set(entry.kind, exact);
+    const current = kinds.get(entry.kind) ?? { argv: [], exact: false };
+    kinds.set(entry.kind, { argv: [...current.argv, ...argv], exact: current.exact });
   }
   for (const kind of require) if (!kinds.has(kind)) fail(`completion.require names unknown evidence kind ${kind}`);
 
@@ -111,7 +121,7 @@ export function normalizePolicy(raw) {
   return {
     version: 1,
     completion: { require: [...new Set(require)] },
-    evidence: { kinds: [...kinds].map(([kind, argv]) => ({ kind, argv })) },
+    evidence: { kinds: [...kinds].map(([kind, { argv, exact }]) => ({ kind, argv, exact })) },
     actions: { default: defaultRule, rules, custom },
     opaque,
   };

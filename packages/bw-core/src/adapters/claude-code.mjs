@@ -156,7 +156,10 @@ async function preToolUse(input, repo) {
   if (evaluation.evidence.length && input.tool_use_id) {
     const file = pendingFile(repo, input.tool_use_id);
     await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-    await writeFile(file, JSON.stringify({ kinds: [...new Set(evaluation.evidence.map((e) => e.kind))], command, treeBefore: tree }), { mode: 0o600 });
+    const kinds = [...new Set(evaluation.evidence.map((e) => e.kind))];
+    // A kind counts as attributed if any of its runs decides the line's exit code.
+    const unattributed = kinds.filter((kind) => !evaluation.evidence.some((e) => e.kind === kind && e.attributable));
+    await writeFile(file, JSON.stringify({ kinds, unattributed, command, treeBefore: tree }), { mode: 0o600 });
   }
   // Core only narrows what the host already allows; an allow defers to the
   // host's own permission rules instead of granting anything.
@@ -187,7 +190,8 @@ async function postToolUse(input, repo) {
   await rm(file, { force: true });
   const [treeAfter, head] = await Promise.all([worktreeTree(repo), headCommit(repo)]);
   for (const kind of pending.kinds) {
-    await recordEvidence(repo, { kind, command: pending.command, exitCode, treeBefore: pending.treeBefore, treeAfter, head, host: HOST });
+    const attributed = !(pending.unattributed ?? []).includes(kind);
+    await recordEvidence(repo, { kind, command: pending.command, exitCode, attributed, treeBefore: pending.treeBefore, treeAfter, head, host: HOST });
   }
   return null;
 }

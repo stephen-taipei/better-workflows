@@ -56,9 +56,10 @@ function tokenize(line) {
         tokens.push(pair);
         i += 1;
       } else if (ch === "(" || ch === ")") {
-        tokens.push(";");
+        tokens.push(ch);
       } else if (ch === "&" && line[i + 1] === ">") {
-        i += 1; // &> redirection: drop operator, keep scanning
+        tokens.push(line[i + 2] === ">" ? ">>" : ">"); // &> and &>> redirect; the target follows
+        i += line[i + 2] === ">" ? 2 : 1;
       } else {
         tokens.push(ch);
       }
@@ -81,30 +82,73 @@ function stripPrefix(argv) {
   }
 }
 
+// Two separators with nothing between them, as `) ||` leaves: keep the one
+// that says less about the exit code. A parenthesis (null) is transparent:
+// a group exits with its last command's code.
+function weaker(a, b) {
+  if (a === null) return b;
+  if (a === "||" || b === "||") return "||";
+  return a === "&&" ? b : a;
+}
+
+// Whether the line's exit code is the exit code of commands[index]. Only a
+// chain of `&&` after it keeps that true (or `|` once pipefail is set); a
+// `;`, `||`, `|` or `&` after it, or a `||` before it, lets the line exit 0
+// while the command failed or never ran.
+function exitAttributable(separators, index, pipefail) {
+  if (separators.slice(0, index).includes("||")) return false;
+  return separators.slice(index).every((sep) => sep === null || sep === "&&" || (sep === "|" && pipefail));
+}
+
 export function splitCommand(line) {
   const { tokens, opaque: substitution } = tokenize(String(line));
   const commands = [];
+  const separators = []; // separators[i] follows commands[i]
   let current = [];
+  let target = false; // the next token is a redirection target, not an argument
   for (const token of tokens) {
-    if (SEPARATORS.has(token)) {
-      if (current.length) commands.push(current);
+    if (target && !SEPARATORS.has(token) && token !== "(" && token !== ")") {
+      target = false;
+      continue;
+    }
+    target = false;
+    if (token === "(" || token === ")") {
+      if (current.length) {
+        commands.push(current);
+        separators.push(null);
+      }
       current = [];
-    } else if (!/^\d*[<>]/.test(token)) {
+    } else if (SEPARATORS.has(token)) {
+      if (current.length) {
+        commands.push(current);
+        separators.push(token);
+      } else if (separators.length && token !== "\n") {
+        separators[separators.length - 1] = weaker(separators.at(-1), token);
+      }
+      current = [];
+    } else if (/^\d*[<>]/.test(token)) {
+      target = /^\d*(>>?|<<?|>\||[<>]&)$/.test(token); // `> out.log`, not `>out.log` or `2>&1`
+    } else {
       current.push(token);
     }
   }
   if (current.length) commands.push(current);
+  else if (separators.at(-1) !== "&") separators.pop(); // a trailing `;`, `)` or newline changes nothing
   let opaque = substitution;
   let changesDirectory = false;
+  let pipefail = false;
   const argvs = [];
-  for (const raw of commands) {
+  const attributable = [];
+  for (const [i, raw] of commands.entries()) {
     const argv = stripPrefix(raw);
     if (!argv.length) continue;
     const program = argv[0].split("/").at(-1);
     if (program === "eval" || program === "xargs" || program === "source" || program === ".") opaque = true;
     if (NESTED_SHELLS.has(program) && argv.includes("-c")) opaque = true;
     if (program === "cd" || program === "pushd" || program === "popd") changesDirectory = true;
+    if (program === "set" && argv.includes("pipefail")) pipefail = true;
     argvs.push([program, ...argv.slice(1)]);
+    attributable.push(exitAttributable(separators, i, pipefail));
   }
-  return { commands: argvs, opaque, changesDirectory };
+  return { commands: argvs, attributable, opaque, changesDirectory };
 }

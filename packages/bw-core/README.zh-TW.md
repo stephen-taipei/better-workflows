@@ -10,7 +10,7 @@
 
 | 檢查 | 規則 |
 | --- | --- |
-| 證據 | 測試、lint、typecheck 或建置結果，會綁定執行當下工作目錄的 Git tree（已追蹤的變更加上未被 ignore 的未追蹤檔案）。只有在工作目錄內容完全相同、結果通過、且執行期間沒有檔案變動時才算數。 |
+| 證據 | 測試、lint、typecheck 或建置結果，會綁定執行當下工作目錄的 Git tree（已追蹤的變更加上未被 ignore 的未追蹤檔案）。只有在工作目錄內容完全相同、結果通過、且執行期間沒有檔案變動時才算數。exit code 屬於同一行其他指令的執行（`npm test | tail`、`npm test; echo done`、`npm test || true`）一律不算；請用 `&&` 串接或設定 `pipefail`。 |
 | 完成判定 | policy 的 `completion.require` 列出完成前必須有效的證據種類。 |
 | Action gate | push、PR merge 與建立、release、套件發佈、`gh api` 寫入、HTTP 寫入，以及自訂種類都算副作用，各自需要 policy 檔的 `allow`；預設是 `ask`。無法看穿效果的指令（command substitution、`eval`、`sh -c`）視為 `opaque`，預設 `ask`。 |
 | 最多一次 | 同一個副作用在同一個 commit 成功後，再次執行會被拒絕。 |
@@ -29,7 +29,7 @@ bw reconcile <id> --outcome success --note "已確認部署儀表板"
 bw status | bw verify | bw log
 ```
 
-Policy 格式見[英文版](README.md#policy)。policy 檔無效時，所有副作用都會被拒絕，不會退回預設值；過期的規則退回 `ask`。
+Policy 格式見[英文版](README.md#policy)。證據的 `argv` 是指令前綴，會加進該種類的內建清單；在證據項目加上 `"exact": true` 則取代該種類的內建清單，且只認完整指令，`pnpm test -- one.spec.ts` 不會被當成 `pnpm test`。policy 檔無效時，所有副作用都會被拒絕，不會退回預設值；過期的規則退回 `ask`。
 
 
 ## Claude Code

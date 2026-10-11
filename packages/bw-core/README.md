@@ -10,7 +10,7 @@ Status: pre-alpha, part of the [V6 roadmap](../../ROADMAP.md). Claude Code is th
 
 | Check | Rule |
 | --- | --- |
-| Evidence | A test, lint, typecheck or build result is recorded against the Git tree of the working copy at the time it ran (tracked changes plus untracked, non-ignored files). It counts only while the working copy still has exactly that content, only if it passed, and only if no file changed while it ran. |
+| Evidence | A test, lint, typecheck or build result is recorded against the Git tree of the working copy at the time it ran (tracked changes plus untracked, non-ignored files). It counts only while the working copy still has exactly that content, only if it passed, and only if no file changed while it ran. A run whose exit code belongs to another command on the line (`npm test | tail`, `npm test; echo done`, `npm test || true`) never counts; join commands with `&&` or set `pipefail`. |
 | Completion | `completion.require` in the policy lists the evidence kinds that must be fresh before work counts as complete. |
 | Action gate | Pushes, PR merges and creates, releases, package publishes, `gh api` writes, HTTP writes and any custom kinds are side effects. Each needs `allow` from the policy file; the default is `ask`. Commands whose effects cannot be read (command substitution, `eval`, `sh -c`) are treated as `opaque`, default `ask`. |
 | At most once | The same side effect at the same commit is refused after it has succeeded. |
@@ -67,6 +67,8 @@ A side effect refused at the permission prompt never runs and gets no `PostToolU
   "opaque": "ask"
 }
 ```
+
+Each evidence `argv` is a command prefix added to the built-in list for that kind. Add `"exact": true` to an evidence entry to replace the built-in list for that kind and count only the whole command, so `pnpm test -- one.spec.ts` does not stand in for `pnpm test`.
 
 An invalid policy file denies every side effect rather than falling back to defaults. An expired rule falls back to `ask`.
 

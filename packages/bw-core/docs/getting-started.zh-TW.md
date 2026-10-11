@@ -80,6 +80,14 @@ node ~/.better-workflows/packages/bw-core/bin/bw.mjs status
 - 規則可以設期限：`{ "decision": "allow", "expiresAt": "2026-12-31T00:00:00Z" }`，過期後退回 `ask`。
 - policy 檔格式錯誤時，所有副作用都會被擋，直到修好為止。
 
+檢查只有在它自己的 exit code 決定整行結果時才算數。`pnpm test | tail -20`、`pnpm test; echo done`、`pnpm test || true` 即使測試失敗也會 exit 0，所以一律不算；請用 `&&`，或在行首加 `set -o pipefail`。
+
+證據指令預設是前綴比對，所以 `pnpm test -- one.spec.ts` 也算 `test`。要求必須跑完整套件時，把該種類標成 exact，它會取代該種類的內建指令：
+
+```json
+"evidence": { "kinds": [{ "kind": "test", "argv": [["pnpm", "test"]], "exact": true }] }
+```
+
 ## 5. 副作用結果不明時
 
 只有 exit code 0 算成功。逾時、中斷或其他 exit code 都會讓該動作成為 `unknown`，之後的副作用一律被拒絕。下一個副作用執行前，hook 會用唯讀查詢（`git ls-remote`、`gh pr view`、`gh release view`、`npm view`）確認 push、pull request、release 與 npm 發佈，能確認的就自動結案。
