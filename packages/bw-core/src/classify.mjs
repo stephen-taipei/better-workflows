@@ -89,10 +89,10 @@ function matchesPrefix(argv, prefix) {
 
 // Classifies a command line into side-effect actions and evidence kinds.
 export function classifyCommand(line, policy) {
-  const { commands, opaque, changesDirectory } = splitCommand(line);
+  const { commands, attributable, opaque, changesDirectory } = splitCommand(line);
   const actions = [];
   const evidence = [];
-  for (const argv of commands) {
+  for (const [i, argv] of commands.entries()) {
     for (const rule of BUILTIN_ACTIONS) {
       const target = rule.match(argv);
       if (target) actions.push({ kind: rule.kind, argv, target });
@@ -101,7 +101,8 @@ export function classifyCommand(line, policy) {
       if (rule.argv.some((prefix) => matchesPrefix(argv, prefix))) actions.push({ kind: rule.kind, argv, target: {} });
     }
     for (const rule of policy.evidence.kinds) {
-      if (rule.argv.some((prefix) => matchesPrefix(argv, prefix))) evidence.push({ kind: rule.kind, argv });
+      const matches = rule.argv.some((prefix) => matchesPrefix(argv, prefix) && (!rule.exact || prefix.length === argv.length));
+      if (matches) evidence.push({ kind: rule.kind, argv, attributable: attributable[i] });
     }
   }
   return { commands, actions, evidence, opaque, changesDirectory };

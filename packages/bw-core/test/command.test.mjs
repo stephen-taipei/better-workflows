@@ -23,6 +23,8 @@ test("splits compound command lines and strips wrappers", () => {
   assert.equal(splitCommand("eval \"$CMD\"").opaque, true);
   assert.equal(splitCommand("cd ../other && git push").changesDirectory, true);
   assert.equal(splitCommand("npm test > out.log").opaque, false);
+  assert.deepEqual(splitCommand("npm test > out.log 2>&1 && npm run lint &> lint.log").commands, [["npm", "test"], ["npm", "run", "lint"]], "redirection targets are not arguments");
+  assert.deepEqual(splitCommand("> out.log git push origin main").commands, [["git", "push", "origin", "main"]], "a leading redirection does not hide the command");
 });
 
 test("recognises built-in side effects and ignores read-only commands", () => {
@@ -47,6 +49,39 @@ test("policy adds custom actions and evidence kinds", () => {
   assert.deepEqual(classifyCommand("pnpm e2e --headed && npm test", policy).evidence.map((e) => e.kind), ["e2e", "test"]);
   assert.equal(ruleFor(policy, "deploy").decision, "deny");
   assert.equal(ruleFor(policy, "git-push").decision, "ask");
+});
+
+test("evidence counts only when its command decides the line's exit code", () => {
+  const attributed = (line) => classifyCommand(line, normalizePolicy({})).evidence.map((e) => e.attributable);
+  assert.deepEqual(attributed("pnpm test"), [true]);
+  assert.deepEqual(attributed("pnpm typecheck && cd sub && pnpm test"), [true, true]);
+  assert.deepEqual(attributed("pnpm test &&\n  echo done"), [true]);
+  assert.deepEqual(attributed("pnpm test 2>&1 | tail -20"), [false]);
+  assert.deepEqual(attributed("set -euo pipefail; pnpm test | tail -20"), [true]);
+  assert.deepEqual(attributed("pnpm test; echo $?"), [false]);
+  assert.deepEqual(attributed("pnpm test || true"), [false]);
+  assert.deepEqual(attributed("pnpm test && echo ok || echo failed"), [false]);
+  assert.deepEqual(attributed("(pnpm test) || true"), [false]);
+  assert.deepEqual(attributed("(cd sub && pnpm test) && pnpm lint"), [true, true], "a group exits with its last command's code");
+  assert.deepEqual(attributed("true || pnpm test"), [false], "the test may never have run");
+  assert.deepEqual(attributed("pnpm test &"), [false]);
+});
+
+test("an exact evidence kind replaces the built-in commands and needs the whole command", () => {
+  const policy = normalizePolicy({
+    completion: { require: ["test"] },
+    evidence: { kinds: [{ kind: "test", argv: [["pnpm", "test"], ["python", "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"]], exact: true }] },
+  });
+  const evidence = (line) => classifyCommand(line, policy).evidence.map((e) => e.kind);
+  assert.deepEqual(evidence("pnpm test"), ["test"]);
+  assert.deepEqual(evidence("timeout 600 pnpm test > out.log"), ["test"]);
+  assert.deepEqual(evidence("pnpm test -- src/one.spec.ts"), [], "a single file is not the suite");
+  assert.deepEqual(evidence("npm test"), [], "built-in test commands no longer count");
+  assert.deepEqual(evidence("cd plugins/x && python -m unittest discover -s tests -p 'test_*.py'"), ["test"]);
+  assert.deepEqual(evidence("pnpm lint"), ["lint"], "other kinds keep their built-in commands");
+  assert.throws(() => normalizePolicy({ evidence: { kinds: [{ kind: "test", argv: [["a"]], exact: true }, { kind: "test", argv: [["b"]] }] } }), /mixes exact and prefix/);
+  assert.throws(() => normalizePolicy({ evidence: { kinds: [{ kind: "test", argv: [["a"]] }, { kind: "test", argv: [["b"]], exact: true }] } }), /mixes exact and prefix/);
+  assert.throws(() => normalizePolicy({ evidence: { kinds: [{ kind: "test", argv: [["a"]], exact: "yes" }] } }), /true or false/);
 });
 
 test("policy validation fails closed on unknown fields and kinds", () => {

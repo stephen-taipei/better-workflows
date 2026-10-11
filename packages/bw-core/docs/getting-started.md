@@ -80,6 +80,14 @@ The default policy requires a passing `test` before work counts as complete and 
 - A rule can expire: `{ "decision": "allow", "expiresAt": "2026-12-31T00:00:00Z" }`. After that it falls back to `ask`.
 - An invalid policy file blocks every side effect until it is fixed.
 
+A check counts only when its own exit code decides the command's result. `pnpm test | tail -20`, `pnpm test; echo done` and `pnpm test || true` exit 0 even when the tests fail, so they never count; use `&&`, or start the line with `set -o pipefail`.
+
+By default an evidence command is a prefix, so `pnpm test -- one.spec.ts` counts as `test`. To require the whole suite, mark the kind exact. This replaces the built-in commands for that kind:
+
+```json
+"evidence": { "kinds": [{ "kind": "test", "argv": [["pnpm", "test"]], "exact": true }] }
+```
+
 ## 5. When a side effect's result is unknown
 
 Only exit code 0 counts as success. A timeout, an interrupt or any other exit leaves the action `unknown`, and further side effects are refused. Before the next side effect, the hook checks pushes, pull requests, releases and npm publishes with read-only queries (`git ls-remote`, `gh pr view`, `gh release view`, `npm view`) and settles them when it can.

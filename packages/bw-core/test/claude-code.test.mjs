@@ -42,7 +42,12 @@ test("Stop blocks once when files changed without fresh tests, then warns the pe
   await failing.fail(1);
   assert.match((await hook(root, "Stop", { stop_hook_active: false })).output.reason, /failed \(exit 1\)/);
 
-  const passing = bash(root, "npm test 2>&1 | tail -20");
+  const piped = bash(root, "npm test 2>&1 | tail -20");
+  await piped.pre();
+  await piped.ok();
+  assert.match((await hook(root, "Stop", { stop_hook_active: false })).output.reason, /exit code came from another command/, "tail's exit 0 is not the tests'");
+
+  const passing = bash(root, "set -o pipefail; npm test 2>&1 | tail -20");
   await passing.pre();
   await passing.ok();
   assert.equal((await hook(root, "Stop", { stop_hook_active: false })).output, null);
