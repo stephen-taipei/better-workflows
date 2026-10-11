@@ -157,13 +157,31 @@ async function preToolUse(input, repo) {
     const file = pendingFile(repo, input.tool_use_id);
     await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
     const kinds = [...new Set(evaluation.evidence.map((e) => e.kind))];
-    // A kind counts as attributed if any of its runs decides the line's exit code.
-    const unattributed = kinds.filter((kind) => !evaluation.evidence.some((e) => e.kind === kind && e.attributable));
-    await writeFile(file, JSON.stringify({ kinds, unattributed, command, treeBefore: tree }), { mode: 0o600 });
+    const placed = await Promise.all(evaluation.evidence.map((e) => ranWhereRequired(e, input, repo)));
+    // Per kind, the reason none of its runs can count, if any: one that ran
+    // where the policy says and decides the line's exit code is enough.
+    const excluded = {};
+    for (const kind of kinds) {
+      const runs = evaluation.evidence.map((e, i) => ({ ...e, placed: placed[i] })).filter((e) => e.kind === kind);
+      if (runs.some((e) => e.placed && e.attributable)) continue;
+      excluded[kind] = runs.some((e) => e.placed) ? "exit-code" : "directory";
+    }
+    await writeFile(file, JSON.stringify({ kinds, excluded, command, treeBefore: tree }), { mode: 0o600 });
   }
   // Core only narrows what the host already allows; an allow defers to the
   // host's own permission rules instead of granting anything.
   return evaluation.decision === "ask" ? preDecision("ask", evaluation.reasons.join("; ")) : null;
+}
+
+// Whether an exact evidence run happened in the directory its rule names.
+async function ranWhereRequired(evidence, input, repo) {
+  if (!evidence.where) return true;
+  if (!evidence.where.cd) return false;
+  const [ran, wanted] = await Promise.all([
+    physicalPath(path.resolve(input.cwd ?? repo.root, ...evidence.where.cd)),
+    physicalPath(path.resolve(repo.root, evidence.where.cwd)),
+  ]);
+  return ran === wanted;
 }
 
 function exitCodeFrom(input) {
@@ -190,8 +208,8 @@ async function postToolUse(input, repo) {
   await rm(file, { force: true });
   const [treeAfter, head] = await Promise.all([worktreeTree(repo), headCommit(repo)]);
   for (const kind of pending.kinds) {
-    const attributed = !(pending.unattributed ?? []).includes(kind);
-    await recordEvidence(repo, { kind, command: pending.command, exitCode, attributed, treeBefore: pending.treeBefore, treeAfter, head, host: HOST });
+    const excluded = pending.excluded?.[kind] ?? null;
+    await recordEvidence(repo, { kind, command: pending.command, exitCode, excluded, treeBefore: pending.treeBefore, treeAfter, head, host: HOST });
   }
   return null;
 }

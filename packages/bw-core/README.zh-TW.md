@@ -29,7 +29,7 @@ bw reconcile <id> --outcome success --note "已確認部署儀表板"
 bw status | bw verify | bw log
 ```
 
-Policy 格式見[英文版](README.md#policy)。證據的 `argv` 是指令前綴，會加進該種類的內建清單；在證據項目加上 `"exact": true` 則取代該種類的內建清單，且只認完整指令，`pnpm test -- one.spec.ts` 不會被當成 `pnpm test`。policy 檔無效時，所有副作用都會被拒絕，不會退回預設值；過期的規則退回 `ask`。
+Policy 格式見[英文版](README.md#policy)。證據的 `argv` 是指令前綴，會加進該種類的內建清單；在證據項目加上 `"exact": true` 則取代該種類的內建清單，且只認在 repo 根目錄執行的完整指令，`pnpm test -- one.spec.ts` 或在單一 workspace package 裡跑的 `pnpm test` 都不會被當成整套測試。`"cwd": "plugins/x"` 可指定其他目錄；同一行的 `cd` 會被追蹤，hook 讀不懂的 `cd`（例如 `cd $DIR`）不算。policy 檔無效時，所有副作用都會被拒絕，不會退回預設值；過期的規則退回 `ask`。
 
 
 ## Claude Code

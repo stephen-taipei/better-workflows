@@ -89,7 +89,7 @@ function matchesPrefix(argv, prefix) {
 
 // Classifies a command line into side-effect actions and evidence kinds.
 export function classifyCommand(line, policy) {
-  const { commands, attributable, opaque, changesDirectory } = splitCommand(line);
+  const { commands, attributable, directories, opaque, changesDirectory } = splitCommand(line);
   const actions = [];
   const evidence = [];
   for (const [i, argv] of commands.entries()) {
@@ -102,7 +102,12 @@ export function classifyCommand(line, policy) {
     }
     for (const rule of policy.evidence.kinds) {
       const matches = rule.argv.some((prefix) => matchesPrefix(argv, prefix) && (!rule.exact || prefix.length === argv.length));
-      if (matches) evidence.push({ kind: rule.kind, argv, attributable: attributable[i] });
+      if (!matches) continue;
+      // An exact rule also says where it must run; the host resolves `cd` (the
+      // directory changes earlier on the line, or null if unreadable) against
+      // its working directory and `cwd` against the repository root.
+      const where = rule.exact ? { cd: directories[i], cwd: rule.cwd } : null;
+      evidence.push({ kind: rule.kind, argv, attributable: attributable[i], where });
     }
   }
   return { commands, actions, evidence, opaque, changesDirectory };

@@ -83,22 +83,28 @@ export function normalizePolicy(raw) {
   const evidence = plainObject(top.evidence, "evidence");
   onlyKeys(evidence, ["kinds"], "evidence");
   // A kind marked exact drops the built-in commands for that kind and counts
-  // only whole command lines, so `pnpm test -- one.spec.ts` is not `pnpm test`.
-  const kinds = new Map(DEFAULT_EVIDENCE.map((rule) => [rule.kind, { argv: rule.argv, exact: false }]));
+  // only whole command lines run from `cwd` (default: the repository root),
+  // so neither `pnpm test -- one.spec.ts` nor `pnpm test` inside one package
+  // stands in for the suite.
+  let evidenceRules = DEFAULT_EVIDENCE.map((rule) => ({ kind: rule.kind, argv: rule.argv, exact: false, cwd: null }));
   const declared = new Map(); // kind -> exact, as the policy file declares it
   for (const [i, rule] of (evidence.kinds ?? []).entries()) {
-    const entry = plainObject(rule, `evidence.kinds[${i}]`);
-    onlyKeys(entry, ["kind", "argv", "exact"], `evidence.kinds[${i}]`);
-    if (!KIND.test(entry.kind ?? "")) fail(`evidence.kinds[${i}].kind is invalid`);
-    if (entry.exact !== undefined && typeof entry.exact !== "boolean") fail(`evidence.kinds[${i}].exact must be true or false`);
-    const argv = argvList(entry.argv, `evidence.kinds[${i}].argv`);
+    const at = `evidence.kinds[${i}]`;
+    const entry = plainObject(rule, at);
+    onlyKeys(entry, ["kind", "argv", "exact", "cwd"], at);
+    if (!KIND.test(entry.kind ?? "")) fail(`${at}.kind is invalid`);
+    if (entry.exact !== undefined && typeof entry.exact !== "boolean") fail(`${at}.exact must be true or false`);
     const exact = entry.exact === true;
-    if (declared.has(entry.kind) && declared.get(entry.kind) !== exact) fail(`evidence.kinds[${i}] mixes exact and prefix commands for ${entry.kind}`);
-    if (exact && !declared.has(entry.kind)) kinds.set(entry.kind, { argv: [], exact: true });
+    if (entry.cwd !== undefined && !exact) fail(`${at}.cwd needs exact: true`);
+    if (entry.cwd !== undefined && (typeof entry.cwd !== "string" || path.isAbsolute(entry.cwd) || entry.cwd.split(/[\\/]/).includes(".."))) {
+      fail(`${at}.cwd must be a path inside the repository`);
+    }
+    if (declared.has(entry.kind) && declared.get(entry.kind) !== exact) fail(`${at} mixes exact and prefix commands for ${entry.kind}`);
+    if (exact && !declared.has(entry.kind)) evidenceRules = evidenceRules.filter((r) => r.kind !== entry.kind);
     declared.set(entry.kind, exact);
-    const current = kinds.get(entry.kind) ?? { argv: [], exact: false };
-    kinds.set(entry.kind, { argv: [...current.argv, ...argv], exact: current.exact });
+    evidenceRules.push({ kind: entry.kind, argv: argvList(entry.argv, `${at}.argv`), exact, cwd: exact ? path.normalize(entry.cwd ?? ".") : null });
   }
+  const kinds = new Set(evidenceRules.map((r) => r.kind));
   for (const kind of require) if (!kinds.has(kind)) fail(`completion.require names unknown evidence kind ${kind}`);
 
   const actions = plainObject(top.actions, "actions");
@@ -121,7 +127,7 @@ export function normalizePolicy(raw) {
   return {
     version: 1,
     completion: { require: [...new Set(require)] },
-    evidence: { kinds: [...kinds].map(([kind, { argv, exact }]) => ({ kind, argv, exact })) },
+    evidence: { kinds: evidenceRules },
     actions: { default: defaultRule, rules, custom },
     opaque,
   };

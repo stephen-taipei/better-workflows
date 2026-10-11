@@ -82,7 +82,7 @@ The default policy requires a passing `test` before work counts as complete and 
 
 A check counts only when its own exit code decides the command's result. `pnpm test | tail -20`, `pnpm test; echo done` and `pnpm test || true` exit 0 even when the tests fail, so they never count; use `&&`, or start the line with `set -o pipefail`.
 
-By default an evidence command is a prefix, so `pnpm test -- one.spec.ts` counts as `test`. To require the whole suite, mark the kind exact. This replaces the built-in commands for that kind:
+By default an evidence command is a prefix, so `pnpm test -- one.spec.ts` counts as `test`. To require the whole suite, mark the kind exact. This replaces the built-in commands for that kind and counts the command only when it runs from the repository root, or from the directory named by `"cwd"`:
 
 ```json
 "evidence": { "kinds": [{ "kind": "test", "argv": [["pnpm", "test"]], "exact": true }] }
