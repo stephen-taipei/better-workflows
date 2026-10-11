@@ -104,8 +104,8 @@ export function splitCommand(line) {
   const { tokens, opaque: substitution } = tokenize(String(line));
   const commands = [];
   const separators = []; // separators[i] follows commands[i]
-  const groups = []; // groups[i]: parentheses opened (+n) or closed (-n) just before commands[i]
-  let depth = 0;
+  const groups = []; // groups[i]: the parentheses, in order, just before commands[i]
+  let parens = [];
   let current = [];
   let target = false; // the next token is a redirection target, not an argument
   for (const token of tokens) {
@@ -118,17 +118,17 @@ export function splitCommand(line) {
       if (current.length) {
         commands.push(current);
         separators.push(null);
-        groups.push(depth);
-        depth = 0;
+        groups.push(parens);
+        parens = [];
       }
-      depth += token === "(" ? 1 : -1;
+      parens.push(token);
       current = [];
     } else if (SEPARATORS.has(token)) {
       if (current.length) {
         commands.push(current);
         separators.push(token);
-        groups.push(depth);
-        depth = 0;
+        groups.push(parens);
+        parens = [];
       } else if (separators.length && token !== "\n") {
         separators[separators.length - 1] = weaker(separators.at(-1), token);
       }
@@ -141,7 +141,7 @@ export function splitCommand(line) {
   }
   if (current.length) {
     commands.push(current);
-    groups.push(depth);
+    groups.push(parens);
   } else if (separators.at(-1) !== "&") separators.pop(); // a trailing `;`, `)` or newline changes nothing
   let opaque = substitution;
   let changesDirectory = false;
@@ -153,8 +153,10 @@ export function splitCommand(line) {
   // once one cannot be read without running the shell (`cd`, `cd -`, `cd $X`).
   const scopes = [[]];
   for (const [i, raw] of commands.entries()) {
-    for (let n = groups[i]; n > 0; n -= 1) scopes.push(scopes.at(-1) && [...scopes.at(-1)]);
-    for (let n = groups[i]; n < 0 && scopes.length > 1; n += 1) scopes.pop();
+    for (const paren of groups[i]) {
+      if (paren === "(") scopes.push(scopes.at(-1) && [...scopes.at(-1)]);
+      else if (scopes.length > 1) scopes.pop();
+    }
     const argv = stripPrefix(raw);
     if (!argv.length) continue;
     const program = argv[0].split("/").at(-1);
@@ -166,7 +168,11 @@ export function splitCommand(line) {
     attributable.push(exitAttributable(separators, i, pipefail));
     directories.push(scopes.at(-1) && [...scopes.at(-1)]);
     if (program === "pushd" || program === "popd") scopes[scopes.length - 1] = null;
-    if (program === "cd" && scopes.at(-1)) {
+    // `env cd x` or `sudo cd x` runs no builtin, so the shell stays put; rather
+    // than model each wrapper, a wrapped cd makes the directory unreadable.
+    const wrapped = WRAPPERS.has(raw.find((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)));
+    if (program === "cd" && wrapped) scopes[scopes.length - 1] = null;
+    else if (program === "cd" && scopes.at(-1)) {
       const to = argv.slice(1).filter((arg) => arg !== "--");
       const readable = to.length === 1 && !/^[-~]|\$/.test(to[0]);
       scopes[scopes.length - 1] = readable ? [...scopes.at(-1), to[0]] : null;
