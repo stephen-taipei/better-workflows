@@ -88,6 +88,23 @@ node ~/.better-workflows/packages/bw-core/bin/bw.mjs status
 "evidence": { "kinds": [{ "kind": "test", "argv": [["pnpm", "test"]], "exact": true }] }
 ```
 
+一個 repo 有多套測試時，替每個 exact 種類宣告它的結果涵蓋哪些目錄，改其中一區就不會讓所有套件都過期：
+
+```json
+"evidence": {
+  "ignore": ["coverage"],
+  "kinds": [
+    { "kind": "plugin-test", "argv": [["make", "plugin-test"]], "exact": true, "cwd": "plugins/x", "scope": ["plugins/x", "shared"] },
+    { "kind": "script-test", "argv": [["make", "script-test"]], "exact": true, "cwd": "scripts", "scope": ["scripts"] }
+  ]
+}
+```
+
+- `scope` 要列出這個檢查依賴的全部目錄，包含它 import 的來源。Core 不會替你推算；漏列的目錄改了之後，舊的通過仍會被算成有效。
+- `ignore` 列出檢查會寫出、但不在 `.gitignore` 的產物（報告、建置輸出）。沒有它，會寫檔的執行看起來就像「執行期間檔案變了」，永遠不算數。
+
+hook 把 agent 退回時，也會附上這個 session 的狀況（跑了幾次、幾個檔案狀態、連續失敗幾次、被退回幾次），讓 agent 判斷要繼續還是停下來告訴你哪裡失敗。想讓它 push 或 merge 得更久，由你改 policy 決定，agent 不能自己給自己授權。
+
 ## 5. 副作用結果不明時
 
 只有 exit code 0 算成功。逾時、中斷或其他 exit code 都會讓該動作成為 `unknown`，之後的副作用一律被拒絕。下一個副作用執行前，hook 會用唯讀查詢（`git ls-remote`、`gh pr view`、`gh release view`、`npm view`）確認 push、pull request、release 與 npm 發佈，能確認的就自動結案。
@@ -114,3 +131,4 @@ ledger 會留在 `.git/better-workflows/`，直到你自行刪除。
 - 只看得到 Claude Code 交給 hooks 的指令。agent 執行的腳本內部產生的副作用（例如會 push 的 `release.sh`）看不到，除非 policy 把該腳本列為自訂動作。
 - 證據涵蓋已追蹤與未追蹤、且未被 Git 忽略的檔案。
 - 每次檢查都會雜湊整個工作目錄，非常大的 repository 每次呼叫都要付出這個成本。
+- pull request 與 release 靠 `gh` 對帳。`gh` 沒安裝或沒登入時，這些動作會一直是 unknown，直到你手動結案；policy 用到 `gh` 而它不能用時，`SessionStart` 會警告。

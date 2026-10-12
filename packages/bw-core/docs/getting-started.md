@@ -88,6 +88,23 @@ By default an evidence command is a prefix, so `pnpm test -- one.spec.ts` counts
 "evidence": { "kinds": [{ "kind": "test", "argv": [["pnpm", "test"]], "exact": true }] }
 ```
 
+In a repository with more than one test suite, tell each exact kind which directories its result covers, so editing one part does not make every suite stale:
+
+```json
+"evidence": {
+  "ignore": ["coverage"],
+  "kinds": [
+    { "kind": "plugin-test", "argv": [["make", "plugin-test"]], "exact": true, "cwd": "plugins/x", "scope": ["plugins/x", "shared"] },
+    { "kind": "script-test", "argv": [["make", "script-test"]], "exact": true, "cwd": "scripts", "scope": ["scripts"] }
+  ]
+}
+```
+
+- `scope` lists every directory the check depends on, including the ones it imports from. Core does not work that out for you; a directory left out lets an old pass count after a change there.
+- `ignore` lists output the checks write (reports, build output) that is not in `.gitignore`. Without it, a run that writes such a file looks like a run during which files changed and never counts.
+
+When the hook sends the agent back, it also reports how this session has gone (runs, states of the files, failures in a row, times sent back). That is for the agent to decide whether to keep going or to stop and tell you what is failing. If you want it to keep pushing or merging for longer, that is your decision, made by editing the policy, not something the agent can grant itself.
+
 ## 5. When a side effect's result is unknown
 
 Only exit code 0 counts as success. A timeout, an interrupt or any other exit leaves the action `unknown`, and further side effects are refused. Before the next side effect, the hook checks pushes, pull requests, releases and npm publishes with read-only queries (`git ls-remote`, `gh pr view`, `gh release view`, `npm view`) and settles them when it can.
@@ -114,3 +131,4 @@ The ledger stays in `.git/better-workflows/` until you delete it.
 - It only sees the commands Claude Code shows its hooks. A side effect inside a script the agent runs (for example a `release.sh` that pushes) is invisible unless the policy names that script as a custom action.
 - Evidence covers tracked and untracked files that Git does not ignore.
 - Every check hashes the working tree, so very large repositories pay for that on each call.
+- Pull requests and releases are reconciled with `gh`. If it is not installed or not logged in, those actions stay unknown until you settle them by hand; `SessionStart` warns you when the policy needs `gh` and it is not usable.

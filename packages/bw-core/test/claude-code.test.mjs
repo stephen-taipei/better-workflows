@@ -167,3 +167,67 @@ test("an exact check counts only when it runs in the directory the policy names"
   assert.match(await missing(), /unit: the last run .* was not in the directory/, "a cd the hook cannot read does not count");
   assert.doesNotMatch(await missing(), /test:/);
 });
+
+test("Stop reports how the session has gone so the agent can judge whether to keep trying", async (t) => {
+  const { root } = await fixtureRepo(t);
+  await writePolicy(root, { completion: { require: ["test"] } });
+  await hook(root, "SessionStart", { source: "startup" });
+  await writeFile(path.join(root, "app.txt"), "edit 1\n");
+  for (const i of [1, 2]) {
+    const failing = bash(root, "npm test");
+    await failing.pre();
+    await failing.fail(1);
+    await writeFile(path.join(root, "app.txt"), `edit ${i + 1}\n`);
+  }
+  const first = (await hook(root, "Stop", { stop_hook_active: false })).output;
+  assert.match(first.reason, /test ran 2 times on 2 states of the files this session, the last 2 failing/);
+  assert.doesNotMatch(first.reason, /sent back/);
+  const second = (await hook(root, "Stop", { stop_hook_active: false })).output;
+  assert.match(second.reason, /already sent back 1 time\b/);
+  assert.match((await hook(root, "Stop", { stop_hook_active: true })).output.systemMessage, /sent back 2 times/);
+  const other = await handleClaudeCodeHook({ hook_event_name: "Stop", cwd: root, session_id: "s2", stop_hook_active: false });
+  assert.doesNotMatch(other.output.reason, /So far/, "another session's runs are not this session's history");
+});
+
+test("a run that writes ignored output still counts, and scoped kinds survive edits elsewhere", async (t) => {
+  const { root } = await fixtureRepo(t);
+  await mkdir(path.join(root, "pkg"));
+  await writeFile(path.join(root, "pkg", "a.txt"), "a\n");
+  await writePolicy(root, {
+    completion: { require: ["test", "unit"] },
+    evidence: { ignore: ["coverage"], kinds: [{ kind: "unit", argv: [["make", "unit"]], exact: true, scope: ["pkg"] }] },
+  });
+  await hook(root, "SessionStart", { source: "startup" });
+  const missing = async () => (await hook(root, "Stop", { stop_hook_active: false })).output?.reason ?? "";
+  await writeFile(path.join(root, "app.txt"), "edited\n");
+
+  const unit = bash(root, "make unit");
+  await unit.pre();
+  await unit.ok();
+  const test1 = bash(root, "npm test");
+  await test1.pre();
+  await mkdir(path.join(root, "coverage"));
+  await writeFile(path.join(root, "coverage", "lcov.info"), "TN:\n");
+  await test1.ok();
+  assert.equal(await missing(), "", "coverage output written during the run is ignored");
+
+  await writeFile(path.join(root, "app.txt"), "edited again\n");
+  const reason = await missing();
+  assert.match(reason, /test: last result was for an older tree/);
+  assert.doesNotMatch(reason, /unit:/, "the edit was outside pkg/, so unit is still fresh");
+  await writeFile(path.join(root, "pkg", "a.txt"), "b\n");
+  assert.match(await missing(), /unit: last result was for an older state of pkg/);
+});
+
+test("SessionStart warns when the policy needs gh but gh cannot be used", async (t) => {
+  const { root } = await fixtureRepo(t);
+  await writePolicy(root, { actions: { rules: { "gh-pr-merge": "ask" } } });
+  const dir = path.join(root, "..", "bin");
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, "gh"), "#!/bin/sh\necho 'You are not logged into any GitHub hosts. To log in, run: gh auth login' >&2\nexit 1\n", { mode: 0o755 });
+  const PATH = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${PATH}`;
+  t.after(() => { process.env.PATH = PATH; });
+  const context = (await hook(root, "SessionStart", { source: "startup" })).output.hookSpecificOutput.additionalContext;
+  assert.match(context, /Warning: gh is not logged in/);
+});

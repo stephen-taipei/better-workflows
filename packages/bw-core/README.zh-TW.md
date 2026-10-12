@@ -31,6 +31,12 @@ bw status | bw verify | bw log
 
 Policy 格式見[英文版](README.md#policy)。證據的 `argv` 是指令前綴，會加進該種類的內建清單；在證據項目加上 `"exact": true` 則取代該種類的內建清單，且只認在 repo 根目錄執行的完整指令，`pnpm test -- one.spec.ts` 或在單一 workspace package 裡跑的 `pnpm test` 都不會被當成整套測試。`"cwd": "plugins/x"` 可指定其他目錄；同一行的 `cd` 會被追蹤，hook 讀不懂的 `cd`（例如 `cd $DIR`）不算。policy 檔無效時，所有副作用都會被拒絕，不會退回預設值；過期的規則退回 `ask`。
 
+exact 種類還可以宣告 `"scope": ["plugins/x", "shared"]`，也就是這個結果涵蓋的目錄。Git 本來就會替每個目錄各算一個雜湊，所以宣告之後，scope 以外的檔案改動不會讓結果過期，只有 scope 底下有變動才會。預設是整個 tree。要把檢查依賴的目錄全部列進去（包含它 import 的東西）：Core 不建相依圖，漏列一個目錄就會讓舊的通過被算成有效。
+
+`"evidence": { "ignore": ["coverage", "dist"] }` 會把檢查自己寫出的產物排除在 tree 之外，這樣會產生報告的執行不會被當成「執行期間檔案變了」。永遠不該 commit 的產物請優先用 `.gitignore`；`ignore` 是給 repo 有追蹤、或刻意不 ignore 的路徑用的。
+
+`Stop` 把 agent 退回時，訊息會附上這個 session 的狀況：缺的每種證據跑了幾次、跑在幾個不同的檔案狀態上、最近連續失敗幾次，以及這個 session 已被退回幾次。Core 只負責計數，是收斂還是鬼打牆由 agent（或看 `bw status` 的人）判斷。授權不會因為這個判斷而延長：更久或更大的權限只能由人改 policy（`expiresAt`），agent 自己做不到。
+
 
 ## Claude Code
 
@@ -56,7 +62,8 @@ node path/to/better-workflows/packages/bw-core/bin/bw.mjs init
 - 只看得到 host adapter 交給它的指令，其他途徑產生的副作用不在範圍內。
 - Hash chain 能偵測部分竄改，但擋不住對 `.git/` 有寫入權限者整份重寫。由 host adapter 阻止 agent 存取 ledger、policy 檔與 `bw reconcile <id>`。
 - 符合 `.gitignore` 的檔案不納入證據 tree。
-- 每次檢查都會 hash 整個工作目錄，非常大的 repo 每次呼叫都要付出這個成本。
+- 每次檢查都會 hash 整個工作目錄，非常大的 repo 每次呼叫都要付出這個成本。`scope` 改變的是比對的範圍，不是雜湊的範圍。
+- pull request 與 release 的自動對帳需要已安裝且已登入的 `gh`；policy 用到它而它不能用時，`SessionStart` 會警告。
 
 ## 授權
 

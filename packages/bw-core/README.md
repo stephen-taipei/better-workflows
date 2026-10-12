@@ -70,14 +70,23 @@ A side effect refused at the permission prompt never runs and gets no `PostToolU
 
 Each evidence `argv` is a command prefix added to the built-in list for that kind. Add `"exact": true` to an evidence entry to replace the built-in list for that kind and count only the whole command run from the repository root, so neither `pnpm test -- one.spec.ts` nor `pnpm test` inside one workspace package stands in for the suite. `"cwd": "plugins/x"` names another directory; a `cd` on the same line is followed, and one the hook cannot read (`cd $DIR`) does not count.
 
+An exact kind can also declare `"scope": ["plugins/x", "shared"]`: the directories its result covers. Git already hashes every directory on its own, so the result then stays fresh while files outside those directories change, and goes stale only when something under them does. The whole tree is the default. Name every directory the check depends on, including what it imports: Core does not build a dependency graph, so a scope that leaves one out lets an old pass count.
+
+`"evidence": { "ignore": ["coverage", "dist"] }` leaves output a check writes out of the tree, so a run that produces a report is not treated as a run during which files changed. Prefer `.gitignore` when the output should never be committed; `ignore` is for paths the repository tracks or deliberately leaves unignored.
+
 An invalid policy file denies every side effect rather than falling back to defaults. An expired rule falls back to `ask`.
+
+## How the agent knows when to stop trying
+
+When `Stop` sends the agent back, the message also says how this session has gone: how many times each missing kind ran, on how many states of the files, and how many of the latest runs failed in a row, plus how many times the session was already sent back. Core only counts. Whether that means the run is converging or going in circles is for the agent, or the person reading `bw status`, to judge. Authority is never extended on that judgement: a longer or wider permission comes from a person editing the policy (`expiresAt`), never from the agent.
 
 ## Limits
 
 - It sees only the commands a host adapter shows it. Side effects made some other way are outside its view.
 - The hash chain detects partial edits, not a full rewrite by someone with write access to `.git/`. Host adapters keep the agent away from the ledger, the policy file and `bw reconcile <id>`.
 - Files matched by `.gitignore` are not part of the evidence tree.
-- Every check hashes the whole working tree, so very large repositories pay for it on each call.
+- Every check hashes the whole working tree, so very large repositories pay for it on each call. `scope` changes what is compared, not what is hashed.
+- `gh` must be installed and logged in for pull-request and release actions to be reconciled automatically; `SessionStart` warns when the policy needs it and it is not usable.
 
 ## License
 

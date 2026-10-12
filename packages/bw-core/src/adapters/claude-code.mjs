@@ -1,14 +1,15 @@
 import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beginActions, endActions, evaluateCommand, markNotRun } from "../actions.mjs";
-import { completionStatus, describeEvidence, recordEvidence } from "../evidence.mjs";
+import { completionStatus, describeEvidence, describeSession, recordEvidence, scopeDigests, scopeFor, sessionSummary, snapshot } from "../evidence.mjs";
 import { appendEvent } from "../ledger.mjs";
 import { defaultPolicy, loadPolicy } from "../policy.mjs";
 import { classifyCommand } from "../classify.mjs";
-import { reconcileOpen } from "../reconcile.mjs";
-import { headCommit, openRepo, worktreeTree } from "../repo.mjs";
+import { ghFailure, reconcileOpen } from "../reconcile.mjs";
+import { headCommit, openRepo, subtreeDigests, worktreeTree } from "../repo.mjs";
 import { loadState, openActions } from "../state.mjs";
 import { splitCommand } from "../command.mjs";
+import { run } from "../process.mjs";
 
 const HOST = "claude-code";
 const FILE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -149,7 +150,8 @@ async function preToolUse(input, repo) {
   }
   if (evaluation.decision === "deny") return preDecision("deny", evaluation.reasons.join("; "));
 
-  const tree = evaluation.actions.length || evaluation.evidence.length ? await worktreeTree(repo) : null;
+  const { ignore } = policyInfo.policy.evidence;
+  const tree = evaluation.actions.length || evaluation.evidence.length ? await worktreeTree(repo, { ignore }) : null;
   if (evaluation.actions.length) {
     await beginActions(repo, evaluation, { command, tree, policyDigest: policyInfo.digest, host: HOST, toolUseId: input.tool_use_id ?? null });
   }
@@ -166,7 +168,13 @@ async function preToolUse(input, repo) {
       if (runs.some((e) => e.placed && e.attributable)) continue;
       excluded[kind] = runs.some((e) => e.placed) ? "exit-code" : "directory";
     }
-    await writeFile(file, JSON.stringify({ kinds, excluded, command, treeBefore: tree }), { mode: 0o600 });
+    const before = await snapshot(repo, policyInfo.policy, tree);
+    const scopes = {};
+    for (const kind of kinds) {
+      const scope = scopeFor(policyInfo.policy, kind);
+      if (scope) scopes[kind] = { scope, before: scopeDigests(scope, before.digests) };
+    }
+    await writeFile(file, JSON.stringify({ kinds, excluded, command, treeBefore: tree, ignore, scopes }), { mode: 0o600 });
   }
   // Core only narrows what the host already allows; an allow defers to the
   // host's own permission rules instead of granting anything.
@@ -206,16 +214,32 @@ async function postToolUse(input, repo) {
     return null;
   }
   await rm(file, { force: true });
-  const [treeAfter, head] = await Promise.all([worktreeTree(repo), headCommit(repo)]);
+  const [treeAfter, head] = await Promise.all([worktreeTree(repo, { ignore: pending.ignore ?? [] }), headCommit(repo)]);
+  const scopes = pending.scopes ?? {};
+  const after = await subtreeDigests(repo, treeAfter, [...new Set(Object.values(scopes).flatMap((s) => s.scope))]);
   for (const kind of pending.kinds) {
     const excluded = pending.excluded?.[kind] ?? null;
-    await recordEvidence(repo, { kind, command: pending.command, exitCode, excluded, treeBefore: pending.treeBefore, treeAfter, head, host: HOST });
+    const scoped = scopes[kind] ? { scope: scopes[kind].scope, scopeBefore: scopes[kind].before, scopeAfter: scopeDigests(scopes[kind].scope, after) } : {};
+    await recordEvidence(repo, {
+      kind, command: pending.command, exitCode, excluded, treeBefore: pending.treeBefore, treeAfter, head, host: HOST, session: input.session_id ?? null, ...scoped,
+    });
   }
   return null;
 }
 
+// Whether the policy or the ledger needs `gh`, so a missing or logged-out
+// `gh` is reported at the start of the session rather than at the first
+// pull request that then stays unknown.
+async function ghWarning(policy, state) {
+  const needsGh = Object.keys(policy.actions.rules).some((kind) => kind.startsWith("gh-")) || openActions(state).some((a) => a.kind.startsWith("gh-"));
+  if (!needsGh) return null;
+  const result = await run("gh", ["auth", "status"], { timeoutMs: 15_000 });
+  return result.code === 0 ? null : ghFailure(result, "gh auth status");
+}
+
 async function sessionStart(input, repo) {
-  const [tree, head, policyInfo] = await Promise.all([worktreeTree(repo), headCommit(repo), loadPolicy(repo)]);
+  const policyInfo = await loadPolicy(repo);
+  const [tree, head] = await Promise.all([worktreeTree(repo, { ignore: policyInfo.policy.evidence.ignore }), headCommit(repo)]);
   await appendEvent(repo, "session.started", { session: input.session_id ?? null, source: input.source ?? null, tree, head, host: HOST });
   let state = await loadState(repo);
   if (await settleRefused(input, repo, state)) state = await loadState(repo);
@@ -229,24 +253,35 @@ async function sessionStart(input, repo) {
     lines.push("Earlier side effects have no confirmed result. Further side effects stay blocked until they are settled:");
     for (const action of open) lines.push(`- ${action.id} ${action.kind}: ${action.command}`);
   }
+  const gh = await ghWarning(policyInfo.policy, state);
+  if (gh) lines.push(`Warning: ${gh}.`);
   return { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: lines.join("\n") } };
 }
 
 async function stop(input, repo) {
   await settleRefused(input, repo, await loadState(repo));
-  const [policyInfo, state, tree] = await Promise.all([loadPolicy(repo), loadState(repo), worktreeTree(repo)]);
+  const policyInfo = await loadPolicy(repo);
   if (!policyInfo.policy.completion.require.length) return null;
-  const started = state.sessions.get(input.session_id ?? null);
+  const [state, tree] = await Promise.all([loadState(repo), worktreeTree(repo, { ignore: policyInfo.policy.evidence.ignore })]);
+  const session = input.session_id ?? null;
+  const started = state.sessions.get(session);
   if (started && started.tree === tree) return null; // nothing changed in this session
-  const completion = completionStatus(state, policyInfo.policy, tree);
+  const completion = completionStatus(state, policyInfo.policy, await snapshot(repo, policyInfo.policy, tree));
   if (completion.ok) return null;
-  const missing = completion.results.filter((r) => r.status !== "fresh").map(describeEvidence);
+  const missing = completion.results.filter((r) => r.status !== "fresh");
+  const lines = missing.map(describeEvidence);
+  // Counts for the agent to judge whether it is converging; Core does not
+  // decide that, and a person extends authority, never the agent.
+  const history = missing.map((r) => describeSession(sessionSummary(state, session, r.kind))).filter(Boolean);
+  if (started?.blocks) history.push(`this session was already sent back ${started.blocks} time${started.blocks === 1 ? "" : "s"}`);
+  const trend = history.length ? ` So far: ${history.join("; ")}.` : "";
   if (input.stop_hook_active) {
-    return { systemMessage: `Better Workflows: the agent stopped without fresh evidence. ${missing.join("; ")}.` };
+    return { systemMessage: `Better Workflows: the agent stopped without fresh evidence. ${lines.join("; ")}.${trend}` };
   }
+  await appendEvent(repo, "completion.blocked", { session, missing: missing.map((r) => r.kind), tree });
   return {
     decision: "block",
-    reason: `Better Workflows: the files changed and the required evidence does not match them yet. ${missing.join("; ")}. Run the checks on the current files, fix any failure, then finish. If you cannot, say plainly which check is missing or failing.`,
+    reason: `Better Workflows: the files changed and the required evidence does not match them yet. ${lines.join("; ")}.${trend} Run the checks on the current files, fix any failure, then finish. If the same failure keeps coming back, stop and say plainly which check is failing and why, instead of trying again.`,
   };
 }
 

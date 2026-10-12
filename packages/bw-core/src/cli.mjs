@@ -1,13 +1,13 @@
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { completionStatus, describeEvidence, recordEvidence } from "./evidence.mjs";
+import { completionStatus, describeEvidence, describeSession, recordEvidence, scopeDigests, scopeFor, sessionSummary, snapshot } from "./evidence.mjs";
 import { evaluateCommand } from "./actions.mjs";
 import { readLedger, verifyLedger } from "./ledger.mjs";
 import { loadPolicy, POLICY_PATH } from "./policy.mjs";
 import { reconcileManually, reconcileOpen } from "./reconcile.mjs";
-import { openRepo, headCommit, treeState, worktreeTree } from "./repo.mjs";
-import { loadState, openActions } from "./state.mjs";
+import { openRepo, headCommit, subtreeDigests, treeState, worktreeTree } from "./repo.mjs";
+import { latestSession, loadState, openActions } from "./state.mjs";
 import { handleClaudeCodeHook } from "./adapters/claude-code.mjs";
 
 const USAGE = `Usage: bw <command>
@@ -57,16 +57,27 @@ const COMMANDS = {
   async status(args, { cwd, io }) {
     const json = args.includes("--json");
     const repo = await requireRepo(cwd);
-    const [policyInfo, state, { head, tree }] = await Promise.all([loadPolicy(repo), loadState(repo), treeState(repo)]);
-    const completion = completionStatus(state, policyInfo.policy, tree);
+    const policyInfo = await loadPolicy(repo);
+    const [state, { head, tree }] = await Promise.all([loadState(repo), treeState(repo, { ignore: policyInfo.policy.evidence.ignore })]);
+    const completion = completionStatus(state, policyInfo.policy, await snapshot(repo, policyInfo.policy, tree));
     const open = openActions(state).map(({ id, kind, status, command }) => ({ id, kind, status, command }));
-    const result = { head, tree, policy: { source: policyInfo.source, error: policyInfo.error }, completion, openActions: open };
+    const session = latestSession(state);
+    const summaries = session ? completion.results.map((r) => sessionSummary(state, session.session, r.kind)) : [];
+    const result = { head, tree, policy: { source: policyInfo.source, error: policyInfo.error }, completion, openActions: open, session: session && { id: session.session, blocks: session.blocks, evidence: summaries } };
     if (json) return print(io, result, true), 0;
     const lines = [`HEAD ${head ?? "(none)"}  tree ${tree}`, `policy: ${policyInfo.source}${policyInfo.error ? ` (${policyInfo.error})` : ""}`];
     lines.push(completion.results.length ? "completion evidence:" : "completion evidence: none required");
-    for (const item of completion.results) lines.push(`  ${item.status === "fresh" ? "✓" : "✗"} ${describeEvidence(item)}`);
+    for (const item of completion.results) {
+      const scope = scopeFor(policyInfo.policy, item.kind);
+      lines.push(`  ${item.status === "fresh" ? "✓" : "✗"} ${describeEvidence(item)}${scope ? ` [scope: ${scope.join(", ")}]` : ""}`);
+    }
     lines.push(open.length ? "open actions:" : "open actions: none");
     for (const action of open) lines.push(`  ${action.id} ${action.kind} ${action.status}: ${action.command}`);
+    const history = summaries.map(describeSession).filter(Boolean);
+    if (session && (history.length || session.blocks)) {
+      lines.push(`last session (${session.session ?? "unknown"}): sent back ${session.blocks} time${session.blocks === 1 ? "" : "s"}`);
+      for (const line of history) lines.push(`  ${line}`);
+    }
     print(io, lines.join("\n"));
     return 0;
   },
@@ -94,18 +105,23 @@ const COMMANDS = {
     const kind = takeFlag(options, "--kind");
     if (!kind) throw new UsageError("run needs --kind");
     const repo = await requireRepo(cwd);
-    const treeBefore = await worktreeTree(repo);
+    const { policy } = await loadPolicy(repo);
+    const scope = scopeFor(policy, kind);
+    const treeBefore = await worktreeTree(repo, { ignore: policy.evidence.ignore });
+    const scopeBefore = scope ? scopeDigests(scope, await subtreeDigests(repo, treeBefore, scope)) : null;
     const exitCode = await runInherited(command, cwd);
-    const [treeAfter, head] = await Promise.all([worktreeTree(repo), headCommit(repo)]);
-    await recordEvidence(repo, { kind, command: command.join(" "), exitCode, treeBefore, treeAfter, head, host: "cli" });
+    const [treeAfter, head] = await Promise.all([worktreeTree(repo, { ignore: policy.evidence.ignore }), headCommit(repo)]);
+    const scopeAfter = scope ? scopeDigests(scope, await subtreeDigests(repo, treeAfter, scope)) : null;
+    await recordEvidence(repo, { kind, command: command.join(" "), exitCode, treeBefore, treeAfter, head, scope, scopeBefore, scopeAfter, host: "cli" });
     io.stderr.write(`bw: recorded ${kind} evidence (exit ${exitCode ?? "signal"})${treeBefore !== treeAfter ? "; files changed during the run" : ""}\n`);
     return exitCode ?? 1;
   },
 
   async "check-completion"(args, { cwd, io }) {
     const repo = await requireRepo(cwd);
-    const [policyInfo, state, tree] = await Promise.all([loadPolicy(repo), loadState(repo), worktreeTree(repo)]);
-    const completion = completionStatus(state, policyInfo.policy, tree);
+    const policyInfo = await loadPolicy(repo);
+    const [state, tree] = await Promise.all([loadState(repo), worktreeTree(repo, { ignore: policyInfo.policy.evidence.ignore })]);
+    const completion = completionStatus(state, policyInfo.policy, await snapshot(repo, policyInfo.policy, tree));
     if (args.includes("--json")) print(io, completion, true);
     else for (const item of completion.results) print(io, `${item.status === "fresh" ? "✓" : "✗"} ${describeEvidence(item)}`);
     return completion.ok ? 0 : 2;
