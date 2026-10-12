@@ -32,16 +32,16 @@ agent 只能依據「現在的檔案」與「provider 實際發生的事」宣�
 不需要 Claude，約 2 秒就能看到這兩個故事實際跑一次：
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
+node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## 安裝到 Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core               # 每台機器一次
+claude plugin marketplace add ~/.better-workflows-core/packages/bw-core          # 每台機器一次
 claude plugin install better-workflows-core@better-workflows --scope local    # 在你的 repository 裡
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init                     # 寫出 .better-workflows/policy.json
+node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init                # 寫出 .better-workflows/policy.json
 ```
 
 接著請 Claude Code 做一個改動，並告訴它不要跑測試：它要結束時會被退回。policy 設定、結果不明時的處理與限制，請見[快速開始](../packages/bw-core/docs/getting-started.zh-TW.md)。Core 目前是 pre-alpha、Apache-2.0、沒有 runtime 相依套件。方向與里程碑見[路線圖](ROADMAP.zh-TW.md)。

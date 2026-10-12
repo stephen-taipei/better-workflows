@@ -15,9 +15,11 @@ Status: pre-alpha. Until the alpha release, Core is installed from a Git checkou
 ## 1. See it work without Claude (about 2 seconds)
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
+node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
 ```
+
+The clone goes to `~/.better-workflows-core`, not `~/.better-workflows`: V5 keeps its own state in `~/.better-workflows`, so cloning there fails on a machine that has run V5.
 
 The demo builds a throwaway repository and sends the same hook events Claude Code sends. It shows:
 
@@ -33,14 +35,14 @@ It exits 1 if any step does not behave as described.
 Once per machine:
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
 ```
 
 Then in each repository you want to protect:
 
 ```bash
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
 ```
 
 `--scope local` turns the plugin on for this repository only, in `.claude/settings.local.json`, which Git does not track. `bw init` writes `.better-workflows/policy.json`. Commit the policy file: it is the only place the agent's permissions come from, and the agent is not allowed to change it.
@@ -52,10 +54,10 @@ Start Claude Code in the repository and ask for a small change, telling it not t
 Check the state at any time:
 
 ```bash
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs status
+node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs status
 ```
 
-Tip: `alias bw="node ~/.better-workflows/packages/bw-core/bin/bw.mjs"`.
+Tip: `alias bw="node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs"`.
 
 ## 4. Tell it what your checks and side effects are
 

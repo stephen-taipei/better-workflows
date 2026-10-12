@@ -25,16 +25,16 @@ Agenten holdes op på filerne, som de er nu, og på hvad udbyderen faktisk gjord
 Se begge scenarier køre på omkring 2 sekunder, uden Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
+node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## Installér til Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
 ```
 
 Bed derefter Claude Code om en ændring og sig, at den ikke skal køre testene: den bliver sendt tilbage, når den forsøger at afslutte.

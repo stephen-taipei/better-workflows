@@ -27,16 +27,16 @@ bw     ✗ Denied. git-push: the same action already succeeded at this commit.
 ראו את שני התרחישים רצים תוך כ-2 שניות, בלי Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
+node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## התקנה עבור Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
 ```
 
 לאחר מכן בקשו מ-Claude Code שינוי ואמרו לו לא להריץ את הבדיקות: כשינסה לסיים, הוא יוחזר.

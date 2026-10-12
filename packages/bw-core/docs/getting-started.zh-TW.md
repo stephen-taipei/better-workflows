@@ -15,9 +15,11 @@ Better Workflows Core 讓 Claude Code 的 agent 不能拿「已經對不上目�
 ## 1. 不需要 Claude 先看效果（約 2 秒）
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
+node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
 ```
+
+clone 的位置是 `~/.better-workflows-core`，不是 `~/.better-workflows`：V5 把自己的狀態存在 `~/.better-workflows`，跑過 V5 的機器 clone 到那裡會失敗。
 
 demo 會建立一個用完即丟的 repository，送出與 Claude Code 完全相同的 hook 事件，依序呈現：
 
@@ -33,14 +35,14 @@ demo 會建立一個用完即丟的 repository，送出與 Claude Code 完全相
 每台機器做一次：
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
 ```
 
 接著在每個要保護的 repository 裡：
 
 ```bash
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
 ```
 
 `--scope local` 只在這個 repository 啟用 plugin，設定寫在 Git 不追蹤的 `.claude/settings.local.json`。`bw init` 會寫出 `.better-workflows/policy.json`。請把 policy 檔 commit 進去：agent 的權限只來自這個檔案，而且 agent 不能修改它。
@@ -52,10 +54,10 @@ node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
 隨時可以查看狀態：
 
 ```bash
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs status
+node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs status
 ```
 
-小技巧：`alias bw="node ~/.better-workflows/packages/bw-core/bin/bw.mjs"`。
+小技巧：`alias bw="node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs"`。
 
 ## 4. 告訴它你的檢查與副作用
 

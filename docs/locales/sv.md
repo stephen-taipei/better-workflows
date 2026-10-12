@@ -25,16 +25,16 @@ Agenten hålls till filerna som de ser ut nu och till vad leverantören faktiskt
 Se båda scenarierna köras på cirka 2 sekunder, utan Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
+node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## Installera för Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
 ```
 
 Be sedan Claude Code om en ändring och säg åt den att inte köra testerna: den skickas tillbaka när den försöker avsluta.

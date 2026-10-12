@@ -25,16 +25,16 @@ Ajan, dosyaların şu anki hâline ve sağlayıcının gerçekte ne yaptığına
 Claude olmadan, iki senaryonun yaklaşık 2 saniyede çalıştığını görün:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
+node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## Claude Code için kurulum
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
 ```
 
 Ardından Claude Code'dan bir değişiklik isteyin ve testleri çalıştırmamasını söyleyin: bitirmeye çalıştığında geri gönderilir.
