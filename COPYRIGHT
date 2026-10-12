@@ -5,10 +5,14 @@ Copyright (c) 2026 stephen-taipei
 The first-party Better Workflows core in this repository is licensed under the
 GNU Affero General Public License, version 3 only (AGPL-3.0-only). See LICENSE.
 
-The physically independent wire package at packages/better-workflows-wire/ is
-separately licensed under Apache-2.0. See its LICENSE and NOTICE files:
-packages/better-workflows-wire/LICENSE
-packages/better-workflows-wire/NOTICE
+V6 Core at packages/bw-core/ is separately licensed under Apache-2.0. See its
+LICENSE and NOTICE files:
+packages/bw-core/LICENSE
+packages/bw-core/NOTICE
+
+The V5 plugin and the physically independent wire package (Apache-2.0,
+packages/better-workflows-wire/) are kept on the frozen/v5 branch and the
+V5.0.rc1 tag with their own LICENSE and NOTICE files.
 
 This notice does not claim ownership of third-party or upstream materials.
 Those materials remain subject to their applicable licenses and notices.

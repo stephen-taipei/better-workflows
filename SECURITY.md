@@ -45,4 +45,4 @@ Unknown or unreconciled outcomes remain fail-closed.
 
 Better Workflows assumes a trusted local repository, host, and executable
 toolchain. Node's Permission Model is defense in depth and is not an OS sandbox
-for malicious code. See the complete [security guide](docs/guide/security.md).
+for malicious code. See the [Core limits](packages/bw-core/README.md#limits).

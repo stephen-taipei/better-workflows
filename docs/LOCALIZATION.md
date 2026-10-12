@@ -12,9 +12,9 @@ CLI commands, the `auto` template ID, evidence kinds, JSON keys, filenames, code
 
 ## RC1 source and generation
 
-The public RC1 source contains the bilingual catalogs in `docs/rc1-catalogs/`. The website and generated Markdown pages use only `en` and `zh-Hant-TW`. `docs/LANGUAGES.md` lists the two planned locale routes. The RC1 public entrypoint and template are `auto`; its public policies are `read-only-v1`, `code-change-v1`, and `dev-publish-v1`.
+The RC1 source on the `frozen/v5` branch contains the bilingual catalogs in `docs/rc1-catalogs/` and the generators in `scripts/`; `main` keeps only the generated pages. The website and generated Markdown pages use only `en` and `zh-Hant-TW`. `docs/LANGUAGES.md` lists the two planned locale routes. The RC1 public entrypoint and template are `auto`; its public policies are `read-only-v1`, `code-change-v1`, and `dev-publish-v1`.
 
-In an isolated RC1 public source checkout, verify generated documents without changing them:
+In an isolated checkout of `frozen/v5`, verify generated documents without changing them:
 
 ```sh
 node scripts/generate-localized-markdown.mjs --check
