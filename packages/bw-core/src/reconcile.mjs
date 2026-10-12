@@ -6,6 +6,14 @@ import { loadState, openActions } from "./state.mjs";
 
 const unknown = (detail) => ({ outcome: "unknown", detail });
 
+// A `gh` that is missing or logged out fails like any other probe; name
+// the cause, since every later side effect stays blocked until it is fixed.
+export function ghFailure(result, what) {
+  if (result.code === null && !result.timedOut) return "gh is not installed, so pull requests and releases cannot be checked; install it or settle the action by hand";
+  if (/gh auth login|not logged in|Failed to log in|authentication/i.test(result.stderr)) return "gh is not logged in (run `gh auth status`), so pull requests and releases cannot be checked";
+  return `${what} failed: ${result.stderr.trim() || "timed out"}`;
+}
+
 // Read-only probes. Each answers "did the side effect happen?" from the
 // provider itself, never from the agent's account of it.
 export const PROBES = {
@@ -23,7 +31,7 @@ export const PROBES = {
   async "gh-pr-merge"(action, { repo, exec }) {
     const args = ["pr", "view", ...(action.target.pr ? [action.target.pr] : []), "--json", "state"];
     const result = await exec("gh", args, { cwd: repo.root, timeoutMs: 30_000 });
-    if (result.code !== 0) return unknown(`gh pr view failed: ${result.stderr.trim() || "timed out"}`);
+    if (result.code !== 0) return unknown(ghFailure(result, "gh pr view"));
     const state = JSON.parse(result.stdout).state;
     return state === "MERGED" ? { outcome: "success", detail: "pull request is merged" } : { outcome: "failed", detail: `pull request is ${state}` };
   },
@@ -31,7 +39,7 @@ export const PROBES = {
     const head = action.target.head ?? action.branch;
     if (!head) return unknown("pull request head branch is unknown");
     const result = await exec("gh", ["pr", "list", "--head", head, "--state", "all", "--json", "number", "--limit", "1"], { cwd: repo.root, timeoutMs: 30_000 });
-    if (result.code !== 0) return unknown(`gh pr list failed: ${result.stderr.trim() || "timed out"}`);
+    if (result.code !== 0) return unknown(ghFailure(result, "gh pr list"));
     const found = JSON.parse(result.stdout);
     return found.length ? { outcome: "success", detail: `pull request #${found[0].number} exists` } : { outcome: "failed", detail: "no pull request for that branch" };
   },
@@ -40,7 +48,7 @@ export const PROBES = {
     if (!tag || (operation !== "create" && operation !== "delete")) return unknown(`release ${operation} needs manual reconciliation`);
     const result = await exec("gh", ["release", "view", tag, "--json", "tagName"], { cwd: repo.root, timeoutMs: 30_000 });
     const exists = result.code === 0;
-    if (!exists && !/not found/i.test(result.stderr)) return unknown(`gh release view failed: ${result.stderr.trim() || "timed out"}`);
+    if (!exists && !/release not found/i.test(result.stderr)) return unknown(ghFailure(result, "gh release view"));
     const success = operation === "create" ? exists : !exists;
     return { outcome: success ? "success" : "failed", detail: `release ${tag} ${exists ? "exists" : "does not exist"}` };
   },

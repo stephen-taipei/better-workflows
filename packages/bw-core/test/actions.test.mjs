@@ -124,3 +124,13 @@ test("gh probes read provider state through the injected runner", async (t) => {
   assert.deepEqual([merge.outcome, release.outcome], ["success", "success"]);
   assert.deepEqual(calls, ["gh pr view 7 --json state", "gh release view v0.9.0 --json tagName"]);
 });
+
+test("a probe names a missing or logged-out gh instead of a bare failure", async (t) => {
+  const { root, repo } = await fixtureRepo(t);
+  await writePolicy(root, { actions: { rules: { "gh-pr-merge": "allow" } } });
+  await attempt(repo, "gh pr merge 7", 1);
+  const [missing] = await reconcileOpen(repo, { exec: async () => ({ code: null, stdout: "", stderr: "", timedOut: false }) });
+  assert.match(missing.detail, /gh is not installed/);
+  const [loggedOut] = await reconcileOpen(repo, { exec: async () => ({ code: 4, stdout: "", stderr: "To get started with GitHub CLI, please run:  gh auth login", timedOut: false }) });
+  assert.match(loggedOut.detail, /gh is not logged in/);
+});

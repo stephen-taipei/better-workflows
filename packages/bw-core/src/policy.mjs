@@ -61,6 +61,24 @@ function argvList(value, at) {
   });
 }
 
+// A path inside the repository, as written in the policy: relative, no
+// `..`, no trailing separator.
+function repoPath(value, at) {
+  if (typeof value !== "string" || !value || path.isAbsolute(value) || value.split(/[\\/]/).includes("..")) {
+    fail(`${at} must be a path inside the repository`);
+  }
+  return path.posix.normalize(value.replaceAll("\\", "/")).replace(/\/+$/, "");
+}
+
+function pathList(value, at) {
+  if (!Array.isArray(value) || value.length === 0) fail(`${at} must be a non-empty array of paths`);
+  return value.map((p, i) => {
+    const normalized = repoPath(p, `${at}[${i}]`);
+    if (normalized === ".") fail(`${at}[${i}] cannot be the repository root`);
+    return normalized;
+  });
+}
+
 function decisionRule(value, at) {
   if (typeof value === "string") value = { decision: value };
   value = plainObject(value, at);
@@ -81,28 +99,32 @@ export function normalizePolicy(raw) {
   if (!Array.isArray(require) || !require.every((k) => typeof k === "string" && KIND.test(k))) fail("completion.require must list evidence kinds");
 
   const evidence = plainObject(top.evidence, "evidence");
-  onlyKeys(evidence, ["kinds"], "evidence");
+  onlyKeys(evidence, ["kinds", "ignore"], "evidence");
+  const ignore = evidence.ignore === undefined ? [] : pathList(evidence.ignore, "evidence.ignore");
   // A kind marked exact drops the built-in commands for that kind and counts
   // only whole command lines run from `cwd` (default: the repository root),
   // so neither `pnpm test -- one.spec.ts` nor `pnpm test` inside one package
-  // stands in for the suite.
-  let evidenceRules = DEFAULT_EVIDENCE.map((rule) => ({ kind: rule.kind, argv: rule.argv, exact: false, cwd: null }));
-  const declared = new Map(); // kind -> exact, as the policy file declares it
+  // stands in for the suite. Its `scope` names the directories the result
+  // covers; a change elsewhere then leaves the result fresh.
+  let evidenceRules = DEFAULT_EVIDENCE.map((rule) => ({ kind: rule.kind, argv: rule.argv, exact: false, cwd: null, scope: null }));
+  const declared = new Map(); // kind -> { exact, scope }, as the policy file declares it
   for (const [i, rule] of (evidence.kinds ?? []).entries()) {
     const at = `evidence.kinds[${i}]`;
     const entry = plainObject(rule, at);
-    onlyKeys(entry, ["kind", "argv", "exact", "cwd"], at);
+    onlyKeys(entry, ["kind", "argv", "exact", "cwd", "scope"], at);
     if (!KIND.test(entry.kind ?? "")) fail(`${at}.kind is invalid`);
     if (entry.exact !== undefined && typeof entry.exact !== "boolean") fail(`${at}.exact must be true or false`);
     const exact = entry.exact === true;
     if (entry.cwd !== undefined && !exact) fail(`${at}.cwd needs exact: true`);
-    if (entry.cwd !== undefined && (typeof entry.cwd !== "string" || path.isAbsolute(entry.cwd) || entry.cwd.split(/[\\/]/).includes(".."))) {
-      fail(`${at}.cwd must be a path inside the repository`);
-    }
-    if (declared.has(entry.kind) && declared.get(entry.kind) !== exact) fail(`${at} mixes exact and prefix commands for ${entry.kind}`);
-    if (exact && !declared.has(entry.kind)) evidenceRules = evidenceRules.filter((r) => r.kind !== entry.kind);
-    declared.set(entry.kind, exact);
-    evidenceRules.push({ kind: entry.kind, argv: argvList(entry.argv, `${at}.argv`), exact, cwd: exact ? path.normalize(entry.cwd ?? ".") : null });
+    if (entry.scope !== undefined && !exact) fail(`${at}.scope needs exact: true`);
+    const cwd = exact ? (entry.cwd === undefined ? "." : repoPath(entry.cwd, `${at}.cwd`)) : null;
+    const scope = entry.scope === undefined ? null : pathList(entry.scope, `${at}.scope`);
+    const prior = declared.get(entry.kind);
+    if (prior && prior.exact !== exact) fail(`${at} mixes exact and prefix commands for ${entry.kind}`);
+    if (prior && JSON.stringify(prior.scope) !== JSON.stringify(scope)) fail(`${at} declares a different scope for ${entry.kind} than an earlier entry`);
+    if (exact && !prior) evidenceRules = evidenceRules.filter((r) => r.kind !== entry.kind);
+    declared.set(entry.kind, { exact, scope });
+    evidenceRules.push({ kind: entry.kind, argv: argvList(entry.argv, `${at}.argv`), exact, cwd, scope });
   }
   const kinds = new Set(evidenceRules.map((r) => r.kind));
   for (const kind of require) if (!kinds.has(kind)) fail(`completion.require names unknown evidence kind ${kind}`);
@@ -127,7 +149,7 @@ export function normalizePolicy(raw) {
   return {
     version: 1,
     completion: { require: [...new Set(require)] },
-    evidence: { kinds: evidenceRules },
+    evidence: { kinds: evidenceRules, ignore },
     actions: { default: defaultRule, rules, custom },
     opaque,
   };
