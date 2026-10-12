@@ -19,7 +19,7 @@
     "themeToLight": "Açık temaya geç",
     "themeToggle": "Renk temasını değiştir",
     "homeLabel": "Better Workflows ana sayfa",
-    "tagline": "Kodlama ajanınız işi güncel kanıtla bitirir ve her yan etkiyi en fazla bir kez çalıştırır.",
+    "tagline": "Kodlama ajanınız işi güncel kanıtla bitirir ve aynı commit'te zaten başarılı olmuş bir yan etkiyi asla tekrarlamaz.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Kur",
     "overview": "Genel bakış",
@@ -53,7 +53,7 @@
     "ctaInstall": "Claude Code için kur",
     "ctaDemo": "Durdurduğunu görün",
     "specTitle": "Core",
-    "status": "Pre-alpha. Bakımcının iki deposunda her gün çalışıyor.",
+    "status": "Pre-alpha. Ekim 2026'dan beri bakımcının iki deposunda kendi kullanımında.",
     "host": "Claude Code (hooks eklentisi)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 DURDURMA · 0 SAHTE BİTTİ",
-    "halt": "Ajan iki kez doğru olmayan bir şeyi bildirmek üzereydi. İki seferde de gerekçesiyle geri gönderildi.",
-    "note": "Depodaki stale-green demosundan kısaltılmıştır; tree kimlikleri temsilîdir. Tam demoyu Claude olmadan, yaklaşık 2 saniyede kendiniz çalıştırın."
+    "halt": "Core ajanı iki kez durdurdu: bir kez eski bir başarılı çalıştırmayla bitirmekten, bir kez de yeniden push etmekten. İki seferde de gerekçesiyle geri gönderildi.",
+    "note": "Depodaki stale-green demosundan kısaltılmıştır; tree kimlikleri temsilîdir. Tam demoyu Claude olmadan, birkaç saniyede kendiniz çalıştırın."
   },
   "strip": {
     "label": "Rakamlarla Core",
     "items": [
       [
         "satır çekirdek kodu",
-        "3.000 satırlık sınır incelemede zorunlu tutulur"
+        "sınır 3.000"
       ],
       [
         "test",
@@ -146,7 +146,7 @@
       ],
       [
         "Claude Code hook'u",
-        "SessionStart, PreToolUse, PostToolUse ve Stop; sunucu yok, hesap yok"
+        "SessionStart, PreToolUse, PostToolUse(Failure) ve (Subagent)Stop; sunucu yok, hesap yok"
       ],
       [
         "CI hattı",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Bir insan tarafından yazılır ve değiştirilir. Ajan okuyabilir, asla düzenleyemez.",
+        "Bir insan tarafından yazılır ve değiştirilir. Core, ajanın onu doğrudan düzenlemesini reddeder.",
         "hard",
         "KAYNAK"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Nasıl çalışır",
     "en": "HOW IT WORKS",
-    "title": "Dört hook, .git içinde tek bir defter.",
+    "title": "Altı hook, .git içinde tek bir defter.",
     "lead": "Core, Claude Code'un kendi hook'ları içinde çalışır. Başlatılacak bir şey, sunucu ya da hesap yoktur; durum her deponun <code>.git/better-workflows/</code> dizininde tutulur.",
     "hooksTitle": "hook'lar",
     "hooks": [
-      "<b>SessionStart</b>: policy'yi yükler ve <code>gh</code> gibi ihtiyaç duyduğu bir şey eksikse uyarır.",
+      "<b>SessionStart</b>: ajana hangi kontrollerin geçmesi gerektiğini ve hangi yan etkilerin henüz sonuçlanmadığını söyler; policy geçersizse ya da <code>gh</code> gerekli olup kullanılamıyorsa uyarır.",
       "<b>PreToolUse</b>: her yan etkiye izin verir, sorar ya da reddeder; policy'nin ve defterin düzenlenmesini engeller.",
       "<b>PostToolUse</b>: her kontrolü üzerinde çalıştığı Git tree ile, her yan etkiyi de çıkış koduyla kaydeder.",
-      "<b>Stop</b>: zorunlu bir kontrol eksik, başarısız ya da eskimişken ajanı geri gönderir.",
-      "<b>bw status</b>: aynı durumu size gösterir."
+      "<b>Stop</b>: dosyalar değiştiyse ve zorunlu bir kontrol eksik, başarısız ya da eskimişse ajanı gerekçesiyle bir kez geri gönderir; sonraki seferde yalnızca uyarır.",
+      "<b>bw status</b> (hook değil, bir komut): aynı durumu size gösterir."
     ],
     "completion": {
       "name": "Bitirme",
       "sub": "kanıt dosyalara bağlıdır",
       "body": "Bir test, lint, typecheck ya da build yalnızca şu koşullarda sayılır: geçtiyse, sonucu kendi çıkış kodu belirlediyse, çalışırken hiçbir dosya değişmediyse ve dosyalar hâlâ tam olarak üzerinde çalıştığı hâldeyse.",
-      "guardsK": "İsteğe bağlı, kontrol başına",
+      "guardsK": "İsteğe bağlı",
       "guards": [
-        "<code>exact</code>: yalnızca komutun tamamı, doğru dizinden çalıştırıldığında sayılır.",
-        "<code>scope</code>: belirtilen dizinlerin dışındaki bir değişiklik sonucu eskitmez.",
-        "<code>ignore</code>: bir kontrolün yazdığı çıktı, örneğin coverage, değişiklik sayılmaz."
+        "<code>exact</code>: yalnızca komutun tamamı sayılır ve <code>cwd</code> nerede çalışması gerektiğini belirler.",
+        "<code>scope</code> (<code>exact</code> ile): belirtilen dizinlerin dışındaki bir değişiklik sonucu güncel bırakır.",
+        "<code>ignore</code> (tüm policy için): bir kontrolün yazdığı çıktı, örneğin coverage, değişiklik sayılmaz."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Bilinmeyen bir sonucu netleştirmek için kullanılan salt okunur kontroller",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Geçersiz bir policy, varsayılanlara dönmek yerine tüm yan etkileri reddeder.",
       "Süresi dolan bir izin ask'e geri döner. Onu yalnızca bir insan, policy'yi düzenleyerek uzatabilir.",
       "Core'un okuyamadığı <code>eval</code> ya da <code>sh -c</code> gibi komutlar opak kabul edilir ve sorulur.",
-      "Defter yalnızca ekleme yapılabilen, hash zinciriyle bağlı bir kayıttır; <code>bw verify</code> düzenlemeleri ve kırpmaları tespit eder."
+      "Defter yalnızca ekleme yapılabilen, hash zinciriyle bağlı bir kayıttır; <code>bw verify</code> düzenlenmiş ya da silinmiş girdileri ve yarım yazılmış son satırı tespit eder, ancak sondan bütünüyle kesilmiş girdileri tespit etmez."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Core'u klonlayın",
-        "Makine başına bir kez. Burada daha önce V5 çalıştırdıysanız, önce <code>~/.better-workflows</code> dizinini <code>~/.better-workflows-V5</code> olarak taşıyın."
+        "Makine başına bir kez. Burada daha önce V5 çalıştırdıysanız, önce <code>~/.better-workflows</code> dizinini <code>~/.better-workflows-V5</code> olarak taşıyın ve <code>SBW_STATE_ROOT</code> değişkenini oraya yönlendirin."
       ],
       [
         "Eklentiyi ekleyin",
@@ -329,7 +329,7 @@
     "firstAsk": "Bu depoda bir satırı değiştir ve testleri çalıştırma.",
     "copyRequest": "Bu isteği kopyala",
     "firstNote": "Claude Code bitirmeye çalıştığında geri gönderilir ve hangi kontrolün eksik olduğu söylenir.",
-    "demoNote": "İsteğe bağlı: iki senaryoyu Claude olmadan, yaklaşık 2 saniyede çalıştırın."
+    "demoNote": "İsteğe bağlı: iki senaryoyu Claude olmadan, birkaç saniyede çalıştırın."
   },
   "boundary": {
     "idx": "Sınırlar",
@@ -343,11 +343,11 @@
         "Durdurur",
         "Gözlemlenebilir hatalar",
         [
-          "Eskimiş, başarısız ya da kısmi bir test çalıştırmasıyla bitirmek",
+          "Eskimiş ya da başarısız bir test çalıştırmasıyla bitirmek; kontrol <code>exact</code> olarak işaretliyse kısmi bir çalıştırmayla da",
           "Bir hatayı gizleyen pipe ya da <code>|| true</code>",
           "Tekrarlanan push, merge, release ya da publish",
           "Önceki bir yan etkinin sonucu bilinmezken yeni yan etkiler",
-          "Ajanın kendi policy'sini düzenlemesi"
+          "Ajanın kendi policy'sini ya da defterini doğrudan düzenlemesi"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core yukarıdaki hataları engeller. Uzun görevlerde yeniden çalışmayı ya da yanlış kararları azaltıp azaltmadığı ölçülmedi; şu anki kendi kullanım dönemi tam da bunun için.",
     "rulesLabel": "Tasarım sınırları",
     "rules": [
-      "Shell ayrıştırıcısı büyütülmez: okuyamadığı bir komut asla kanıt sayılmaz ve bir eylem olarak sorulur.",
+      "Shell ayrıştırıcısı büyütülmez: okuyamadığı bir komut çalışmadan önce sorulur ve <code>eval</code> ya da <code>sh -c</code> içine gizlenmiş bir test asla kanıt sayılmaz.",
       "Core yalnızca bir oturumun nasıl gittiğini sayar. Bir sonuca yaklaşıp yaklaşmadığına ajan ya da siz karar verirsiniz.",
       "Pull request'ler ve release'ler <code>gh</code> ile mutabık kılınır; o olmadan, siz sonuçlandırana kadar bilinmeyen kalırlar."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Policy başvurusu",
-      "policy.json dosyasının her alanı, örneklerle."
+      "policy.json dosyasının alanları, örneklerle."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Claude Code'u yavaşlatır mı?",
-        "Her hook çalışma ağacının hash'ini Git ile hesaplar; bu, normal bir depoda milisaniyeler sürer. Çok büyük depolar her çağrıda daha fazla bedel öder."
+        "Bir kontrolü ya da yan etkiyi işleyen hook'lar çalışma ağacının hash'ini Git ile hesaplar; bu, normal bir depoda milisaniyeler sürer. Çok büyük depolar bu tür her çağrıda daha fazla bedel öder."
       ],
       [
         "Ajanı sonsuza kadar geri göndererek takılıp kalır mı?",
@@ -492,11 +492,11 @@
       ],
       [
         "Ajan onu kapatabilir mi?",
-        "Hayır. Policy'yi ya da defteri düzenleyemez, <code>bw init</code> komutunu çalıştıramaz ve bilinmeyen bir eylemi kendisi sonuçlandıramaz. Eklentiyi istediğiniz zaman kaldırabilirsiniz."
+        "Doğrudan değil. Core, ajanın policy'yi ve defteri düzenlemesini reddeder; <code>bw init</code> komutunu ve bir eylemin elle sonuçlandırılmasını da reddeder. Eklentiyi kaldırmak ya da bu dosyaları dolambaçlı yollarla değiştirmek Claude Code'un kendi izin kurallarına tabidir, bu yüzden o onay istemlerini açık tutun."
       ],
       [
         "Herhangi bir yere veri gönderir mi?",
-        "Hayır. Sunucu da telemetri de yoktur. Her şey deponuzun <code>.git</code> klasöründe kalır."
+        "Sunucu da telemetri de yoktur. Tek ağ çağrıları, bir yan etkinin gerçekleşip gerçekleşmediğini doğrulamak için kendi <code>git</code>, <code>gh</code> ve <code>npm</code> araçlarınızla yapılan salt okunur kontrollerdir. Defter <code>.git/better-workflows/</code> içinde kalır."
       ],
       [
         "Codex, Gemini CLI ya da Qwen Code ne olacak?",
@@ -514,7 +514,7 @@
     "copyAddress": "Adresi kopyala"
   },
   "cta": {
-    "kicker": "2 saniyede deneyin",
+    "kicker": "Birkaç saniyede deneyin",
     "title": "Bir komutu çalıştırmak kanıt değildir. Dosyalar kanıttır.",
     "body": "Demoyu Claude olmadan çalıştırın, ardından tek bir depoya kurup bir değişiklik isteyin.",
     "notes": "GitHub'da görüntüle"

@@ -22,7 +22,7 @@ L'agent est tenu aux fichiers tels qu'ils sont maintenant, et à ce que le fourn
 
 ## Essayer
 
-Voyez les deux scénarios s'exécuter en 2 secondes environ, sans Claude :
+Voyez les deux scénarios s'exécuter en quelques secondes, sans Claude :
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

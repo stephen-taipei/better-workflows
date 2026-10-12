@@ -19,7 +19,7 @@
     "themeToLight": "Passer au thème clair",
     "themeToggle": "Changer le thème de couleur",
     "homeLabel": "Accueil Better Workflows",
-    "tagline": "Votre agent de code termine sur des preuves à jour, et exécute chaque effet de bord au plus une fois.",
+    "tagline": "Votre agent de code termine sur des preuves à jour, et ne répète jamais un effet de bord qui a déjà réussi sur le même commit.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Installer",
     "overview": "Vue d'ensemble",
@@ -53,7 +53,7 @@
     "ctaInstall": "Installer pour Claude Code",
     "ctaDemo": "Le voir bloquer",
     "specTitle": "Core",
-    "status": "Pre-alpha. Utilisé chaque jour sur deux dépôts du mainteneur.",
+    "status": "Pre-alpha. Utilisé par le mainteneur sur deux de ses dépôts depuis octobre 2026.",
     "host": "Claude Code (plugin de hooks)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 ARRÊTS · 0 FAUX SUCCÈS",
-    "halt": "Deux fois, l'agent allait annoncer quelque chose de faux. Les deux fois, il a été renvoyé avec la raison.",
-    "note": "Abrégé de la démo stale-green du dépôt ; les identifiants d'arbre sont indicatifs. Lancez vous-même la démo complète en 2 secondes environ, sans Claude."
+    "halt": "Core a arrêté l'agent deux fois : une fois alors qu'il allait terminer sur un ancien succès, une fois alors qu'il allait refaire un push. Les deux fois, il a été renvoyé avec la raison.",
+    "note": "Abrégé de la démo stale-green du dépôt ; les identifiants d'arbre sont indicatifs. Lancez vous-même la démo complète en quelques secondes, sans Claude."
   },
   "strip": {
     "label": "Core en chiffres",
     "items": [
       [
         "lignes de code du noyau",
-        "une limite de 3 000 est imposée en revue"
+        "la limite est de 3 000"
       ],
       [
         "tests",
@@ -146,7 +146,7 @@
       ],
       [
         "hooks Claude Code",
-        "SessionStart, PreToolUse, PostToolUse et Stop ; ni serveur, ni compte"
+        "SessionStart, PreToolUse, PostToolUse(Failure) et (Subagent)Stop ; ni serveur, ni compte"
       ],
       [
         "configurations CI",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Écrit et modifié par une personne. L'agent peut le lire, jamais le modifier.",
+        "Écrit et modifié par une personne. Core refuse les modifications directes de l'agent.",
         "hard",
         "SOURCE"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Fonctionnement",
     "en": "HOW IT WORKS",
-    "title": "Quatre hooks, un registre dans .git.",
+    "title": "Six hooks, un registre dans .git.",
     "lead": "Core tourne dans les hooks de Claude Code. Rien à démarrer, ni serveur, ni compte ; l'état est stocké dans <code>.git/better-workflows/</code> de chaque dépôt.",
     "hooksTitle": "les hooks",
     "hooks": [
-      "<b>SessionStart</b> : charge la policy et avertit quand il manque quelque chose dont il a besoin, comme <code>gh</code>.",
+      "<b>SessionStart</b> : indique à l'agent quelles vérifications doivent réussir et quels effets de bord ne sont pas réglés, et avertit si la policy est invalide ou si <code>gh</code> est nécessaire mais inutilisable.",
       "<b>PreToolUse</b> : autorise, demande ou refuse chaque effet de bord, et refuse les modifications de la policy et du registre.",
       "<b>PostToolUse</b> : enregistre chaque vérification avec l'arbre Git sur lequel elle a tourné, et chaque effet de bord avec son code de sortie.",
-      "<b>Stop</b> : renvoie l'agent tant qu'une vérification requise est manquante, en échec ou périmée.",
-      "<b>bw status</b> : vous montre le même état."
+      "<b>Stop</b> : si des fichiers ont changé et qu'une vérification requise est manquante, en échec ou périmée, renvoie l'agent une fois avec la raison ; la fois suivante, il se contente d'avertir.",
+      "<b>bw status</b> (une commande, pas un hook) : vous montre le même état."
     ],
     "completion": {
       "name": "Terminer",
       "sub": "preuves liées aux fichiers",
       "body": "Un test, un lint, un typecheck ou un build ne compte que s'il a réussi, si son propre code de sortie a déterminé le résultat de la ligne, si aucun fichier n'a changé pendant son exécution, et si les fichiers sont toujours exactement ceux sur lesquels il a tourné.",
-      "guardsK": "Optionnel, par vérification",
+      "guardsK": "Optionnel",
       "guards": [
-        "<code>exact</code> : seule la commande complète compte, depuis le bon répertoire.",
-        "<code>scope</code> : un changement hors des répertoires nommés laisse le résultat à jour.",
-        "<code>ignore</code> : la sortie qu'écrit une vérification, comme la couverture, n'est pas comptée comme un changement."
+        "<code>exact</code> : seule la commande complète compte, et <code>cwd</code> fixe où elle doit s'exécuter.",
+        "<code>scope</code> (avec <code>exact</code>) : un changement hors des répertoires nommés laisse le résultat à jour.",
+        "<code>ignore</code> (toute la policy) : la sortie qu'écrit une vérification, comme la couverture, n'est pas comptée comme un changement."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Vérifications en lecture seule pour trancher un résultat inconnu",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Une policy invalide refuse tous les effets de bord au lieu de revenir aux valeurs par défaut.",
       "Une permission expirée revient à ask. Seule une personne peut la prolonger, en modifiant la policy.",
       "Les commandes que Core ne sait pas lire, comme <code>eval</code> ou <code>sh -c</code>, sont traitées comme opaques et font l'objet d'une demande.",
-      "Le registre est en ajout seul et chaîné par hachage ; <code>bw verify</code> détecte les modifications et les troncatures."
+      "Le registre est en ajout seul et chaîné par hachage ; <code>bw verify</code> détecte les entrées modifiées ou supprimées et une dernière ligne à moitié écrite, mais pas des entrées entières coupées à la fin."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Cloner Core",
-        "Une fois par machine. Si vous avez utilisé V5 ici, déplacez d'abord <code>~/.better-workflows</code> vers <code>~/.better-workflows-V5</code>."
+        "Une fois par machine. Si vous avez utilisé V5 ici, déplacez d'abord <code>~/.better-workflows</code> vers <code>~/.better-workflows-V5</code> et faites pointer <code>SBW_STATE_ROOT</code> dessus."
       ],
       [
         "Ajouter le plugin",
@@ -329,7 +329,7 @@
     "firstAsk": "Modifie une ligne dans ce dépôt, et ne lance pas les tests.",
     "copyRequest": "Copier cette demande",
     "firstNote": "Quand Claude Code essaie de terminer, il est renvoyé et on lui indique quelle vérification manque.",
-    "demoNote": "Facultatif : lancez les deux scénarios sans Claude, en 2 secondes environ."
+    "demoNote": "Facultatif : lancez les deux scénarios sans Claude, en quelques secondes."
   },
   "boundary": {
     "idx": "Limites",
@@ -343,11 +343,11 @@
         "Bloque",
         "Erreurs observables",
         [
-          "Terminer sur une exécution de tests périmée, en échec ou partielle",
+          "Terminer sur une exécution de tests périmée ou en échec, ou partielle quand la vérification est marquée <code>exact</code>",
           "Un pipe ou <code>|| true</code> qui masque un échec",
           "Un push, une fusion, une release ou une publication répétés",
           "Des effets de bord alors qu'un précédent est inconnu",
-          "L'agent qui modifie sa propre policy"
+          "L'agent qui modifie directement sa policy ou le registre"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core bloque les erreurs ci-dessus. Il n'a pas été mesuré s'il réduit les reprises ou les mauvaises décisions sur de longues tâches ; c'est l'objet de la période actuelle d'usage interne.",
     "rulesLabel": "Limites de conception",
     "rules": [
-      "Le parseur shell ne s'étend pas : une commande qu'il ne sait pas lire ne compte jamais comme preuve et fait l'objet d'une demande en tant qu'action.",
+      "Le parseur shell ne s'étend pas : une commande qu'il ne sait pas lire fait l'objet d'une demande avant de s'exécuter, et un test caché dans <code>eval</code> ou <code>sh -c</code> ne compte jamais comme preuve.",
       "Core se contente de compter comment se déroule une session. Savoir si elle converge, c'est à l'agent ou à vous d'en juger.",
       "Les pull requests et les releases sont réconciliées avec <code>gh</code> ; sans lui, elles restent inconnues jusqu'à ce que vous les tranchiez."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Référence de la policy",
-      "Chaque champ de policy.json, avec des exemples."
+      "Les champs de policy.json, avec des exemples."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Est-ce que ça ralentit Claude Code ?",
-        "Chaque hook calcule le hash de l'arbre de travail avec Git, ce qui prend quelques millisecondes dans un dépôt normal. Les très gros dépôts paient davantage à chaque appel."
+        "Les hooks qui traitent une vérification ou un effet de bord calculent le hash de l'arbre de travail avec Git, ce qui prend quelques millisecondes dans un dépôt normal. Les très gros dépôts paient davantage à chacun de ces appels."
       ],
       [
         "Va-t-il renvoyer l'agent indéfiniment ?",
@@ -492,11 +492,11 @@
       ],
       [
         "L'agent peut-il le désactiver ?",
-        "Non. Il ne peut modifier ni la policy ni le registre, et ne peut ni lancer <code>bw init</code> ni trancher lui-même une action inconnue. Vous pouvez désinstaller le plugin à tout moment."
+        "Pas directement. Core refuse les modifications de la policy et du registre par l'agent, et refuse <code>bw init</code> et le règlement manuel d'une action. Désinstaller le plugin, ou modifier ces fichiers par des moyens détournés, relève des propres règles d'autorisation de Claude Code : gardez donc ces demandes de confirmation activées."
       ],
       [
         "Envoie-t-il quoi que ce soit ailleurs ?",
-        "Non. Il n'y a ni serveur ni télémétrie. Tout reste dans le dossier <code>.git</code> de votre dépôt."
+        "Il n'y a ni serveur ni télémétrie. Ses seuls appels réseau sont des vérifications en lecture seule avec vos propres <code>git</code>, <code>gh</code> et <code>npm</code>, pour confirmer si un effet de bord a eu lieu. Le registre reste dans <code>.git/better-workflows/</code>."
       ],
       [
         "Et Codex, Gemini CLI ou Qwen Code ?",
@@ -514,7 +514,7 @@
     "copyAddress": "Copier l'adresse"
   },
   "cta": {
-    "kicker": "Essayez en 2 secondes",
+    "kicker": "Essayez en quelques secondes",
     "title": "Lancer une commande n'est pas une preuve. Les fichiers, si.",
     "body": "Lancez la démo sans Claude, puis installez-le sur un dépôt et demandez une modification.",
     "notes": "Voir sur GitHub"

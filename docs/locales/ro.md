@@ -22,7 +22,7 @@ Agentul este evaluat după fișierele așa cum sunt acum și după ce a făcut e
 
 ## Încearcă
 
-Vezi ambele scenarii rulând în aproximativ 2 secunde, fără Claude:
+Vezi ambele scenarii rulând în câteva secunde, fără Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

@@ -22,7 +22,7 @@ Agent sa posudzuje podľa súborov v ich aktuálnom stave a podľa toho, čo pos
 
 ## Vyskúšajte
 
-Pozrite sa, ako oba scenáre prebehnú približne za 2 sekundy, bez Claude:
+Pozrite sa, ako oba scenáre prebehnú za pár sekúnd, bez Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

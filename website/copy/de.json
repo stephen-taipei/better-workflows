@@ -19,7 +19,7 @@
     "themeToLight": "Zum hellen Design wechseln",
     "themeToggle": "Farbschema umschalten",
     "homeLabel": "Better Workflows Startseite",
-    "tagline": "Ihr Coding-Agent schließt mit aktuellen Belegen ab und führt jede Nebenwirkung höchstens einmal aus.",
+    "tagline": "Ihr Coding-Agent schließt mit aktuellen Belegen ab und wiederholt nie eine Nebenwirkung, die auf demselben Commit bereits gelungen ist.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Installieren",
     "overview": "Überblick",
@@ -53,7 +53,7 @@
     "ctaInstall": "Für Claude Code installieren",
     "ctaDemo": "Den Stopp ansehen",
     "specTitle": "Core",
-    "status": "Pre-alpha. Läuft täglich auf zwei Repositories des Maintainers.",
+    "status": "Pre-alpha. Seit Oktober 2026 im Eigeneinsatz auf zwei Repositories des Maintainers.",
     "host": "Claude Code (Hooks-Plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 STOPPS · 0 FALSCHE FERTIGMELDUNGEN",
-    "halt": "Zweimal war der Agent kurz davor, etwas Unzutreffendes zu melden. Beide Male wurde er mit Begründung zurückgeschickt.",
-    "note": "Gekürzt aus der Stale-Green-Demo im Repository; die Tree-IDs dienen nur der Veranschaulichung. Die vollständige Demo läuft bei Ihnen in etwa 2 Sekunden, ohne Claude."
+    "halt": "Core hat den Agenten zweimal gestoppt: einmal, bevor er auf einem alten Erfolg abschließen konnte, einmal, bevor er erneut pushen konnte. Beide Male wurde er mit Begründung zurückgeschickt.",
+    "note": "Gekürzt aus der Stale-Green-Demo im Repository; die Tree-IDs dienen nur der Veranschaulichung. Die vollständige Demo läuft bei Ihnen in wenigen Sekunden, ohne Claude."
   },
   "strip": {
     "label": "Core in Zahlen",
     "items": [
       [
         "Zeilen Kernel-Code",
-        "ein Limit von 3.000 wird im Review durchgesetzt"
+        "das Limit liegt bei 3.000"
       ],
       [
         "Tests",
@@ -146,7 +146,7 @@
       ],
       [
         "Hooks in Claude Code",
-        "SessionStart, PreToolUse, PostToolUse und Stop; kein Server, kein Konto"
+        "SessionStart, PreToolUse, PostToolUse(Failure) und (Subagent)Stop; kein Server, kein Konto"
       ],
       [
         "CI-Lanes",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Von einem Menschen geschrieben und geändert. Der Agent darf sie lesen, aber nie bearbeiten.",
+        "Von einem Menschen geschrieben und geändert. Core lehnt direkte Bearbeitungen durch den Agenten ab.",
         "hard",
         "QUELLE"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "So funktioniert es",
     "en": "HOW IT WORKS",
-    "title": "Vier Hooks, ein Ledger in .git.",
+    "title": "Sechs Hooks, ein Ledger in .git.",
     "lead": "Core läuft in den Hooks von Claude Code selbst. Nichts zu starten, kein Server, kein Konto; der Zustand liegt in <code>.git/better-workflows/</code> jedes Repositorys.",
     "hooksTitle": "die Hooks",
     "hooks": [
-      "<b>SessionStart</b>: lädt die Policy und warnt, wenn etwas Benötigtes wie <code>gh</code> fehlt.",
+      "<b>SessionStart</b>: sagt dem Agenten, welche Prüfungen bestehen müssen und welche Nebenwirkungen ungeklärt sind, und warnt, wenn die Policy ungültig ist oder <code>gh</code> benötigt wird, aber nicht nutzbar ist.",
       "<b>PreToolUse</b>: erlaubt, erfragt oder verweigert jede Nebenwirkung und lehnt Änderungen an Policy und Ledger ab.",
       "<b>PostToolUse</b>: erfasst jede Prüfung mit dem Git-Tree, auf dem sie lief, und jede Nebenwirkung mit ihrem Exit-Code.",
-      "<b>Stop</b>: schickt den Agenten zurück, solange eine erforderliche Prüfung fehlt, fehlgeschlagen oder veraltet ist.",
-      "<b>bw status</b>: zeigt Ihnen denselben Zustand."
+      "<b>Stop</b>: schickt den Agenten einmal mit Begründung zurück, wenn sich Dateien geändert haben und eine erforderliche Prüfung fehlt, fehlgeschlagen oder veraltet ist; beim nächsten Mal warnt er nur.",
+      "<b>bw status</b> (ein Befehl, kein Hook): zeigt Ihnen denselben Zustand."
     ],
     "completion": {
       "name": "Abschließen",
       "sub": "Belege an die Dateien gebunden",
       "body": "Ein Test, Lint, Typecheck oder Build zählt nur, wenn er bestanden hat, sein eigener Exit-Code über die Befehlszeile entschieden hat, sich während des Laufs keine Datei geändert hat und die Dateien noch genau die sind, auf denen er lief.",
-      "guardsK": "Optional, pro Prüfung",
+      "guardsK": "Optional",
       "guards": [
-        "<code>exact</code>: Nur der vollständige Befehl zählt, aus dem richtigen Verzeichnis.",
-        "<code>scope</code>: Eine Änderung außerhalb der genannten Verzeichnisse lässt das Ergebnis frisch.",
-        "<code>ignore</code>: Ausgaben, die eine Prüfung schreibt, etwa Coverage, zählen nicht als Änderung."
+        "<code>exact</code>: Nur der vollständige Befehl zählt, und <code>cwd</code> legt fest, wo er laufen muss.",
+        "<code>scope</code> (mit <code>exact</code>): Eine Änderung außerhalb der genannten Verzeichnisse lässt das Ergebnis frisch.",
+        "<code>ignore</code> (gesamte Policy): Ausgaben, die eine Prüfung schreibt, etwa Coverage, zählen nicht als Änderung."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Nur-Lese-Prüfungen, mit denen ein unbekanntes Ergebnis geklärt wird",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Eine ungültige Policy verweigert jede Nebenwirkung, statt auf Standardwerte zurückzufallen.",
       "Eine abgelaufene Berechtigung fällt auf ask zurück. Nur ein Mensch verlängert sie, indem er die Policy bearbeitet.",
       "Befehle, die Core nicht lesen kann, wie <code>eval</code> oder <code>sh -c</code>, gelten als undurchsichtig und werden nachgefragt.",
-      "Der Ledger ist append-only und per Hash verkettet; <code>bw verify</code> erkennt Änderungen und Kürzungen."
+      "Der Ledger ist append-only und per Hash verkettet; <code>bw verify</code> erkennt bearbeitete oder entfernte Einträge und eine halb geschriebene letzte Zeile, aber nicht ganze Einträge, die am Ende abgeschnitten wurden."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Core klonen",
-        "Einmal pro Rechner. Wenn Sie hier V5 genutzt haben, verschieben Sie zuerst <code>~/.better-workflows</code> nach <code>~/.better-workflows-V5</code>."
+        "Einmal pro Rechner. Wenn Sie hier V5 genutzt haben, verschieben Sie zuerst <code>~/.better-workflows</code> nach <code>~/.better-workflows-V5</code> und lassen Sie <code>SBW_STATE_ROOT</code> darauf zeigen."
       ],
       [
         "Plugin hinzufügen",
@@ -329,7 +329,7 @@
     "firstAsk": "Ändere eine Zeile in diesem Repository und führe die Tests nicht aus.",
     "copyRequest": "Diese Anfrage kopieren",
     "firstNote": "Wenn Claude Code abschließen will, wird es zurückgeschickt und erfährt, welche Prüfung fehlt.",
-    "demoNote": "Optional: beide Szenarien ohne Claude ausführen, in etwa 2 Sekunden."
+    "demoNote": "Optional: beide Szenarien ohne Claude ausführen, in wenigen Sekunden."
   },
   "boundary": {
     "idx": "Grenzen",
@@ -343,11 +343,11 @@
         "Stoppt",
         "Beobachtbare Fehler",
         [
-          "Abschließen auf einem veralteten, fehlgeschlagenen oder unvollständigen Testlauf",
+          "Abschließen auf einem veralteten oder fehlgeschlagenen Testlauf oder auf einem unvollständigen, wenn die Prüfung als <code>exact</code> markiert ist",
           "Eine Pipe oder <code>|| true</code>, die einen Fehlschlag verdeckt",
           "Einen wiederholten Push, Merge, Release oder eine wiederholte Veröffentlichung",
           "Nebenwirkungen, während eine frühere noch unbekannt ist",
-          "Dass der Agent seine eigene Policy bearbeitet"
+          "Dass der Agent seine Policy oder den Ledger direkt bearbeitet"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core blockiert die oben genannten Fehler. Ob es bei langen Aufgaben Nacharbeit oder Fehlentscheidungen verringert, wurde nicht gemessen; dafür ist die aktuelle Phase der Eigennutzung da.",
     "rulesLabel": "Grenzen des Designs",
     "rules": [
-      "Der Shell-Parser wächst nicht: Ein Befehl, den er nicht lesen kann, zählt nie als Beleg und wird als Aktion nachgefragt.",
+      "Der Shell-Parser wächst nicht: Bei einem Befehl, den er nicht lesen kann, wird vor der Ausführung nachgefragt, und ein in <code>eval</code> oder <code>sh -c</code> versteckter Test zählt nie als Beleg.",
       "Core zählt nur mit, wie eine Sitzung verläuft. Ob sie konvergiert, beurteilen der Agent oder Sie.",
       "Pull Requests und Releases werden mit <code>gh</code> abgeglichen; ohne es bleiben sie unbekannt, bis Sie sie klären."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Policy-Referenz",
-      "Jedes Feld von policy.json, mit Beispielen."
+      "Die Felder von policy.json, mit Beispielen."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Verlangsamt es Claude Code?",
-        "Jeder Hook hasht den Arbeitsbaum mit Git, was in einem normalen Repository Millisekunden dauert. Sehr große Repositories zahlen bei jedem Aufruf mehr."
+        "Hooks, die eine Prüfung oder eine Nebenwirkung behandeln, hashen den Arbeitsbaum mit Git, was in einem normalen Repository Millisekunden dauert. Sehr große Repositories zahlen bei jedem solchen Aufruf mehr."
       ],
       [
         "Bleibt es hängen und schickt den Agenten endlos zurück?",
@@ -492,11 +492,11 @@
       ],
       [
         "Kann der Agent es abschalten?",
-        "Nein. Er kann weder die Policy noch den Ledger bearbeiten und weder <code>bw init</code> ausführen noch eine unbekannte Aktion selbst klären. Sie können das Plugin jederzeit deinstallieren."
+        "Nicht direkt. Core lehnt Bearbeitungen der Policy und des Ledgers durch den Agenten ab, ebenso <code>bw init</code> und das manuelle Klären einer Aktion. Das Deinstallieren des Plugins oder das Ändern dieser Dateien auf Umwegen unterliegt den eigenen Berechtigungsregeln von Claude Code; lassen Sie diese Nachfragen also eingeschaltet."
       ],
       [
         "Sendet es irgendwohin Daten?",
-        "Nein. Es gibt keinen Server und keine Telemetrie. Alles bleibt im <code>.git</code>-Ordner Ihres Repositorys."
+        "Es gibt keinen Server und keine Telemetrie. Die einzigen Netzwerkaufrufe sind rein lesende Abfragen mit Ihren eigenen <code>git</code>, <code>gh</code> und <code>npm</code>, um zu bestätigen, ob eine Nebenwirkung stattgefunden hat. Der Ledger bleibt in <code>.git/better-workflows/</code>."
       ],
       [
         "Was ist mit Codex, Gemini CLI oder Qwen Code?",
@@ -514,7 +514,7 @@
     "copyAddress": "Adresse kopieren"
   },
   "cta": {
-    "kicker": "In 2 Sekunden ausprobieren",
+    "kicker": "In wenigen Sekunden ausprobieren",
     "title": "Ein ausgeführter Befehl ist kein Beweis. Die Dateien sind es.",
     "body": "Führen Sie die Demo ohne Claude aus, installieren Sie es dann in einem Repository und bitten Sie um eine Änderung.",
     "notes": "Auf GitHub ansehen"

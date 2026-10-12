@@ -22,7 +22,7 @@ Ejen dinilai berdasarkan fail seperti keadaannya sekarang, dan berdasarkan apa y
 
 ## Cuba
 
-Lihat kedua-dua senario berjalan dalam kira-kira 2 saat, tanpa Claude:
+Lihat kedua-dua senario berjalan dalam beberapa saat, tanpa Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

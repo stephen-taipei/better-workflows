@@ -22,7 +22,7 @@ L'agente è vincolato ai file così come sono ora e a ciò che il provider ha fa
 
 ## Provalo
 
-Guarda entrambi gli scenari girare in circa 2 secondi, senza Claude:
+Guarda entrambi gli scenari girare in pochi secondi, senza Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

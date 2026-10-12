@@ -19,7 +19,7 @@
     "themeToLight": "Comută la tema luminoasă",
     "themeToggle": "Schimbă tema de culori",
     "homeLabel": "Pagina principală Better Workflows",
-    "tagline": "Agentul tău de programare încheie pe baza dovezilor actuale și rulează fiecare efect secundar cel mult o dată.",
+    "tagline": "Agentul tău de programare încheie pe baza dovezilor actuale și nu repetă niciodată un efect secundar care a reușit deja la același commit.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Instalare",
     "overview": "Prezentare",
@@ -53,7 +53,7 @@
     "ctaInstall": "Instalare pentru Claude Code",
     "ctaDemo": "Vezi-l oprind",
     "specTitle": "Core",
-    "status": "Pre-alpha. Rulează zilnic pe două dintre repository-urile autorului.",
+    "status": "Pre-alpha. Folosit de autor pe două dintre repository-urile sale din octombrie 2026.",
     "host": "Claude Code (plugin de hooks)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 OPRIRI · 0 FINALIZĂRI FALSE",
-    "halt": "De două ori agentul era pe punctul de a raporta ceva neadevărat. De ambele ori a fost trimis înapoi cu motivul.",
-    "note": "Scurtat din demo-ul stale-green din repository; id-urile de tree sunt ilustrative. Rulează singur demo-ul complet în aproximativ 2 secunde, fără Claude."
+    "halt": "Core a oprit agentul de două ori: o dată când voia să încheie pe baza unei rulări reușite vechi, o dată când voia să facă din nou push. De ambele ori a fost trimis înapoi cu motivul.",
+    "note": "Scurtat din demo-ul stale-green din repository; id-urile de tree sunt ilustrative. Rulează singur demo-ul complet în câteva secunde, fără Claude."
   },
   "strip": {
     "label": "Core în cifre",
     "items": [
       [
         "linii de cod în kernel",
-        "o limită de 3.000 este impusă la review"
+        "limita este 3.000"
       ],
       [
         "teste",
@@ -146,7 +146,7 @@
       ],
       [
         "hooks Claude Code",
-        "SessionStart, PreToolUse, PostToolUse și Stop; fără server, fără cont"
+        "SessionStart, PreToolUse, PostToolUse(Failure) și (Subagent)Stop; fără server, fără cont"
       ],
       [
         "linii CI",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Scris și modificat de o persoană. Agentul îl poate citi, niciodată modifica.",
+        "Scris și modificat de o persoană. Core refuză modificările directe ale agentului asupra lui.",
         "hard",
         "SURSĂ"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Cum funcționează",
     "en": "HOW IT WORKS",
-    "title": "Patru hooks, un registru în .git.",
+    "title": "Șase hooks, un registru în .git.",
     "lead": "Core rulează în hooks-urile proprii ale Claude Code. Nimic de pornit, fără server, fără cont; starea stă în <code>.git/better-workflows/</code> din fiecare repository.",
     "hooksTitle": "hooks-urile",
     "hooks": [
-      "<b>SessionStart</b>: încarcă policy-ul și avertizează când lipsește ceva de care are nevoie, cum ar fi <code>gh</code>.",
+      "<b>SessionStart</b>: îi spune agentului ce verificări trebuie să treacă și ce efecte secundare sunt încă neclarificate și avertizează dacă policy-ul este invalid sau dacă <code>gh</code> este necesar, dar inutilizabil.",
       "<b>PreToolUse</b>: permite, întreabă sau refuză fiecare efect secundar și refuză modificările la policy și la registru.",
       "<b>PostToolUse</b>: înregistrează fiecare verificare cu tree-ul Git pe care a rulat și fiecare efect secundar cu codul său de ieșire.",
-      "<b>Stop</b>: trimite agentul înapoi cât timp o verificare obligatorie lipsește, a eșuat sau este depășită.",
-      "<b>bw status</b>: îți arată ție aceeași stare."
+      "<b>Stop</b>: dacă s-au schimbat fișiere și o verificare obligatorie lipsește, a eșuat sau este depășită, trimite agentul înapoi o dată, cu motivul; data următoare doar avertizează.",
+      "<b>bw status</b> (o comandă, nu un hook): îți arată ție aceeași stare."
     ],
     "completion": {
       "name": "Încheierea",
       "sub": "dovezi legate de fișiere",
       "body": "Un test, lint, typecheck sau build contează doar dacă a trecut, propriul cod de ieșire a decis rezultatul, niciun fișier nu s-a schimbat cât a rulat, iar fișierele sunt încă exact cele pe care a rulat.",
-      "guardsK": "Opțional, per verificare",
+      "guardsK": "Opțional",
       "guards": [
-        "<code>exact</code>: contează doar comanda completă, din directorul corect.",
-        "<code>scope</code>: o schimbare în afara directoarelor numite lasă rezultatul valabil.",
-        "<code>ignore</code>: ieșirea scrisă de o verificare, cum ar fi coverage, nu este socotită schimbare."
+        "<code>exact</code>: contează doar comanda completă, iar <code>cwd</code> stabilește unde trebuie să ruleze.",
+        "<code>scope</code> (cu <code>exact</code>): o schimbare în afara directoarelor numite lasă rezultatul valabil.",
+        "<code>ignore</code> (întregul policy): ieșirea scrisă de o verificare, cum ar fi coverage, nu este socotită schimbare."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Verificări read-only folosite pentru a clarifica un rezultat necunoscut",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Un policy invalid refuză orice efect secundar în loc să revină la valori implicite.",
       "O permisiune expirată revine la ask. Doar o persoană o prelungește, modificând policy-ul.",
       "Comenzile pe care Core nu le poate citi, cum ar fi <code>eval</code> sau <code>sh -c</code>, sunt tratate ca opace și se cere confirmare.",
-      "Registrul este append-only și înlănțuit prin hash; <code>bw verify</code> detectează modificările și trunchierea."
+      "Registrul este append-only și înlănțuit prin hash; <code>bw verify</code> detectează intrările modificate sau eliminate și o ultimă linie scrisă pe jumătate, dar nu și intrări întregi tăiate de la final."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Clonează Core",
-        "O dată pe mașină. Dacă ai rulat V5 aici, mută mai întâi <code>~/.better-workflows</code> în <code>~/.better-workflows-V5</code>."
+        "O dată pe mașină. Dacă ai rulat V5 aici, mută mai întâi <code>~/.better-workflows</code> în <code>~/.better-workflows-V5</code> și setează <code>SBW_STATE_ROOT</code> să indice spre el."
       ],
       [
         "Adaugă pluginul",
@@ -329,7 +329,7 @@
     "firstAsk": "Schimbă o linie în acest repository și nu rula testele.",
     "copyRequest": "Copiază această cerere",
     "firstNote": "Când Claude Code încearcă să încheie, este trimis înapoi și i se spune ce verificare lipsește.",
-    "demoNote": "Opțional: rulează ambele scenarii fără Claude, în aproximativ 2 secunde."
+    "demoNote": "Opțional: rulează ambele scenarii fără Claude, în câteva secunde."
   },
   "boundary": {
     "idx": "Limite",
@@ -343,11 +343,11 @@
         "Oprește",
         "Greșeli observabile",
         [
-          "Încheierea pe baza unei rulări de teste depășite, eșuate sau parțiale",
+          "Încheierea pe baza unei rulări de teste depășite sau eșuate, ori a uneia parțiale când verificarea este marcată <code>exact</code>",
           "Un pipe sau <code>|| true</code> care ascunde un eșec",
           "Un push, merge, release sau publish repetat",
           "Efecte secundare cât timp unul anterior este necunoscut",
-          "Agentul care își modifică propriul policy"
+          "Agentul care își modifică direct policy-ul sau registrul"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core blochează greșelile de mai sus. Nu s-a măsurat dacă reduce munca refăcută sau deciziile greșite în sarcinile lungi; pentru asta este actuala perioadă de utilizare proprie.",
     "rulesLabel": "Limite de design",
     "rules": [
-      "Parserul de shell nu crește: o comandă pe care nu o poate citi nu contează niciodată ca dovadă și se cere confirmare pentru ea ca acțiune.",
+      "Parserul de shell nu crește: pentru o comandă pe care nu o poate citi se cere confirmare înainte să ruleze, iar un test ascuns în <code>eval</code> sau <code>sh -c</code> nu contează niciodată ca dovadă.",
       "Core doar numără cum merge o sesiune. Dacă aceasta converge, judecă agentul sau tu.",
       "Pull request-urile și release-urile sunt reconciliate cu <code>gh</code>; fără el, rămân necunoscute până le clarifici tu."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Referință policy",
-      "Fiecare câmp din policy.json, cu exemple."
+      "Câmpurile din policy.json, cu exemple."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Încetinește Claude Code?",
-        "Fiecare hook calculează hash-ul arborelui de lucru cu Git, ceea ce durează milisecunde într-un repository obișnuit. Repository-urile foarte mari plătesc mai mult la fiecare apel."
+        "Hook-urile care tratează o verificare sau un efect secundar calculează hash-ul arborelui de lucru cu Git, ceea ce durează milisecunde într-un repository obișnuit. Repository-urile foarte mari plătesc mai mult la fiecare astfel de apel."
       ],
       [
         "Se poate bloca trimițând agentul înapoi la nesfârșit?",
@@ -492,11 +492,11 @@
       ],
       [
         "Îl poate dezactiva agentul?",
-        "Nu. Nu poate modifica policy-ul sau registrul și nu poate rula <code>bw init</code> și nici nu poate clarifica singur o acțiune necunoscută. Tu poți dezinstala pluginul oricând."
+        "Nu direct. Core refuză modificările agentului la policy și la registru și refuză <code>bw init</code> și clarificarea manuală a unei acțiuni. Dezinstalarea pluginului sau modificarea acelor fișiere pe căi ocolite țin de regulile de permisiuni proprii ale Claude Code, așa că păstrează acele confirmări activate."
       ],
       [
         "Trimite ceva undeva?",
-        "Nu. Nu există server și nici telemetrie. Totul rămâne în folderul <code>.git</code> al repository-ului tău."
+        "Nu există server și nici telemetrie. Singurele apeluri de rețea sunt verificări doar în citire cu propriile tale <code>git</code>, <code>gh</code> și <code>npm</code>, pentru a confirma dacă un efect secundar a avut loc. Registrul rămâne în <code>.git/better-workflows/</code>."
       ],
       [
         "Ce se întâmplă cu Codex, Gemini CLI sau Qwen Code?",
@@ -514,7 +514,7 @@
     "copyAddress": "Copiază adresa"
   },
   "cta": {
-    "kicker": "Încearcă în 2 secunde",
+    "kicker": "Încearcă în câteva secunde",
     "title": "Rularea unei comenzi nu e o dovadă. Fișierele sunt.",
     "body": "Rulează demo-ul fără Claude, apoi instalează-l pe un repository și cere o modificare.",
     "notes": "Vezi pe GitHub"

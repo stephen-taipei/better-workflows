@@ -19,7 +19,7 @@
     "themeToLight": "Przełącz na jasny motyw",
     "themeToggle": "Przełącz motyw kolorów",
     "homeLabel": "Strona główna Better Workflows",
-    "tagline": "Twój agent AI do programowania kończy pracę na aktualnych dowodach i wykonuje każdy skutek uboczny najwyżej raz.",
+    "tagline": "Twój agent AI do programowania kończy pracę na aktualnych dowodach i nigdy nie powtarza skutku ubocznego, który już się powiódł na tym samym commicie.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Instalacja",
     "overview": "Przegląd",
@@ -53,7 +53,7 @@
     "ctaInstall": "Zainstaluj w Claude Code",
     "ctaDemo": "Zobacz, jak zatrzymuje",
     "specTitle": "Core",
-    "status": "Pre-alpha. Działa codziennie w dwóch repozytoriach opiekuna projektu.",
+    "status": "Pre-alpha. Od października 2026 używany przez opiekuna projektu w dwóch jego repozytoriach.",
     "host": "Claude Code (plugin z hookami)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 ZATRZYMANIA · 0 FAŁSZYWYCH UKOŃCZEŃ",
-    "halt": "Dwa razy agent miał zgłosić coś, co nie było prawdą. Za każdym razem został odesłany z podaniem powodu.",
-    "note": "Skrócone z demo stale-green z repozytorium; identyfikatory tree są poglądowe. Uruchom pełne demo samodzielnie w około 2 sekundy, bez Claude."
+    "halt": "Core dwa razy zatrzymał agenta: raz przed zakończeniem na starym udanym wyniku, raz przed ponownym push. Za każdym razem agent został odesłany z podaniem powodu.",
+    "note": "Skrócone z demo stale-green z repozytorium; identyfikatory tree są poglądowe. Uruchom pełne demo samodzielnie w kilka sekund, bez Claude."
   },
   "strip": {
     "label": "Core w liczbach",
     "items": [
       [
         "linii kodu jądra",
-        "limit 3000 jest egzekwowany w review"
+        "limit to 3000"
       ],
       [
         "testów",
@@ -146,7 +146,7 @@
       ],
       [
         "hooki Claude Code",
-        "SessionStart, PreToolUse, PostToolUse i Stop; bez serwera, bez konta"
+        "SessionStart, PreToolUse, PostToolUse(Failure) i (Subagent)Stop; bez serwera, bez konta"
       ],
       [
         "ścieżki CI",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Pisany i zmieniany przez człowieka. Agent może go czytać, nigdy edytować.",
+        "Pisany i zmieniany przez człowieka. Core odrzuca jego bezpośrednie edycje przez agenta.",
         "hard",
         "ŹRÓDŁO"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Jak to działa",
     "en": "HOW IT WORKS",
-    "title": "Cztery hooki, jeden rejestr w .git.",
+    "title": "Sześć hooków, jeden rejestr w .git.",
     "lead": "Core działa w hookach samego Claude Code. Nic do uruchamiania, bez serwera, bez konta; stan jest przechowywany w <code>.git/better-workflows/</code> każdego repozytorium.",
     "hooksTitle": "hooki",
     "hooks": [
-      "<b>SessionStart</b>: wczytuje policy i ostrzega, gdy brakuje czegoś potrzebnego, np. <code>gh</code>.",
+      "<b>SessionStart</b>: mówi agentowi, które sprawdzenia muszą przejść i które skutki uboczne są nierozstrzygnięte, oraz ostrzega, jeśli policy jest nieprawidłowa albo <code>gh</code> jest potrzebny, ale nie da się go użyć.",
       "<b>PreToolUse</b>: zezwala, pyta lub odmawia przy każdym skutku ubocznym i blokuje edycje policy oraz rejestru.",
       "<b>PostToolUse</b>: zapisuje każde sprawdzenie wraz z drzewem Git, na którym działało, i każdy skutek uboczny wraz z jego kodem wyjścia.",
-      "<b>Stop</b>: odsyła agenta, dopóki wymagane sprawdzenie jest brakujące, nieudane lub nieaktualne.",
-      "<b>bw status</b>: pokazuje Ci ten sam stan."
+      "<b>Stop</b>: jeśli pliki się zmieniły, a wymagane sprawdzenie jest brakujące, nieudane lub nieaktualne, raz odsyła agenta z podaniem powodu; następnym razem tylko ostrzega.",
+      "<b>bw status</b> (polecenie, nie hook): pokazuje Ci ten sam stan."
     ],
     "completion": {
       "name": "Zakończenie",
       "sub": "dowody związane z plikami",
       "body": "Test, lint, typecheck lub build liczy się tylko wtedy, gdy przeszedł, o wyniku zdecydował jego własny kod wyjścia, żaden plik nie zmienił się w trakcie, a pliki są nadal dokładnie tymi, na których działał.",
-      "guardsK": "Opcjonalnie, dla każdego sprawdzenia",
+      "guardsK": "Opcjonalnie",
       "guards": [
-        "<code>exact</code>: liczy się tylko pełne polecenie, z właściwego katalogu.",
-        "<code>scope</code>: zmiana poza wskazanymi katalogami nie unieważnia wyniku.",
-        "<code>ignore</code>: wyjście zapisywane przez sprawdzenie, np. coverage, nie jest liczone jako zmiana."
+        "<code>exact</code>: liczy się tylko pełne polecenie, a <code>cwd</code> określa, gdzie musi zostać uruchomione.",
+        "<code>scope</code> (z <code>exact</code>): zmiana poza wskazanymi katalogami nie unieważnia wyniku.",
+        "<code>ignore</code> (cała policy): wyjście zapisywane przez sprawdzenie, np. coverage, nie jest liczone jako zmiana."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Sprawdzenia tylko do odczytu używane do rozstrzygnięcia nieznanego wyniku",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Nieprawidłowa policy odmawia każdego skutku ubocznego zamiast wracać do ustawień domyślnych.",
       "Wygasłe uprawnienie wraca do ask. Przedłużyć je może tylko człowiek, edytując policy.",
       "Polecenia, których Core nie potrafi odczytać, np. <code>eval</code> lub <code>sh -c</code>, są traktowane jako nieprzejrzyste i wymagają pytania.",
-      "Rejestr jest append-only i łańcuchowany hashami; <code>bw verify</code> wykrywa edycje i obcięcie."
+      "Rejestr jest append-only i łańcuchowany hashami; <code>bw verify</code> wykrywa zmienione lub usunięte wpisy i do połowy zapisaną ostatnią linię, ale nie całe wpisy odcięte od końca."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Sklonuj Core",
-        "Raz na maszynę. Jeśli używałeś tu V5, najpierw przenieś <code>~/.better-workflows</code> do <code>~/.better-workflows-V5</code>."
+        "Raz na maszynę. Jeśli używałeś tu V5, najpierw przenieś <code>~/.better-workflows</code> do <code>~/.better-workflows-V5</code> i wskaż ten katalog w <code>SBW_STATE_ROOT</code>."
       ],
       [
         "Dodaj plugin",
@@ -329,7 +329,7 @@
     "firstAsk": "Zmień jedną linię w tym repozytorium i nie uruchamiaj testów.",
     "copyRequest": "Skopiuj tę prośbę",
     "firstNote": "Gdy Claude Code spróbuje zakończyć, zostanie odesłany z informacją, którego sprawdzenia brakuje.",
-    "demoNote": "Opcjonalnie: uruchom oba scenariusze bez Claude, w około 2 sekundy."
+    "demoNote": "Opcjonalnie: uruchom oba scenariusze bez Claude, w kilka sekund."
   },
   "boundary": {
     "idx": "Ograniczenia",
@@ -343,11 +343,11 @@
         "Zatrzymuje",
         "Widoczne błędy",
         [
-          "Zakończenie na nieaktualnym, nieudanym lub częściowym uruchomieniu testów",
+          "Zakończenie na nieaktualnym lub nieudanym uruchomieniu testów, albo na częściowym, gdy sprawdzenie jest oznaczone jako <code>exact</code>",
           "Pipe lub <code>|| true</code> ukrywające błąd",
           "Powtórzony push, merge, release lub publish",
           "Skutki uboczne, gdy wcześniejszy ma nieznany wynik",
-          "Edycję własnej policy przez agenta"
+          "Bezpośrednią edycję własnej policy lub rejestru przez agenta"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core blokuje powyższe błędy. Nie zmierzono, czy zmniejsza ilość poprawek lub błędnych decyzji w długich zadaniach; temu służy obecny okres używania na własnych projektach.",
     "rulesLabel": "Ograniczenia projektowe",
     "rules": [
-      "Parser powłoki nie jest rozbudowywany: polecenie, którego nie potrafi odczytać, nigdy nie liczy się jako dowód i jest traktowane jako akcja wymagająca pytania.",
+      "Parser powłoki nie jest rozbudowywany: o polecenie, którego nie potrafi odczytać, pyta się przed jego uruchomieniem, a test ukryty w <code>eval</code> lub <code>sh -c</code> nigdy nie liczy się jako dowód.",
       "Core tylko liczy, jak przebiega sesja. Czy zmierza do celu, ocenia agent albo Ty.",
       "Pull requesty i release'y są uzgadniane przez <code>gh</code>; bez niego pozostają nieznane, dopóki ich nie rozstrzygniesz."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Dokumentacja policy",
-      "Każde pole policy.json, z przykładami."
+      "Pola policy.json, z przykładami."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Czy spowalnia Claude Code?",
-        "Każdy hook liczy hash drzewa roboczego za pomocą Git, co w zwykłym repozytorium zajmuje milisekundy. Bardzo duże repozytoria płacą więcej przy każdym wywołaniu."
+        "Hooki, które obsługują sprawdzenie lub skutek uboczny, liczą hash drzewa roboczego za pomocą Git, co w zwykłym repozytorium zajmuje milisekundy. Bardzo duże repozytoria płacą więcej przy każdym takim wywołaniu."
       ],
       [
         "Czy może utknąć, odsyłając agenta w nieskończoność?",
@@ -492,11 +492,11 @@
       ],
       [
         "Czy agent może go wyłączyć?",
-        "Nie. Nie może edytować policy ani rejestru, nie może uruchomić <code>bw init</code> ani sam rozstrzygnąć nieznanej akcji. Ty możesz odinstalować plugin w dowolnym momencie."
+        "Nie bezpośrednio. Core odrzuca edycje policy i rejestru przez agenta, a także <code>bw init</code> i ręczne rozstrzyganie akcji. Odinstalowanie pluginu lub zmiana tych plików okrężną drogą podlega własnym regułom uprawnień Claude Code, więc nie wyłączaj tych pytań."
       ],
       [
         "Czy coś gdzieś wysyła?",
-        "Nie. Nie ma serwera ani telemetrii. Wszystko zostaje w folderze <code>.git</code> Twojego repozytorium."
+        "Nie ma serwera ani telemetrii. Jedyne wywołania sieciowe to sprawdzenia tylko do odczytu za pomocą Twoich własnych <code>git</code>, <code>gh</code> i <code>npm</code>, które potwierdzają, czy skutek uboczny nastąpił. Rejestr zostaje w <code>.git/better-workflows/</code>."
       ],
       [
         "A co z Codex, Gemini CLI lub Qwen Code?",
@@ -514,7 +514,7 @@
     "copyAddress": "Skopiuj adres"
   },
   "cta": {
-    "kicker": "Wypróbuj w 2 sekundy",
+    "kicker": "Wypróbuj w kilka sekund",
     "title": "Uruchomienie polecenia to nie dowód. Pliki są dowodem.",
     "body": "Uruchom demo bez Claude, potem zainstaluj plugin w jednym repozytorium i poproś o zmianę.",
     "notes": "Zobacz na GitHubie"

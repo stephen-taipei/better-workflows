@@ -19,7 +19,7 @@
     "themeToLight": "Beralih ke tema terang",
     "themeToggle": "Ganti tema warna",
     "homeLabel": "Beranda Better Workflows",
-    "tagline": "Agen pemrograman Anda selesai berdasarkan bukti terkini, dan menjalankan setiap efek samping paling banyak sekali.",
+    "tagline": "Agen pemrograman Anda selesai berdasarkan bukti terkini, dan tidak pernah mengulang efek samping yang sudah berhasil pada commit yang sama.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Pasang",
     "overview": "Ikhtisar",
@@ -53,7 +53,7 @@
     "ctaInstall": "Pasang untuk Claude Code",
     "ctaDemo": "Lihat saat agen dihentikan",
     "specTitle": "Core",
-    "status": "Pre-alpha. Dipakai setiap hari di dua repositori milik maintainer.",
+    "status": "Pre-alpha. Dipakai sendiri oleh maintainer di dua repositorinya sejak Oktober 2026.",
     "host": "Claude Code (plugin hooks)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 KALI DIHENTIKAN · 0 SELESAI PALSU",
-    "halt": "Dua kali agen hampir melaporkan sesuatu yang tidak benar. Keduanya dikembalikan dengan alasannya.",
-    "note": "Dipersingkat dari demo stale-green di repositori; id tree hanya ilustrasi. Jalankan sendiri demo lengkapnya dalam sekitar 2 detik, tanpa Claude."
+    "halt": "Core menghentikan agen dua kali: sekali saat hendak selesai berdasarkan hasil lulus yang lama, sekali saat hendak push lagi. Keduanya dikembalikan dengan alasannya.",
+    "note": "Dipersingkat dari demo stale-green di repositori; id tree hanya ilustrasi. Jalankan sendiri demo lengkapnya dalam beberapa detik, tanpa Claude."
   },
   "strip": {
     "label": "Core dalam angka",
     "items": [
       [
         "baris kode kernel",
-        "batas 3.000 ditegakkan saat review"
+        "batasnya 3.000"
       ],
       [
         "tes",
@@ -146,7 +146,7 @@
       ],
       [
         "hook Claude Code",
-        "SessionStart, PreToolUse, PostToolUse, dan Stop; tanpa server, tanpa akun"
+        "SessionStart, PreToolUse, PostToolUse(Failure), dan (Subagent)Stop; tanpa server, tanpa akun"
       ],
       [
         "jalur CI",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Ditulis dan diubah oleh manusia. Agen boleh membacanya, tidak pernah mengeditnya.",
+        "Ditulis dan diubah oleh manusia. Core menolak edit langsung dari agen.",
         "hard",
         "SUMBER"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Cara kerja",
     "en": "HOW IT WORKS",
-    "title": "Empat hook, satu buku besar di .git.",
+    "title": "Enam hook, satu buku besar di .git.",
     "lead": "Core berjalan di dalam hook milik Claude Code sendiri. Tidak ada yang perlu dijalankan, tanpa server, tanpa akun; status disimpan di <code>.git/better-workflows/</code> pada setiap repositori.",
     "hooksTitle": "hook-nya",
     "hooks": [
-      "<b>SessionStart</b>: memuat policy dan memberi peringatan bila sesuatu yang dibutuhkan, seperti <code>gh</code>, tidak ada.",
+      "<b>SessionStart</b>: memberi tahu agen pemeriksaan mana yang harus lulus dan efek samping mana yang belum tuntas, serta memberi peringatan jika policy tidak valid atau <code>gh</code> dibutuhkan tetapi tidak bisa dipakai.",
       "<b>PreToolUse</b>: mengizinkan, menanyakan, atau menolak setiap efek samping, dan menolak edit pada policy dan buku besar.",
       "<b>PostToolUse</b>: mencatat setiap pemeriksaan beserta tree Git tempat ia dijalankan, dan setiap efek samping beserta exit code-nya.",
-      "<b>Stop</b>: mengembalikan agen selama ada pemeriksaan wajib yang belum ada, gagal, atau usang.",
-      "<b>bw status</b>: menampilkan status yang sama kepada Anda."
+      "<b>Stop</b>: jika ada file yang berubah dan pemeriksaan wajib belum ada, gagal, atau usang, mengembalikan agen sekali dengan alasannya; berikutnya hanya memberi peringatan.",
+      "<b>bw status</b> (sebuah perintah, bukan hook): menampilkan status yang sama kepada Anda."
     ],
     "completion": {
       "name": "Menyelesaikan",
       "sub": "bukti terikat pada berkas",
       "body": "Tes, lint, typecheck, atau build hanya dihitung jika lulus, exit code-nya sendiri yang menentukan hasil baris itu, tidak ada berkas yang berubah selama ia berjalan, dan berkas masih persis sama dengan saat ia dijalankan.",
-      "guardsK": "Opsional, per pemeriksaan",
+      "guardsK": "Opsional",
       "guards": [
-        "<code>exact</code>: hanya perintah lengkap yang dihitung, dari direktori yang benar.",
-        "<code>scope</code>: perubahan di luar direktori yang disebutkan membuat hasil tetap segar.",
-        "<code>ignore</code>: keluaran yang ditulis pemeriksaan, seperti coverage, tidak dihitung sebagai perubahan."
+        "<code>exact</code>: hanya perintah lengkap yang dihitung, dan <code>cwd</code> menentukan di mana perintah itu harus dijalankan.",
+        "<code>scope</code> (dengan <code>exact</code>): perubahan di luar direktori yang disebutkan membuat hasil tetap segar.",
+        "<code>ignore</code> (seluruh policy): keluaran yang ditulis pemeriksaan, seperti coverage, tidak dihitung sebagai perubahan."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Pemeriksaan read-only untuk menyelesaikan hasil yang tidak diketahui",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Policy yang tidak valid menolak setiap efek samping alih-alih kembali ke bawaan.",
       "Izin yang kedaluwarsa kembali ke ask. Hanya manusia yang bisa memperpanjangnya, dengan mengedit policy.",
       "Perintah yang tidak bisa dibaca Core, seperti <code>eval</code> atau <code>sh -c</code>, diperlakukan sebagai buram dan ditanyakan.",
-      "Buku besar bersifat append-only dan berantai hash; <code>bw verify</code> mendeteksi edit dan pemotongan."
+      "Buku besar bersifat append-only dan berantai hash; <code>bw verify</code> mendeteksi entri yang diedit atau dihapus dan baris terakhir yang setengah tertulis, tetapi tidak mendeteksi entri utuh yang dipotong dari bagian akhir."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Clone Core",
-        "Sekali per mesin. Jika Anda pernah menjalankan V5 di sini, pindahkan dulu <code>~/.better-workflows</code> ke <code>~/.better-workflows-V5</code>."
+        "Sekali per mesin. Jika Anda pernah menjalankan V5 di sini, pindahkan dulu <code>~/.better-workflows</code> ke <code>~/.better-workflows-V5</code> dan arahkan <code>SBW_STATE_ROOT</code> ke sana."
       ],
       [
         "Tambahkan plugin",
@@ -329,7 +329,7 @@
     "firstAsk": "Ubah satu baris di repositori ini, dan jangan jalankan tesnya.",
     "copyRequest": "Salin permintaan ini",
     "firstNote": "Saat Claude Code mencoba menyelesaikan, ia dikembalikan dan diberi tahu pemeriksaan mana yang belum ada.",
-    "demoNote": "Opsional: jalankan kedua skenario tanpa Claude, dalam sekitar 2 detik."
+    "demoNote": "Opsional: jalankan kedua skenario tanpa Claude, dalam beberapa detik."
   },
   "boundary": {
     "idx": "Batasan",
@@ -343,11 +343,11 @@
         "Menghentikan",
         "Kesalahan yang teramati",
         [
-          "Selesai berdasarkan run tes yang usang, gagal, atau parsial",
+          "Selesai berdasarkan run tes yang usang atau gagal, atau run parsial jika pemeriksaan ditandai <code>exact</code>",
           "Pipe atau <code>|| true</code> yang menyembunyikan kegagalan",
           "Push, merge, rilis, atau publikasi yang diulang",
           "Efek samping saat efek samping sebelumnya belum diketahui hasilnya",
-          "Agen yang mengedit policy-nya sendiri"
+          "Agen yang mengedit policy atau buku besarnya secara langsung"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core memblokir kesalahan di atas. Belum diukur apakah ia mengurangi pengerjaan ulang atau keputusan yang salah pada tugas panjang; itulah tujuan periode pemakaian sendiri saat ini.",
     "rulesLabel": "Batasan desain",
     "rules": [
-      "Parser shell tidak diperluas: perintah yang tidak bisa dibacanya tidak pernah dihitung sebagai bukti dan ditanyakan sebagai aksi.",
+      "Parser shell tidak diperluas: perintah yang tidak bisa dibacanya ditanyakan sebelum dijalankan, dan tes yang tersembunyi di dalam <code>eval</code> atau <code>sh -c</code> tidak pernah dihitung sebagai bukti.",
       "Core hanya menghitung jalannya sebuah sesi. Apakah sesi itu konvergen, agen atau Anda yang menilai.",
       "Pull request dan rilis direkonsiliasi dengan <code>gh</code>; tanpanya, keduanya tetap tidak diketahui sampai Anda menyelesaikannya."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Referensi policy",
-      "Setiap field di policy.json, dengan contoh."
+      "Field-field di policy.json, dengan contoh."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Apakah ini memperlambat Claude Code?",
-        "Setiap hook menghitung hash working tree dengan Git, yang hanya butuh beberapa milidetik di repositori biasa. Repositori yang sangat besar membayar lebih banyak di setiap panggilan."
+        "Hook yang menangani pemeriksaan atau efek samping menghitung hash working tree dengan Git, yang hanya butuh beberapa milidetik di repositori biasa. Repositori yang sangat besar membayar lebih banyak di setiap panggilan semacam itu."
       ],
       [
         "Apakah ia bisa terjebak mengembalikan agen selamanya?",
@@ -492,11 +492,11 @@
       ],
       [
         "Bisakah agen mematikannya?",
-        "Tidak. Ia tidak bisa mengedit policy atau buku besar, dan tidak bisa menjalankan <code>bw init</code> atau menyelesaikan sendiri aksi yang tidak diketahui hasilnya. Anda bisa menghapus plugin kapan saja."
+        "Tidak secara langsung. Core menolak edit agen pada policy dan buku besar, serta menolak <code>bw init</code> dan penyelesaian aksi secara manual. Menghapus plugin, atau mengubah file-file itu lewat jalan memutar, diatur oleh aturan izin Claude Code sendiri, jadi biarkan prompt konfirmasi itu tetap aktif."
       ],
       [
         "Apakah ia mengirim sesuatu ke mana pun?",
-        "Tidak. Tidak ada server dan tidak ada telemetri. Semuanya tetap di folder <code>.git</code> repositori Anda."
+        "Tidak ada server dan tidak ada telemetri. Satu-satunya panggilan jaringannya adalah pengecekan read-only dengan <code>git</code>, <code>gh</code>, dan <code>npm</code> milik Anda sendiri, untuk memastikan apakah sebuah efek samping sudah terjadi. Buku besar tetap di <code>.git/better-workflows/</code>."
       ],
       [
         "Bagaimana dengan Codex, Gemini CLI, atau Qwen Code?",
@@ -514,7 +514,7 @@
     "copyAddress": "Salin alamat"
   },
   "cta": {
-    "kicker": "Coba dalam 2 detik",
+    "kicker": "Coba dalam beberapa detik",
     "title": "Menjalankan perintah bukan bukti. Berkasnya yang jadi bukti.",
     "body": "Jalankan demo tanpa Claude, lalu pasang di satu repositori dan minta perubahan.",
     "notes": "Lihat di GitHub"

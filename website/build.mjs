@@ -93,9 +93,10 @@ async function facts() {
   const testDir = path.join(root, "packages/bw-core/test");
   for (const f of await readdir(testDir)) if (f.endsWith(".test.mjs")) tests += ((await readFile(path.join(testDir, f), "utf8")).match(/^\s*test\(/gm) || []).length;
   const pkg = JSON.parse(await readFile(path.join(root, "packages/bw-core/package.json"), "utf8"));
+  const hooks = JSON.parse(await readFile(path.join(root, "packages/bw-core/hooks/hooks.json"), "utf8")).hooks;
   const ci = await readFile(path.join(root, ".github/workflows/ci.yml"), "utf8");
   const list = (key) => (ci.match(new RegExp(`${key}: \\[([^\\]]*)\\]`))?.[1] ?? "").split(",").filter((s) => s.trim()).length;
-  return [lines.toLocaleString("en-US"), String(tests), String(Object.keys(pkg.dependencies ?? {}).length), "4", String(list("os") * list("node"))];
+  return [lines.toLocaleString("en-US"), String(tests), String(Object.keys(pkg.dependencies ?? {}).length), String(Object.keys(hooks).length), String(list("os") * list("node"))];
 }
 
 const secHead = (n, idx, en, id, title, lead) => `<header class="sec-head"><p class="home-eyebrow mono"><span class="idx">${n}</span>${idx}<span class="en">${en}</span></p><h2 id="${id}">${title}</h2>${lead ? `<p class="lead">${lead}</p>` : ""}</header>`;

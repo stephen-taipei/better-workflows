@@ -22,7 +22,7 @@ bw     ✗ Denied. git-push: the same action already succeeded at this commit.
 
 ## 試してみる
 
-Claude なしで、2 つのシナリオが約 2 秒で動くのを確認できます:
+Claude なしで、2 つのシナリオが数秒で動くのを確認できます:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

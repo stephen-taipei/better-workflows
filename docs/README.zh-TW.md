@@ -29,7 +29,7 @@ bw     ✗ 拒絕。git-push: the same action already succeeded at this commit.
 
 agent 只能依據「現在的檔案」與「provider 實際發生的事」宣稱結果。權限只來自 agent 不能修改的 policy 檔，不來自 prompt 文字。
 
-不需要 Claude，約 2 秒就能看到這兩個故事實際跑一次：
+不需要 Claude，幾秒鐘就能看到這兩個故事實際跑一次：
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

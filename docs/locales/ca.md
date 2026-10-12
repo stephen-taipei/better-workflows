@@ -22,7 +22,7 @@ L'agent respon davant dels fitxers tal com són ara i del que el proveïdor ha f
 
 ## Prova-ho
 
-Mira els dos escenaris executar-se en uns 2 segons, sense Claude:
+Mira els dos escenaris executar-se en pocs segons, sense Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

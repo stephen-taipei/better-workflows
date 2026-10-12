@@ -22,7 +22,7 @@ Agent bị ràng buộc với các tệp đúng như hiện tại và với nh�
 
 ## Dùng thử
 
-Xem cả hai tình huống chạy trong khoảng 2 giây, không cần Claude:
+Xem cả hai tình huống chạy trong vài giây, không cần Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

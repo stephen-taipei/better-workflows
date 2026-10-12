@@ -22,7 +22,7 @@ Az ügynököt a fájlok jelenlegi állapotához és ahhoz mérik, amit a szolg�
 
 ## Próbáld ki
 
-Nézd meg mindkét forgatókönyvet körülbelül 2 másodperc alatt, Claude nélkül:
+Nézd meg mindkét forgatókönyvet néhány másodperc alatt, Claude nélkül:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

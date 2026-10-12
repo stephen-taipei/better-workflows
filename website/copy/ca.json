@@ -19,7 +19,7 @@
     "themeToLight": "Canvia al tema clar",
     "themeToggle": "Canvia el tema de color",
     "homeLabel": "Inici de Better Workflows",
-    "tagline": "El teu agent de programació acaba amb evidència actual i executa cada efecte secundari com a màxim una vegada.",
+    "tagline": "El teu agent de programació acaba amb evidència actual i no repeteix mai un efecte secundari que ja ha tingut èxit al mateix commit.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Instal·la",
     "overview": "Visió general",
@@ -53,7 +53,7 @@
     "ctaInstall": "Instal·la per a Claude Code",
     "ctaDemo": "Mira com s'atura",
     "specTitle": "Core",
-    "status": "Pre-alpha. S'utilitza cada dia en dos repositoris del mantenidor.",
+    "status": "Pre-alpha. En ús propi en dos repositoris del mantenidor des d'octubre de 2026.",
     "host": "Claude Code (plugin de hooks)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 ATURADES · 0 FALSOS «FET»",
-    "halt": "Dues vegades l'agent va estar a punt d'informar d'una cosa que no era certa. Totes dues vegades se'l va retornar amb el motiu.",
-    "note": "Abreujat a partir de la demo stale-green del repositori; els identificadors de tree són il·lustratius. Executa tu mateix la demo completa en uns 2 segons, sense Claude."
+    "halt": "Core va aturar l'agent dues vegades: una quan anava a acabar amb un resultat aprovat antic, una altra quan anava a fer push de nou. Totes dues vegades se'l va retornar amb el motiu.",
+    "note": "Abreujat a partir de la demo stale-green del repositori; els identificadors de tree són il·lustratius. Executa tu mateix la demo completa en pocs segons, sense Claude."
   },
   "strip": {
     "label": "Core en xifres",
     "items": [
       [
         "línies de codi del nucli",
-        "a la revisió s'imposa un límit de 3.000"
+        "el límit és 3.000"
       ],
       [
         "tests",
@@ -146,7 +146,7 @@
       ],
       [
         "hooks de Claude Code",
-        "SessionStart, PreToolUse, PostToolUse i Stop; sense servidor ni compte"
+        "SessionStart, PreToolUse, PostToolUse(Failure) i (Subagent)Stop; sense servidor ni compte"
       ],
       [
         "carrils de CI",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "L'escriu i la canvia una persona. L'agent la pot llegir, però mai editar.",
+        "L'escriu i la canvia una persona. Core rebutja les edicions directes de l'agent.",
         "hard",
         "ORIGEN"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Com funciona",
     "en": "HOW IT WORKS",
-    "title": "Quatre hooks, un registre a .git.",
+    "title": "Sis hooks, un registre a .git.",
     "lead": "Core s'executa dins dels hooks del mateix Claude Code. Res a engegar, sense servidor ni compte; l'estat viu a <code>.git/better-workflows/</code> de cada repositori.",
     "hooksTitle": "els hooks",
     "hooks": [
-      "<b>SessionStart</b>: carrega la policy i avisa quan falta alguna cosa que necessita, com ara <code>gh</code>.",
+      "<b>SessionStart</b>: diu a l'agent quines comprovacions han de passar i quins efectes secundaris estan pendents de resoldre, i avisa si la policy no és vàlida o si cal <code>gh</code> però no es pot fer servir.",
       "<b>PreToolUse</b>: permet, pregunta o denega cada efecte secundari, i rebutja les edicions de la policy i del registre.",
       "<b>PostToolUse</b>: registra cada comprovació amb el tree de Git sobre el qual s'ha executat, i cada efecte secundari amb el seu codi de sortida.",
-      "<b>Stop</b>: retorna l'agent mentre falti una comprovació obligatòria, hagi fallat o estigui obsoleta.",
-      "<b>bw status</b>: et mostra aquest mateix estat."
+      "<b>Stop</b>: si han canviat fitxers i falta una comprovació obligatòria, ha fallat o està obsoleta, retorna l'agent una vegada amb el motiu; la vegada següent només avisa.",
+      "<b>bw status</b> (una ordre, no un hook): et mostra aquest mateix estat."
     ],
     "completion": {
       "name": "Acabar",
       "sub": "evidència lligada als fitxers",
       "body": "Un test, lint, typecheck o build només compta si ha passat, si el seu propi codi de sortida ha decidit el resultat de la línia, si cap fitxer no ha canviat mentre s'executava i si els fitxers continuen sent exactament aquells sobre els quals s'ha executat.",
-      "guardsK": "Opcional, per comprovació",
+      "guardsK": "Opcional",
       "guards": [
-        "<code>exact</code>: només compta l'ordre completa, des del directori correcte.",
-        "<code>scope</code>: un canvi fora dels directoris indicats no invalida el resultat.",
-        "<code>ignore</code>: el que escriu una comprovació, com ara la cobertura, no compta com a canvi."
+        "<code>exact</code>: només compta l'ordre completa, i <code>cwd</code> fixa on s'ha d'executar.",
+        "<code>scope</code> (amb <code>exact</code>): un canvi fora dels directoris indicats no invalida el resultat.",
+        "<code>ignore</code> (tota la policy): el que escriu una comprovació, com ara la cobertura, no compta com a canvi."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Comprovacions de només lectura per resoldre un resultat desconegut",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Una policy no vàlida denega tots els efectes secundaris en lloc de recórrer a valors per defecte.",
       "Un permís caducat torna a ask. Només una persona el pot allargar, editant la policy.",
       "Les ordres que Core no pot llegir, com ara <code>eval</code> o <code>sh -c</code>, es tracten com a opaques i se'n pregunta.",
-      "El registre només admet afegir entrades i està encadenat per hash; <code>bw verify</code> detecta edicions i truncaments."
+      "El registre només admet afegir entrades i està encadenat per hash; <code>bw verify</code> detecta entrades editades o eliminades i una última línia escrita a mitges, però no entrades senceres retallades del final."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Clona Core",
-        "Un cop per màquina. Si has fet servir V5 aquí, primer mou <code>~/.better-workflows</code> a <code>~/.better-workflows-V5</code>."
+        "Un cop per màquina. Si has fet servir V5 aquí, primer mou <code>~/.better-workflows</code> a <code>~/.better-workflows-V5</code> i fes que <code>SBW_STATE_ROOT</code> hi apunti."
       ],
       [
         "Afegeix el plugin",
@@ -329,7 +329,7 @@
     "firstAsk": "Canvia una línia d'aquest repositori i no executis els tests.",
     "copyRequest": "Copia aquesta petició",
     "firstNote": "Quan Claude Code intenta acabar, se'l retorna i se li diu quina comprovació falta.",
-    "demoNote": "Opcional: executa els dos escenaris sense Claude, en uns 2 segons."
+    "demoNote": "Opcional: executa els dos escenaris sense Claude, en pocs segons."
   },
   "boundary": {
     "idx": "Límits",
@@ -343,11 +343,11 @@
         "Atura",
         "Errors observables",
         [
-          "Acabar amb una execució de tests obsoleta, fallida o parcial",
+          "Acabar amb una execució de tests obsoleta o fallida, o amb una de parcial quan la comprovació està marcada com a <code>exact</code>",
           "Una canonada o <code>|| true</code> que amaga un error",
           "Un push, merge, release o publicació repetits",
           "Efectes secundaris mentre un d'anterior encara és desconegut",
-          "Que l'agent editi la seva pròpia policy"
+          "Que l'agent editi directament la seva policy o el registre"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core bloqueja els errors de dalt. No s'ha mesurat si redueix la feina refeta o les decisions errònies en tasques llargues; per això serveix el període actual d'ús propi.",
     "rulesLabel": "Límits de disseny",
     "rules": [
-      "El parser de shell no creix: una ordre que no pot llegir no compta mai com a evidència i se'n pregunta com a acció.",
+      "El parser de shell no creix: d'una ordre que no pot llegir se'n pregunta abans que s'executi, i un test amagat dins d'<code>eval</code> o <code>sh -c</code> no compta mai com a evidència.",
       "Core només porta el compte de com va una sessió. Si està convergint, ho jutja l'agent o ho jutges tu.",
       "Els pull requests i les releases es concilien amb <code>gh</code>; sense, continuen sent desconeguts fins que els resolguis."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Referència de la policy",
-      "Cada camp de policy.json, amb exemples."
+      "Els camps de policy.json, amb exemples."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Alenteix Claude Code?",
-        "Cada hook calcula el hash de l'arbre de treball amb Git, cosa que triga mil·lisegons en un repositori normal. Els repositoris molt grans paguen més a cada crida."
+        "Els hooks que gestionen una comprovació o un efecte secundari calculen el hash de l'arbre de treball amb Git, cosa que triga mil·lisegons en un repositori normal. Els repositoris molt grans paguen més a cadascuna d'aquestes crides."
       ],
       [
         "Es pot quedar encallat retornant l'agent per sempre?",
@@ -492,11 +492,11 @@
       ],
       [
         "El pot desactivar l'agent?",
-        "No. No pot editar la policy ni el registre, ni executar <code>bw init</code>, ni resoldre pel seu compte una acció desconeguda. Tu pots desinstal·lar el plugin en qualsevol moment."
+        "No directament. Core rebutja les edicions de l'agent a la policy i al registre, i rebutja <code>bw init</code> i resoldre una acció a mà. Desinstal·lar el plugin, o canviar aquests fitxers per camins indirectes, es regeix per les regles de permisos pròpies de Claude Code, així que mantén activades aquestes confirmacions."
       ],
       [
         "Envia res enlloc?",
-        "No. No hi ha servidor ni telemetria. Tot es queda a la carpeta <code>.git</code> del teu repositori."
+        "No hi ha servidor ni telemetria. Les seves úniques crides de xarxa són consultes de només lectura amb els teus propis <code>git</code>, <code>gh</code> i <code>npm</code>, per confirmar si un efecte secundari ha passat. El registre es queda a <code>.git/better-workflows/</code>."
       ],
       [
         "I Codex, Gemini CLI o Qwen Code?",
@@ -514,7 +514,7 @@
     "copyAddress": "Copia l'adreça"
   },
   "cta": {
-    "kicker": "Prova-ho en 2 segons",
+    "kicker": "Prova-ho en pocs segons",
     "title": "Executar una ordre no demostra res. Els fitxers, sí.",
     "body": "Executa la demo sense Claude, després instal·la'l en un repositori i demana un canvi.",
     "notes": "Mira-ho a GitHub"

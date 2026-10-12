@@ -19,7 +19,7 @@
     "themeToLight": "Prebaci na svijetlu temu",
     "themeToggle": "Promijeni temu boja",
     "homeLabel": "Better Workflows početna",
-    "tagline": "Vaš agent za programiranje završava na aktualnim dokazima i svaku nuspojavu izvodi najviše jednom.",
+    "tagline": "Vaš agent za programiranje završava na aktualnim dokazima i nikad ne ponavlja nuspojavu koja je već uspjela na istom commitu.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Instaliraj",
     "overview": "Pregled",
@@ -53,7 +53,7 @@
     "ctaInstall": "Instaliraj za Claude Code",
     "ctaDemo": "Pogledajte kako zaustavlja",
     "specTitle": "Core",
-    "status": "Pre-alpha. Svakodnevno radi na dva repozitorija održavatelja.",
+    "status": "Pre-alpha. Od listopada 2026. održavatelj ga sam koristi na dva svoja repozitorija.",
     "host": "Claude Code (hooks plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 ZAUSTAVLJANJA · 0 LAŽNIH ZAVRŠETAKA",
-    "halt": "Agent je dvaput htio prijaviti nešto što nije bilo istina. Oba puta vraćen je s razlogom.",
-    "note": "Skraćeno iz stale-green demo primjera u repozitoriju; ID-ovi stabala su ilustrativni. Pokrenite cijeli demo sami za otprilike 2 sekunde, bez Claudea."
+    "halt": "Core je dvaput zaustavio agenta: jednom da ne završi na starom prolazu, jednom da ne napravi push ponovno. Oba puta vraćen je s razlogom.",
+    "note": "Skraćeno iz stale-green demo primjera u repozitoriju; ID-ovi stabala su ilustrativni. Pokrenite cijeli demo sami za nekoliko sekundi, bez Claudea."
   },
   "strip": {
     "label": "Core u brojkama",
     "items": [
       [
         "redaka koda jezgre",
-        "pri reviewu se provodi granica od 3000"
+        "granica je 3000"
       ],
       [
         "testova",
@@ -146,7 +146,7 @@
       ],
       [
         "Claude Code hookova",
-        "SessionStart, PreToolUse, PostToolUse i Stop; bez poslužitelja, bez računa"
+        "SessionStart, PreToolUse, PostToolUse(Failure) i (Subagent)Stop; bez poslužitelja, bez računa"
       ],
       [
         "CI linija",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Piše ga i mijenja čovjek. Agent ga smije čitati, nikad uređivati.",
+        "Piše ga i mijenja čovjek. Core odbija agentove izravne izmjene.",
         "hard",
         "IZVOR"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Kako radi",
     "en": "HOW IT WORKS",
-    "title": "Četiri hooka, jedan dnevnik u .git.",
+    "title": "Šest hookova, jedan dnevnik u .git.",
     "lead": "Core radi unutar vlastitih hookova Claude Codea. Ništa se ne pokreće, nema poslužitelja ni računa; stanje se čuva u <code>.git/better-workflows/</code> svakog repozitorija.",
     "hooksTitle": "hookovi",
     "hooks": [
-      "<b>SessionStart</b>: učitava policy i upozorava kad nedostaje nešto što mu treba, poput <code>gh</code>.",
+      "<b>SessionStart</b>: govori agentu koje provjere moraju proći i koje nuspojave nisu razriješene te upozorava ako policy nije valjan ili je <code>gh</code> potreban, ali neupotrebljiv.",
       "<b>PreToolUse</b>: dopušta, pita ili odbija svaku nuspojavu te odbija izmjene policyja i dnevnika.",
       "<b>PostToolUse</b>: bilježi svaku provjeru s Git stablom na kojem je pokrenuta i svaku nuspojavu s njezinim izlaznim kodom.",
-      "<b>Stop</b>: vraća agenta dok neka obavezna provjera nedostaje, nije uspjela ili je zastarjela.",
-      "<b>bw status</b>: vama prikazuje isto stanje."
+      "<b>Stop</b>: ako su se datoteke promijenile, a obavezna provjera nedostaje, nije uspjela ili je zastarjela, jednom vraća agenta s razlogom; sljedeći put samo upozorava.",
+      "<b>bw status</b> (naredba, ne hook): vama prikazuje isto stanje."
     ],
     "completion": {
       "name": "Završetak",
       "sub": "dokazi vezani uz datoteke",
       "body": "Test, lint, provjera tipova ili build računa se samo ako je prošao, ako je njegov vlastiti izlazni kod odredio ishod retka, ako se nijedna datoteka nije promijenila dok je radio i ako su datoteke i dalje točno one na kojima je pokrenut.",
-      "guardsK": "Neobavezno, po provjeri",
+      "guardsK": "Neobavezno",
       "guards": [
-        "<code>exact</code>: računa se samo cijela naredba, iz ispravnog direktorija.",
-        "<code>scope</code>: promjena izvan navedenih direktorija ostavlja rezultat svježim.",
-        "<code>ignore</code>: izlaz koji provjera zapisuje, poput coveragea, ne računa se kao promjena."
+        "<code>exact</code>: računa se samo cijela naredba, a <code>cwd</code> određuje gdje se mora pokrenuti.",
+        "<code>scope</code> (uz <code>exact</code>): promjena izvan navedenih direktorija ostavlja rezultat svježim.",
+        "<code>ignore</code> (cijeli policy): izlaz koji provjera zapisuje, poput coveragea, ne računa se kao promjena."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Provjere samo za čitanje kojima se razrješava nepoznat rezultat",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Nevažeći policy odbija svaku nuspojavu umjesto da se vrati na zadane postavke.",
       "Isteklo dopuštenje vraća se na ask. Produljiti ga može samo čovjek, uređivanjem policyja.",
       "Naredbe koje Core ne može pročitati, poput <code>eval</code> ili <code>sh -c</code>, tretiraju se kao neprozirne i za njih se pita.",
-      "Dnevnik se samo nadopisuje i ulančan je hashevima; <code>bw verify</code> otkriva izmjene i skraćivanje."
+      "Dnevnik se samo nadopisuje i ulančan je hashevima; <code>bw verify</code> otkriva izmijenjene ili uklonjene zapise i napola zapisan zadnji redak, ali ne i cijele zapise odrezane s kraja."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Klonirajte Core",
-        "Jednom po računalu. Ako ste ovdje koristili V5, najprije premjestite <code>~/.better-workflows</code> u <code>~/.better-workflows-V5</code>."
+        "Jednom po računalu. Ako ste ovdje koristili V5, najprije premjestite <code>~/.better-workflows</code> u <code>~/.better-workflows-V5</code> i usmjerite <code>SBW_STATE_ROOT</code> na njega."
       ],
       [
         "Dodajte plugin",
@@ -329,7 +329,7 @@
     "firstAsk": "Promijeni jedan redak u ovom repozitoriju i nemoj pokretati testove.",
     "copyRequest": "Kopiraj ovaj zahtjev",
     "firstNote": "Kad Claude Code pokuša završiti, bit će vraćen uz poruku koja provjera nedostaje.",
-    "demoNote": "Neobavezno: pokrenite oba scenarija bez Claudea, za otprilike 2 sekunde."
+    "demoNote": "Neobavezno: pokrenite oba scenarija bez Claudea, za nekoliko sekundi."
   },
   "boundary": {
     "idx": "Ograničenja",
@@ -343,11 +343,11 @@
         "Zaustavlja",
         "Uočljive pogreške",
         [
-          "Završetak na zastarjelom, neuspjelom ili djelomičnom pokretanju testova",
+          "Završetak na zastarjelom ili neuspjelom pokretanju testova, ili na djelomičnom kad je provjera označena s <code>exact</code>",
           "Pipe ili <code>|| true</code> koji skriva neuspjeh",
           "Ponovljeni push, merge, izdanje ili objavu",
           "Nuspojave dok je rezultat prethodne nepoznat",
-          "Agenta koji uređuje vlastiti policy"
+          "Agenta koji izravno uređuje vlastiti policy ili dnevnik"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core blokira gore navedene pogreške. Nije izmjereno smanjuje li ponovni rad ili pogrešne odluke na dugim zadacima; tome služi trenutno razdoblje vlastite upotrebe.",
     "rulesLabel": "Ograničenja dizajna",
     "rules": [
-      "Parser ljuske ne raste: naredba koju ne može pročitati nikad se ne računa kao dokaz i za nju se pita kao za akciju.",
+      "Parser ljuske ne raste: za naredbu koju ne može pročitati pita se prije nego što se pokrene, a test skriven unutar <code>eval</code> ili <code>sh -c</code> nikad se ne računa kao dokaz.",
       "Core samo broji kako sesija napreduje. Konvergira li, procjenjuje agent ili vi.",
       "Pull requestovi i izdanja usklađuju se pomoću <code>gh</code>; bez njega ostaju nepoznati dok ih vi ne razriješite."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Referenca za policy",
-      "Svako polje u policy.json, s primjerima."
+      "Polja u policy.json, s primjerima."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Usporava li Claude Code?",
-        "Svaki hook hashira radno stablo pomoću Gita, što u običnom repozitoriju traje milisekunde. Vrlo veliki repozitoriji plaćaju više pri svakom pozivu."
+        "Hookovi koji obrađuju provjeru ili nuspojavu hashiraju radno stablo pomoću Gita, što u običnom repozitoriju traje milisekunde. Vrlo veliki repozitoriji plaćaju više pri svakom takvom pozivu."
       ],
       [
         "Hoće li zauvijek vraćati agenta?",
@@ -492,11 +492,11 @@
       ],
       [
         "Može li ga agent isključiti?",
-        "Ne. Ne može uređivati policy ni dnevnik, niti sam pokrenuti <code>bw init</code> ili razriješiti nepoznatu akciju. Plugin možete deinstalirati u bilo kojem trenutku."
+        "Ne izravno. Core odbija agentove izmjene policyja i dnevnika te odbija <code>bw init</code> i ručno razrješavanje akcije. Deinstaliranje plugina, ili mijenjanje tih datoteka zaobilaznim putem, uređuju vlastita pravila dopuštenja Claude Codea, zato ostavite te upite uključenima."
       ],
       [
         "Šalje li išta igdje?",
-        "Ne. Nema poslužitelja ni telemetrije. Sve ostaje u mapi <code>.git</code> vašeg repozitorija."
+        "Nema poslužitelja ni telemetrije. Jedini mrežni pozivi su upiti samo za čitanje s vašim vlastitim <code>git</code>, <code>gh</code> i <code>npm</code>, kako bi se potvrdilo je li se nuspojava dogodila. Dnevnik ostaje u <code>.git/better-workflows/</code>."
       ],
       [
         "Što je s Codexom, Gemini CLI-jem ili Qwen Codeom?",
@@ -514,7 +514,7 @@
     "copyAddress": "Kopiraj adresu"
   },
   "cta": {
-    "kicker": "Isprobajte za 2 sekunde",
+    "kicker": "Isprobajte za nekoliko sekundi",
     "title": "Pokretanje naredbe nije dokaz. Datoteke jesu.",
     "body": "Pokrenite demo bez Claudea, zatim ga instalirajte na jedan repozitorij i zatražite promjenu.",
     "notes": "Pogledaj na GitHubu"

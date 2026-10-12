@@ -29,7 +29,7 @@ bw     ✗ Denied. git-push: the same action already succeeded at this commit.
 
 The agent is held to the files as they are now, and to what the provider actually did. Permissions come only from a policy file the agent cannot edit, never from prompt text.
 
-See both stories run in about 2 seconds, without Claude:
+See both stories run in a few seconds, without Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

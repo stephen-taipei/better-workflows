@@ -19,7 +19,7 @@
     "themeToLight": "切換至淺色主題",
     "themeToggle": "切換顏色主題",
     "homeLabel": "Better Workflows 主頁",
-    "tagline": "編程 agent 要以現時的檔案為準才算完成，每個副作用最多執行一次。",
+    "tagline": "編程 agent 要以現時的檔案為準才算完成，同一個 commit 上已成功的副作用不會再執行一次。",
     "chip": "V6 Core · pre-alpha",
     "installCta": "安裝",
     "overview": "概覽",
@@ -53,7 +53,7 @@
     "ctaInstall": "安裝到 Claude Code",
     "ctaDemo": "看它如何擋下",
     "specTitle": "Core",
-    "status": "Pre-alpha。每天在維護者的兩個 repository 上實際運行。",
+    "status": "Pre-alpha。自 2026 年 10 月起在維護者的兩個 repository 上自用。",
     "host": "Claude Code（hooks plugin）",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "擋下 2 次 · 0 次假完成",
-    "halt": "agent 兩次差點報告不實的結果，兩次都連同原因被退回。",
-    "note": "節錄自 repository 內的 stale-green demo，tree 編號只作示意。毋須 Claude，大約 2 秒就可自行執行完整版本。"
+    "halt": "Core 兩次擋下 agent：一次是憑舊的通過結果收工，一次是再次 push。兩次都連同原因退回。",
+    "note": "節錄自 repository 內的 stale-green demo，tree 編號只作示意。毋須 Claude，幾秒就可自行執行完整版本。"
   },
   "strip": {
     "label": "Core 的數字",
     "items": [
       [
         "行核心程式碼",
-        "審查時強制上限 3,000 行"
+        "上限 3,000 行"
       ],
       [
         "項測試",
@@ -146,7 +146,7 @@
       ],
       [
         "個 Claude Code hook",
-        "SessionStart、PreToolUse、PostToolUse 與 Stop；無需伺服器或帳戶"
+        "SessionStart、PreToolUse、PostToolUse(Failure) 與 (Subagent)Stop；無需伺服器或帳戶"
       ],
       [
         "條 CI 線",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "由人撰寫和修改。agent 可以讀取，永遠不能修改。",
+        "由人撰寫和修改。Core 會拒絕 agent 直接修改它。",
         "hard",
         "來源"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "運作方式",
     "en": "HOW IT WORKS",
-    "title": "四個 hook，一本帳存在 .git 內。",
+    "title": "六個 hook，一本帳存在 .git 內。",
     "lead": "Core 在 Claude Code 本身的 hooks 內運行。無需啟動任何服務、沒有伺服器、無需帳戶；狀態存放在每個 repository 的 <code>.git/better-workflows/</code>。",
     "hooksTitle": "hooks",
     "hooks": [
-      "<b>SessionStart</b>：載入 policy，缺少所需工具（例如 <code>gh</code>）時發出警告。",
+      "<b>SessionStart</b>：告訴 agent 哪些檢查必須通過、哪些副作用尚未結案；policy 無效，或需要 <code>gh</code> 卻無法使用時發出警告。",
       "<b>PreToolUse</b>：對每個副作用決定 allow、ask 或 deny，並拒絕修改 policy 與帳本。",
       "<b>PostToolUse</b>：記錄每次檢查在哪個 Git tree 上執行，以及每個副作用的 exit code。",
-      "<b>Stop</b>：所需的檢查仍欠缺、失敗或已過期時，把 agent 退回。",
-      "<b>bw status</b>：把同樣的狀態顯示給你。"
+      "<b>Stop</b>：檔案有改動，而所需的檢查仍欠缺、失敗或已過期時，連同原因把 agent 退回一次；下一次只會警告。",
+      "<b>bw status</b>（是指令，不是 hook）：把同樣的狀態顯示給你。"
     ],
     "completion": {
       "name": "收工",
       "sub": "證據綁定檔案",
       "body": "test、lint、typecheck 或 build 必須同時符合：通過、由它自己的 exit code 決定結果、執行期間沒有檔案改動、檔案仍然是它執行時的那一份，才算數。",
-      "guardsK": "每項檢查可選",
+      "guardsK": "可選",
       "guards": [
-        "<code>exact</code>：只認完整指令，而且要在正確的目錄執行。",
-        "<code>scope</code>：指定目錄以外的改動不會令結果過期。",
-        "<code>ignore</code>：檢查自己產生的輸出（例如 coverage）不算改動。"
+        "<code>exact</code>：只認完整指令，<code>cwd</code> 指定它必須在哪裡執行。",
+        "<code>scope</code>（配合 <code>exact</code>）：指定目錄以外的改動不會令結果過期。",
+        "<code>ignore</code>（整份 policy）：檢查自己產生的輸出（例如 coverage）不算改動。"
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "用來確認未明結果的唯讀查詢",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "policy 檔無效時，拒絕所有副作用，不會退回預設值。",
       "權限過期便退回 ask。只有人可以修改 policy 來延長。",
       "Core 讀不懂的指令（例如 <code>eval</code>、<code>sh -c</code>）一律視為 opaque，交由你決定。",
-      "帳本只可附加、以 hash 串連；<code>bw verify</code> 可偵測修改與截斷。"
+      "帳本只可附加、以 hash 串連；<code>bw verify</code> 可偵測被修改或刪除的紀錄及寫到一半的最後一行，但偵測不到從尾端整筆截去的紀錄。"
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Clone Core",
-        "每部機器一次。若這部機器運行過 V5，先把 <code>~/.better-workflows</code> 改名為 <code>~/.better-workflows-V5</code>。"
+        "每部機器一次。若這部機器運行過 V5，先把 <code>~/.better-workflows</code> 改名為 <code>~/.better-workflows-V5</code>，並把 <code>SBW_STATE_ROOT</code> 指向它。"
       ],
       [
         "加入 plugin",
@@ -329,7 +329,7 @@
     "firstAsk": "幫我改這個 repository 的一行程式碼，不要執行測試。",
     "copyRequest": "複製這段請求",
     "firstNote": "Claude Code 嘗試收工時會被退回，並被告知欠缺哪一項檢查。",
-    "demoNote": "可選：毋須 Claude，大約 2 秒執行兩個情境。"
+    "demoNote": "可選：毋須 Claude，幾秒內執行兩個情境。"
   },
   "boundary": {
     "idx": "限制",
@@ -343,11 +343,11 @@
         "擋得住",
         "看得見的錯誤",
         [
-          "憑過期、失敗或只執行了一部分的測試收工",
+          "憑過期或失敗的測試收工；檢查標記為 <code>exact</code> 時，只執行了一部分也會擋下",
           "用 pipe 或 <code>|| true</code> 掩蓋失敗",
           "重複 push、merge、release 或 publish",
           "前一個副作用結果未明時又執行新的副作用",
-          "agent 修改自己的 policy"
+          "agent 直接修改自己的 policy 或帳本"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core 擋得住上面列出的錯誤。它能否減少長任務中的返工或錯誤決定，仍未有量度；目前的自用期正是為此而設。",
     "rulesLabel": "設計上的限制",
     "rules": [
-      "shell 解析器不會再擴充：讀不懂的指令永遠不算證據，作為動作時一律詢問。",
+      "shell 解析器不會再擴充：讀不懂的指令在執行前一律詢問，藏在 <code>eval</code> 或 <code>sh -c</code> 內的測試永遠不算證據。",
       "Core 只統計 session 的進展。是否正在收斂，由 agent 或你判斷。",
       "PR 與 release 靠 <code>gh</code> 對帳；沒有它，結果會一直未明，直至你手動結案。"
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Policy 參考",
-      "policy.json 每個欄位的說明及範例。"
+      "policy.json 的欄位說明及範例。"
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "會令 Claude Code 變慢嗎？",
-        "每個 hook 會用 Git 為工作目錄計算一次 hash，一般大小的 repository 只需幾毫秒。非常大的 repository 每次呼叫會多花一些時間。"
+        "處理檢查或副作用的 hook 會用 Git 為工作目錄計算一次 hash，一般大小的 repository 只需幾毫秒。非常大的 repository 每次這類呼叫會多花一些時間。"
       ],
       [
         "會否不停把 agent 退回，卡住出不來？",
@@ -492,11 +492,11 @@
       ],
       [
         "agent 可以把它關掉嗎？",
-        "不可以。它不能修改 policy 或帳本，也不能自行執行 <code>bw init</code> 或為未明的動作結案。你隨時可以解除安裝 plugin。"
+        "不能直接關閉。Core 會拒絕 agent 修改 policy 和帳本，也會拒絕 <code>bw init</code> 及手動結案。解除安裝 plugin，或以迂迴方式改動這些檔案，則由 Claude Code 自身的權限規則把關，所以請保留那些確認提示。"
       ],
       [
         "會把資料傳送到任何地方嗎？",
-        "不會。沒有伺服器，也沒有遙測。所有資料都留在你 repository 的 <code>.git</code> 資料夾內。"
+        "沒有伺服器，也沒有遙測。唯一的網絡呼叫，是用你自己的 <code>git</code>、<code>gh</code> 和 <code>npm</code> 進行唯讀查詢，確認副作用有否發生。帳本留在 <code>.git/better-workflows/</code>。"
       ],
       [
         "Codex、Gemini CLI 或 Qwen Code 呢？",
@@ -514,7 +514,7 @@
     "copyAddress": "複製地址"
   },
   "cta": {
-    "kicker": "2 秒即可試用",
+    "kicker": "幾秒即可試用",
     "title": "執行過指令不是證明，檔案才是。",
     "body": "先在沒有 Claude 的情況下執行 demo，再安裝到一個 repository，請它改點東西。",
     "notes": "前往 GitHub"

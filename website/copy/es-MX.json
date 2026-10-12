@@ -19,7 +19,7 @@
     "themeToLight": "Cambiar al tema claro",
     "themeToggle": "Cambiar tema de color",
     "homeLabel": "Inicio de Better Workflows",
-    "tagline": "Tu agente de programación termina con evidencia actual y ejecuta cada efecto secundario a lo mucho una vez.",
+    "tagline": "Tu agente de programación termina con evidencia actual y nunca repite un efecto secundario que ya tuvo éxito en el mismo commit.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Instalar",
     "overview": "Resumen",
@@ -53,7 +53,7 @@
     "ctaInstall": "Instalar para Claude Code",
     "ctaDemo": "Ver cómo se detiene",
     "specTitle": "Core",
-    "status": "Pre-alpha. Se usa a diario en dos repositorios del mantenedor.",
+    "status": "Pre-alpha. En uso propio en dos repositorios del mantenedor desde octubre de 2026.",
     "host": "Claude Code (plugin de hooks)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 ALTOS · 0 FALSOS “LISTO”",
-    "halt": "Dos veces el agente estuvo a punto de reportar algo que no era cierto. Las dos veces se le regresó con el motivo.",
-    "note": "Resumido a partir de la demo stale-green del repositorio; los identificadores de tree son ilustrativos. Corre tú mismo la demo completa en unos 2 segundos, sin Claude."
+    "halt": "Core detuvo al agente dos veces: una cuando iba a terminar con un resultado aprobado viejo, otra cuando iba a hacer push otra vez. Las dos veces se le regresó con el motivo.",
+    "note": "Resumido a partir de la demo stale-green del repositorio; los identificadores de tree son ilustrativos. Corre tú mismo la demo completa en unos segundos, sin Claude."
   },
   "strip": {
     "label": "Core en números",
     "items": [
       [
         "líneas de código del núcleo",
-        "en la revisión se aplica un límite de 3,000"
+        "el límite es 3,000"
       ],
       [
         "pruebas",
@@ -146,7 +146,7 @@
       ],
       [
         "hooks de Claude Code",
-        "SessionStart, PreToolUse, PostToolUse y Stop; sin servidor ni cuenta"
+        "SessionStart, PreToolUse, PostToolUse(Failure) y (Subagent)Stop; sin servidor ni cuenta"
       ],
       [
         "carriles de CI",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "La escribe y la cambia una persona. El agente puede leerla, nunca editarla.",
+        "La escribe y la cambia una persona. Core rechaza las ediciones directas del agente.",
         "hard",
         "ORIGEN"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Cómo funciona",
     "en": "HOW IT WORKS",
-    "title": "Cuatro hooks, un registro en .git.",
+    "title": "Seis hooks, un registro en .git.",
     "lead": "Core corre dentro de los propios hooks de Claude Code. Nada que iniciar, sin servidor ni cuenta; el estado vive en <code>.git/better-workflows/</code> de cada repositorio.",
     "hooksTitle": "los hooks",
     "hooks": [
-      "<b>SessionStart</b>: carga la policy y avisa cuando falta algo que necesita, como <code>gh</code>.",
+      "<b>SessionStart</b>: le dice al agente qué verificaciones deben pasar y qué efectos secundarios están sin resolver, y avisa si la policy no es válida o si se necesita <code>gh</code> pero no se puede usar.",
       "<b>PreToolUse</b>: permite, pregunta o niega cada efecto secundario, y rechaza las ediciones a la policy y al registro.",
       "<b>PostToolUse</b>: registra cada verificación con el tree de Git sobre el que corrió, y cada efecto secundario con su código de salida.",
-      "<b>Stop</b>: regresa al agente mientras falte una verificación requerida, haya fallado o esté desactualizada.",
-      "<b>bw status</b>: te muestra ese mismo estado."
+      "<b>Stop</b>: si cambiaron archivos y una verificación requerida falta, falló o está desactualizada, regresa al agente una vez con el motivo; la siguiente vez solo avisa.",
+      "<b>bw status</b> (un comando, no un hook): te muestra ese mismo estado."
     ],
     "completion": {
       "name": "Terminar",
       "sub": "evidencia ligada a los archivos",
       "body": "Una prueba, lint, typecheck o build solo cuenta si pasó, si su propio código de salida decidió el resultado de la línea, si ningún archivo cambió mientras corría y si los archivos siguen siendo exactamente aquellos sobre los que corrió.",
-      "guardsK": "Opcional, por verificación",
+      "guardsK": "Opcional",
       "guards": [
-        "<code>exact</code>: solo cuenta el comando completo, desde el directorio correcto.",
-        "<code>scope</code>: un cambio fuera de los directorios indicados no invalida el resultado.",
-        "<code>ignore</code>: lo que escribe una verificación, como la cobertura, no cuenta como cambio."
+        "<code>exact</code>: solo cuenta el comando completo, y <code>cwd</code> define dónde debe correr.",
+        "<code>scope</code> (con <code>exact</code>): un cambio fuera de los directorios indicados no invalida el resultado.",
+        "<code>ignore</code> (toda la policy): lo que escribe una verificación, como la cobertura, no cuenta como cambio."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Verificaciones de solo lectura para resolver un resultado desconocido",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Una policy inválida niega todos los efectos secundarios en lugar de recurrir a valores predeterminados.",
       "Un permiso vencido regresa a ask. Solo una persona lo extiende, editando la policy.",
       "Los comandos que Core no puede leer, como <code>eval</code> o <code>sh -c</code>, se tratan como opacos y se pregunta por ellos.",
-      "El registro es de solo anexado y está encadenado por hash; <code>bw verify</code> detecta ediciones y truncamientos."
+      "El registro es de solo anexado y está encadenado por hash; <code>bw verify</code> detecta entradas editadas o eliminadas y una última línea escrita a medias, pero no entradas completas recortadas del final."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Clona Core",
-        "Una vez por computadora. Si usaste V5 aquí, primero mueve <code>~/.better-workflows</code> a <code>~/.better-workflows-V5</code>."
+        "Una vez por computadora. Si usaste V5 aquí, primero mueve <code>~/.better-workflows</code> a <code>~/.better-workflows-V5</code> y haz que <code>SBW_STATE_ROOT</code> apunte ahí."
       ],
       [
         "Agrega el plugin",
@@ -329,7 +329,7 @@
     "firstAsk": "Cambia una línea de este repositorio y no corras las pruebas.",
     "copyRequest": "Copiar esta solicitud",
     "firstNote": "Cuando Claude Code intenta terminar, se le regresa y se le dice qué verificación falta.",
-    "demoNote": "Opcional: corre los dos escenarios sin Claude, en unos 2 segundos."
+    "demoNote": "Opcional: corre los dos escenarios sin Claude, en unos segundos."
   },
   "boundary": {
     "idx": "Límites",
@@ -343,11 +343,11 @@
         "Detiene",
         "Errores observables",
         [
-          "Terminar con una corrida de pruebas desactualizada, fallida o parcial",
+          "Terminar con una corrida de pruebas desactualizada o fallida, o con una parcial cuando la verificación está marcada como <code>exact</code>",
           "Un pipe o <code>|| true</code> que oculta una falla",
           "Un push, merge, release o publicación repetidos",
           "Efectos secundarios mientras uno anterior sigue siendo desconocido",
-          "Que el agente edite su propia policy"
+          "Que el agente edite directamente su policy o el registro"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core bloquea los errores de arriba. No se ha medido si reduce el retrabajo o las decisiones equivocadas en tareas largas; para eso es el periodo actual de uso propio.",
     "rulesLabel": "Límites de diseño",
     "rules": [
-      "El parser de shell no crece: un comando que no puede leer nunca cuenta como evidencia y se pregunta por él como acción.",
+      "El parser de shell no crece: por un comando que no puede leer se pregunta antes de que se ejecute, y una prueba escondida dentro de <code>eval</code> o <code>sh -c</code> nunca cuenta como evidencia.",
       "Core solo lleva la cuenta de cómo va una sesión. Si está convergiendo, lo juzga el agente o lo juzgas tú.",
       "Los pull requests y los releases se concilian con <code>gh</code>; sin él, siguen siendo desconocidos hasta que los resuelvas."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Referencia de la policy",
-      "Cada campo de policy.json, con ejemplos."
+      "Los campos de policy.json, con ejemplos."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "¿Hace más lento a Claude Code?",
-        "Cada hook calcula el hash del árbol de trabajo con Git, lo que toma milisegundos en un repositorio normal. Los repositorios muy grandes pagan más en cada llamada."
+        "Los hooks que manejan una verificación o un efecto secundario calculan el hash del árbol de trabajo con Git, lo que toma milisegundos en un repositorio normal. Los repositorios muy grandes pagan más en cada una de esas llamadas."
       ],
       [
         "¿Se puede quedar atorado regresando al agente para siempre?",
@@ -492,11 +492,11 @@
       ],
       [
         "¿El agente puede desactivarlo?",
-        "No. No puede editar la policy ni el registro, ni correr <code>bw init</code>, ni resolver por su cuenta una acción desconocida. Tú puedes desinstalar el plugin en cualquier momento."
+        "No directamente. Core rechaza las ediciones del agente a la policy y al registro, y rechaza <code>bw init</code> y resolver una acción a mano. Desinstalar el plugin, o cambiar esos archivos por caminos indirectos, se rige por las propias reglas de permisos de Claude Code, así que mantén activadas esas confirmaciones."
       ],
       [
         "¿Envía algo a algún lado?",
-        "No. No hay servidor ni telemetría. Todo se queda en la carpeta <code>.git</code> de tu repositorio."
+        "No hay servidor ni telemetría. Sus únicas llamadas de red son consultas de solo lectura con tus propios <code>git</code>, <code>gh</code> y <code>npm</code>, para confirmar si un efecto secundario ocurrió. El registro se queda en <code>.git/better-workflows/</code>."
       ],
       [
         "¿Y Codex, Gemini CLI o Qwen Code?",
@@ -514,7 +514,7 @@
     "copyAddress": "Copiar la dirección"
   },
   "cta": {
-    "kicker": "Pruébalo en 2 segundos",
+    "kicker": "Pruébalo en unos segundos",
     "title": "Correr un comando no demuestra nada. Los archivos sí.",
     "body": "Corre la demo sin Claude, luego instálalo en un repositorio y pide un cambio.",
     "notes": "Ver en GitHub"

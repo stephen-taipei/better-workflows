@@ -19,7 +19,7 @@
     "themeToLight": "Byt till ljust tema",
     "themeToggle": "Växla färgtema",
     "homeLabel": "Better Workflows startsida",
-    "tagline": "Din kodagent avslutar på aktuella bevis och kör varje sidoeffekt högst en gång.",
+    "tagline": "Din kodagent avslutar på aktuella bevis och upprepar aldrig en sidoeffekt som redan har lyckats på samma commit.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Installera",
     "overview": "Översikt",
@@ -53,7 +53,7 @@
     "ctaInstall": "Installera för Claude Code",
     "ctaDemo": "Se den stoppa",
     "specTitle": "Core",
-    "status": "Pre-alpha. Körs dagligen i två av underhållarens repon.",
+    "status": "Pre-alpha. I eget bruk i två av underhållarens repon sedan oktober 2026.",
     "host": "Claude Code (hooks-plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 STOPP · 0 FALSKA KLART",
-    "halt": "Två gånger var agenten på väg att rapportera något som inte stämde. Båda gångerna skickades den tillbaka med skälet.",
-    "note": "Förkortad från stale-green-demon i repot; tree-id:na är exempel. Kör hela demon själv på cirka 2 sekunder, utan Claude."
+    "halt": "Core stoppade agenten två gånger: en gång från att avsluta på ett gammalt godkänt resultat, en gång från att pusha igen. Båda gångerna skickades den tillbaka med skälet.",
+    "note": "Förkortad från stale-green-demon i repot; tree-id:na är exempel. Kör hela demon själv på några sekunder, utan Claude."
   },
   "strip": {
     "label": "Core i siffror",
     "items": [
       [
         "rader kärnkod",
-        "en gräns på 3 000 upprätthålls vid granskning"
+        "gränsen är 3 000"
       ],
       [
         "tester",
@@ -146,7 +146,7 @@
       ],
       [
         "Claude Code-hooks",
-        "SessionStart, PreToolUse, PostToolUse och Stop; ingen server, inget konto"
+        "SessionStart, PreToolUse, PostToolUse(Failure) och (Subagent)Stop; ingen server, inget konto"
       ],
       [
         "CI-spår",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Skrivs och ändras av en människa. Agenten får läsa den, aldrig redigera den.",
+        "Skrivs och ändras av en människa. Core vägrar agentens direkta ändringar av den.",
         "hard",
         "KÄLLA"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Så fungerar det",
     "en": "HOW IT WORKS",
-    "title": "Fyra hooks, en liggare i .git.",
+    "title": "Sex hooks, en liggare i .git.",
     "lead": "Core körs i Claude Codes egna hooks. Inget att starta, ingen server, inget konto; tillståndet ligger i <code>.git/better-workflows/</code> i varje repo.",
     "hooksTitle": "hooksen",
     "hooks": [
-      "<b>SessionStart</b>: läser in policyn och varnar när något den behöver, som <code>gh</code>, saknas.",
+      "<b>SessionStart</b>: talar om för agenten vilka kontroller som måste gå igenom och vilka sidoeffekter som är oavgjorda, och varnar om policyn är ogiltig eller om <code>gh</code> behövs men inte går att använda.",
       "<b>PreToolUse</b>: tillåter, frågar om eller nekar varje sidoeffekt, och vägrar ändringar i policyn och liggaren.",
       "<b>PostToolUse</b>: registrerar varje kontroll med det Git-träd den kördes på, och varje sidoeffekt med dess exitkod.",
-      "<b>Stop</b>: skickar tillbaka agenten så länge en obligatorisk kontroll saknas, har misslyckats eller är inaktuell.",
-      "<b>bw status</b>: visar samma tillstånd för dig."
+      "<b>Stop</b>: om filer har ändrats och en obligatorisk kontroll saknas, har misslyckats eller är inaktuell, skickar den tillbaka agenten en gång med skälet; nästa gång varnar den bara.",
+      "<b>bw status</b> (ett kommando, inte en hook): visar samma tillstånd för dig."
     ],
     "completion": {
       "name": "Avslut",
       "sub": "bevis knutna till filerna",
       "body": "Ett test, lint, typecheck eller bygge räknas bara om det gick igenom, dess egen exitkod avgjorde utfallet, ingen fil ändrades medan det kördes, och filerna fortfarande är exakt de det kördes på.",
-      "guardsK": "Valfritt, per kontroll",
+      "guardsK": "Valfritt",
       "guards": [
-        "<code>exact</code>: bara hela kommandot räknas, från rätt katalog.",
-        "<code>scope</code>: en ändring utanför de angivna katalogerna gör inte resultatet inaktuellt.",
-        "<code>ignore</code>: utdata som en kontroll skriver, som coverage, räknas inte som en ändring."
+        "<code>exact</code>: bara hela kommandot räknas, och <code>cwd</code> anger var det måste köras.",
+        "<code>scope</code> (med <code>exact</code>): en ändring utanför de angivna katalogerna lämnar resultatet aktuellt.",
+        "<code>ignore</code> (hela policyn): utdata som en kontroll skriver, som coverage, räknas inte som en ändring."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Skrivskyddade kontroller som används för att avgöra ett okänt resultat",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "En ogiltig policy nekar alla sidoeffekter i stället för att falla tillbaka på standardvärden.",
       "En utgången behörighet faller tillbaka på ask. Bara en människa kan förlänga den, genom att redigera policyn.",
       "Kommandon som Core inte kan läsa, som <code>eval</code> eller <code>sh -c</code>, behandlas som ogenomskinliga och kräver en fråga.",
-      "Liggaren är append-only och hashkedjad; <code>bw verify</code> upptäcker ändringar och trunkering."
+      "Liggaren är append-only och hashkedjad; <code>bw verify</code> upptäcker ändrade eller borttagna poster och en halvskriven sista rad, men inte hela poster som kapats bort från slutet."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Klona Core",
-        "En gång per maskin. Om du har kört V5 här, flytta först <code>~/.better-workflows</code> till <code>~/.better-workflows-V5</code>."
+        "En gång per maskin. Om du har kört V5 här, flytta först <code>~/.better-workflows</code> till <code>~/.better-workflows-V5</code> och peka <code>SBW_STATE_ROOT</code> dit."
       ],
       [
         "Lägg till pluginet",
@@ -329,7 +329,7 @@
     "firstAsk": "Ändra en rad i det här repot och kör inte testerna.",
     "copyRequest": "Kopiera den här begäran",
     "firstNote": "När Claude Code försöker avsluta skickas den tillbaka och får veta vilken kontroll som saknas.",
-    "demoNote": "Valfritt: kör båda scenarierna utan Claude, på cirka 2 sekunder."
+    "demoNote": "Valfritt: kör båda scenarierna utan Claude, på några sekunder."
   },
   "boundary": {
     "idx": "Gränser",
@@ -343,11 +343,11 @@
         "Stoppar",
         "Observerbara misstag",
         [
-          "Att avsluta på en inaktuell, misslyckad eller ofullständig testkörning",
+          "Att avsluta på en inaktuell eller misslyckad testkörning, eller på en ofullständig när kontrollen är markerad <code>exact</code>",
           "En pipe eller <code>|| true</code> som döljer ett fel",
           "En upprepad push, merge, release eller publicering",
           "Sidoeffekter medan en tidigare är okänd",
-          "Att agenten redigerar sin egen policy"
+          "Att agenten redigerar sin policy eller liggare direkt"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core blockerar misstagen ovan. Om det minskar omarbete eller felaktiga beslut i långa uppgifter har inte mätts; det är vad den nuvarande perioden av egen användning är till för.",
     "rulesLabel": "Designgränser",
     "rules": [
-      "Shell-parsern växer inte: ett kommando den inte kan läsa räknas aldrig som bevis och frågas om som en åtgärd.",
+      "Shell-parsern växer inte: ett kommando den inte kan läsa frågas om innan det körs, och ett test som döljs i <code>eval</code> eller <code>sh -c</code> räknas aldrig som bevis.",
       "Core räknar bara hur en session går. Om den konvergerar är upp till agenten eller dig att bedöma.",
       "Pull requests och releaser stäms av med <code>gh</code>; utan det förblir de okända tills du avgör dem."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Policyreferens",
-      "Varje fält i policy.json, med exempel."
+      "Fälten i policy.json, med exempel."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Gör den Claude Code långsammare?",
-        "Varje hook hashar arbetsträdet med Git, vilket tar millisekunder i ett normalt repo. Mycket stora repon får betala mer vid varje anrop."
+        "Hookar som hanterar en kontroll eller en sidoeffekt hashar arbetsträdet med Git, vilket tar millisekunder i ett normalt repo. Mycket stora repon får betala mer vid varje sådant anrop."
       ],
       [
         "Kan den fastna och skicka tillbaka agenten i all evighet?",
@@ -492,11 +492,11 @@
       ],
       [
         "Kan agenten stänga av den?",
-        "Nej. Den kan inte redigera policyn eller liggaren, och kan inte själv köra <code>bw init</code> eller avgöra en okänd åtgärd. Du kan avinstallera pluginet när som helst."
+        "Inte direkt. Core vägrar agentens ändringar av policyn och liggaren, och vägrar <code>bw init</code> och att avgöra en åtgärd för hand. Att avinstallera pluginet, eller att ändra de filerna på omvägar, styrs av Claude Codes egna behörighetsregler, så låt de frågorna vara påslagna."
       ],
       [
         "Skickar den något någonstans?",
-        "Nej. Det finns ingen server och ingen telemetri. Allt stannar i ditt repos <code>.git</code>-mapp."
+        "Det finns ingen server och ingen telemetri. De enda nätverksanropen är skrivskyddade kontroller med din egen <code>git</code>, <code>gh</code> och <code>npm</code>, för att bekräfta om en sidoeffekt har skett. Liggaren stannar i <code>.git/better-workflows/</code>."
       ],
       [
         "Hur är det med Codex, Gemini CLI eller Qwen Code?",
@@ -514,7 +514,7 @@
     "copyAddress": "Kopiera adressen"
   },
   "cta": {
-    "kicker": "Prova på 2 sekunder",
+    "kicker": "Prova på några sekunder",
     "title": "Att köra ett kommando är inget bevis. Filerna är det.",
     "body": "Kör demon utan Claude, installera sedan i ett repo och be om en ändring.",
     "notes": "Visa på GitHub"

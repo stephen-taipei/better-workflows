@@ -19,7 +19,7 @@
     "themeToLight": "Lumipat sa light theme",
     "themeToggle": "Palitan ang color theme",
     "homeLabel": "Home ng Better Workflows",
-    "tagline": "Tinatapos ng iyong coding agent ang trabaho batay sa kasalukuyang ebidensya, at pinapatakbo ang bawat side effect nang hindi hihigit sa isang beses.",
+    "tagline": "Tinatapos ng iyong coding agent ang trabaho batay sa kasalukuyang ebidensya, at hindi kailanman inuulit ang side effect na nagtagumpay na sa parehong commit.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "I-install",
     "overview": "Pangkalahatang-ideya",
@@ -53,7 +53,7 @@
     "ctaInstall": "I-install para sa Claude Code",
     "ctaDemo": "Panoorin itong pumigil",
     "specTitle": "Core",
-    "status": "Pre-alpha. Araw-araw na tumatakbo sa dalawang repository ng maintainer.",
+    "status": "Pre-alpha. Sariling ginagamit ng maintainer sa dalawa niyang repository mula Oktubre 2026.",
     "host": "Claude Code (hooks plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 PAGPIGIL · 0 MALING DONE",
-    "halt": "Dalawang beses na muntik mag-ulat ang agent ng bagay na hindi totoo. Sa parehong pagkakataon, ibinalik ito kasama ang dahilan.",
-    "note": "Pinaikli mula sa stale-green demo sa repository; halimbawa lang ang mga tree id. Patakbuhin mo mismo ang buong demo sa mga 2 segundo, nang walang Claude."
+    "halt": "Dalawang beses pinigilan ng Core ang agent: isang beses sa pagtatapos batay sa lumang pasado, isang beses sa muling pag-push. Sa parehong pagkakataon, ibinalik ito kasama ang dahilan.",
+    "note": "Pinaikli mula sa stale-green demo sa repository; halimbawa lang ang mga tree id. Patakbuhin mo mismo ang buong demo sa ilang segundo, nang walang Claude."
   },
   "strip": {
     "label": "Core sa mga numero",
     "items": [
       [
         "linya ng kernel code",
-        "ipinapatupad sa review ang limitasyong 3,000"
+        "3,000 ang limitasyon"
       ],
       [
         "test",
@@ -146,7 +146,7 @@
       ],
       [
         "Claude Code hook",
-        "SessionStart, PreToolUse, PostToolUse at Stop; walang server, walang account"
+        "SessionStart, PreToolUse, PostToolUse(Failure) at (Subagent)Stop; walang server, walang account"
       ],
       [
         "CI lane",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Isinusulat at binabago ng tao. Puwede itong basahin ng agent, pero hindi kailanman i-edit.",
+        "Isinusulat at binabago ng tao. Tinatanggihan ng Core ang direktang pag-edit dito ng agent.",
         "hard",
         "SOURCE"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Paano ito gumagana",
     "en": "HOW IT WORKS",
-    "title": "Apat na hook, isang ledger sa .git.",
+    "title": "Anim na hook, isang ledger sa .git.",
     "lead": "Tumatakbo ang Core sa loob ng sariling mga hook ng Claude Code. Walang kailangang i-start, walang server, walang account; nasa <code>.git/better-workflows/</code> ng bawat repository ang state.",
     "hooksTitle": "ang mga hook",
     "hooks": [
-      "<b>SessionStart</b>: nilo-load ang policy at nagbababala kapag may kulang na kailangan nito, gaya ng <code>gh</code>.",
+      "<b>SessionStart</b>: sinasabi sa agent kung aling mga check ang dapat pumasa at aling mga side effect ang hindi pa settled, at nagbababala kung invalid ang policy o kung kailangan ang <code>gh</code> pero hindi ito magamit.",
       "<b>PreToolUse</b>: pinapayagan, itinatanong o tinatanggihan ang bawat side effect, at tinatanggihan ang mga edit sa policy at sa ledger.",
       "<b>PostToolUse</b>: itinatala ang bawat check kasama ang Git tree kung saan ito tumakbo, at ang bawat side effect kasama ang exit code nito.",
-      "<b>Stop</b>: ibinabalik ang agent habang may kinakailangang check na kulang, pumalya o luma na.",
-      "<b>bw status</b>: ipinapakita sa iyo ang parehong state."
+      "<b>Stop</b>: kung may nagbagong file at may kinakailangang check na kulang, pumalya o luma na, ibinabalik ang agent nang isang beses kasama ang dahilan; sa susunod, nagbababala na lang ito.",
+      "<b>bw status</b> (isang command, hindi hook): ipinapakita sa iyo ang parehong state."
     ],
     "completion": {
       "name": "Pagtatapos",
       "sub": "ebidensyang nakatali sa mga file",
       "body": "Bilang lang ang test, lint, typecheck o build kung pumasa ito, ang sarili nitong exit code ang nagpasya sa resulta ng linya, walang file na nagbago habang tumatakbo ito, at ang mga file ay eksaktong pareho pa rin sa pinatakbuhan nito.",
-      "guardsK": "Opsyonal, bawat check",
+      "guardsK": "Opsyonal",
       "guards": [
-        "<code>exact</code>: ang buong command lang ang bilang, mula sa tamang directory.",
-        "<code>scope</code>: ang pagbabago sa labas ng mga nakapangalang directory ay hindi nagpapaluma sa resulta.",
-        "<code>ignore</code>: ang output na isinusulat ng isang check, gaya ng coverage, ay hindi binibilang na pagbabago."
+        "<code>exact</code>: ang buong command lang ang bilang, at itinatakda ng <code>cwd</code> kung saan ito dapat tumakbo.",
+        "<code>scope</code> (kasama ang <code>exact</code>): ang pagbabago sa labas ng mga nakapangalang directory ay hindi nagpapaluma sa resulta.",
+        "<code>ignore</code> (buong policy): ang output na isinusulat ng isang check, gaya ng coverage, ay hindi binibilang na pagbabago."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Mga read-only na check na ginagamit para lutasin ang hindi alam na resulta",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Tinatanggihan ng invalid na policy ang lahat ng side effect sa halip na bumalik sa mga default.",
       "Bumabalik sa ask ang expired na pahintulot. Tao lang ang makakapagpahaba nito, sa pag-edit ng policy.",
       "Ang mga command na hindi mabasa ng Core, gaya ng <code>eval</code> o <code>sh -c</code>, ay itinuturing na opaque at itinatanong.",
-      "Append-only at hash-chained ang ledger; natutukoy ng <code>bw verify</code> ang mga edit at pagputol."
+      "Append-only at hash-chained ang ledger; natutukoy ng <code>bw verify</code> ang mga entry na na-edit o inalis at ang kalahating-naisulat na huling linya, pero hindi ang buong mga entry na pinutol mula sa dulo."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "I-clone ang Core",
-        "Isang beses bawat machine. Kung nagpatakbo ka ng V5 dito, ilipat muna ang <code>~/.better-workflows</code> sa <code>~/.better-workflows-V5</code>."
+        "Isang beses bawat machine. Kung nagpatakbo ka ng V5 dito, ilipat muna ang <code>~/.better-workflows</code> sa <code>~/.better-workflows-V5</code> at ituro doon ang <code>SBW_STATE_ROOT</code>."
       ],
       [
         "Idagdag ang plugin",
@@ -329,7 +329,7 @@
     "firstAsk": "Magbago ng isang linya sa repository na ito, at huwag patakbuhin ang mga test.",
     "copyRequest": "Kopyahin ang request na ito",
     "firstNote": "Kapag sinubukan ng Claude Code na tapusin, ibinabalik ito at sinasabi kung aling check ang kulang.",
-    "demoNote": "Opsyonal: patakbuhin ang dalawang sitwasyon nang walang Claude, sa mga 2 segundo."
+    "demoNote": "Opsyonal: patakbuhin ang dalawang sitwasyon nang walang Claude, sa ilang segundo."
   },
   "boundary": {
     "idx": "Mga limitasyon",
@@ -343,11 +343,11 @@
         "Pinipigilan",
         "Mga nakikitang pagkakamali",
         [
-          "Pagtatapos sa luma, pumalya o bahagyang test run",
+          "Pagtatapos sa luma o pumalyang test run, o sa bahagyang run kapag naka-mark na <code>exact</code> ang check",
           "Pipe o <code>|| true</code> na nagtatago ng failure",
           "Inulit na push, merge, release o publish",
           "Mga side effect habang hindi pa alam ang resulta ng nauna",
-          "Pag-edit ng agent sa sarili nitong policy"
+          "Direktang pag-edit ng agent sa policy o ledger nito"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Hinaharangan ng Core ang mga pagkakamali sa itaas. Hindi pa nasusukat kung nababawasan nito ang pag-uulit ng trabaho o maling pasya sa mahahabang gawain; iyon ang layunin ng kasalukuyang panahon ng sariling paggamit.",
     "rulesLabel": "Mga limitasyon ng disenyo",
     "rules": [
-      "Hindi lumalaki ang shell parser: ang command na hindi nito mabasa ay hindi kailanman bilang na ebidensya at itinatanong bilang aksyon.",
+      "Hindi lumalaki ang shell parser: ang command na hindi nito mabasa ay itinatanong bago ito tumakbo, at ang test na nakatago sa loob ng <code>eval</code> o <code>sh -c</code> ay hindi kailanman bilang na ebidensya.",
       "Binibilang lang ng Core kung paano tumatakbo ang isang session. Ang agent o ikaw ang hahatol kung papunta ito sa solusyon.",
       "Nire-reconcile ang mga pull request at release gamit ang <code>gh</code>; kung wala ito, mananatili silang hindi alam hanggang lutasin mo."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Reference ng policy",
-      "Bawat field ng policy.json, may mga halimbawa."
+      "Ang mga field ng policy.json, may mga halimbawa."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Pinababagal ba nito ang Claude Code?",
-        "Hina-hash ng bawat hook ang working tree gamit ang Git, na tumatagal ng ilang millisecond sa karaniwang repository. Mas malaki ang gastos sa bawat tawag sa napakalalaking repository."
+        "Hina-hash ng mga hook na humahawak ng check o side effect ang working tree gamit ang Git, na tumatagal ng ilang millisecond sa karaniwang repository. Mas malaki ang gastos sa bawat ganitong tawag sa napakalalaking repository."
       ],
       [
         "Maiipit ba ito sa walang katapusang pagbabalik sa agent?",
@@ -492,11 +492,11 @@
       ],
       [
         "Puwede ba itong i-off ng agent?",
-        "Hindi. Hindi nito mae-edit ang policy o ang ledger, at hindi nito mapapatakbo ang <code>bw init</code> o malulutas nang mag-isa ang isang hindi alam na aksyon. Puwede mong i-uninstall ang plugin anumang oras."
+        "Hindi direkta. Tinatanggihan ng Core ang mga edit ng agent sa policy at sa ledger, at tinatanggihan ang <code>bw init</code> at ang manu-manong pag-settle ng isang aksyon. Ang pag-uninstall ng plugin, o ang pagbabago sa mga file na iyon sa paikot-ikot na paraan, ay saklaw ng sariling mga permission rule ng Claude Code, kaya panatilihing naka-on ang mga prompt na iyon."
       ],
       [
         "May ipinapadala ba ito kahit saan?",
-        "Wala. Walang server at walang telemetry. Nananatili ang lahat sa <code>.git</code> folder ng iyong repository."
+        "Walang server at walang telemetry. Ang tanging network call nito ay mga read-only na check gamit ang sarili mong <code>git</code>, <code>gh</code> at <code>npm</code>, para kumpirmahin kung nangyari ang isang side effect. Nananatili ang ledger sa <code>.git/better-workflows/</code>."
       ],
       [
         "Paano ang Codex, Gemini CLI o Qwen Code?",
@@ -514,7 +514,7 @@
     "copyAddress": "Kopyahin ang address"
   },
   "cta": {
-    "kicker": "Subukan sa loob ng 2 segundo",
+    "kicker": "Subukan sa ilang segundo",
     "title": "Hindi patunay ang pagpapatakbo ng command. Ang mga file ang patunay.",
     "body": "Patakbuhin ang demo nang walang Claude, tapos i-install ito sa isang repository at humiling ng pagbabago.",
     "notes": "Tingnan sa GitHub"

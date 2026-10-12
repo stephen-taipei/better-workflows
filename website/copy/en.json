@@ -19,7 +19,7 @@
     "themeToLight": "Switch to light theme",
     "themeToggle": "Toggle color theme",
     "homeLabel": "Better Workflows home",
-    "tagline": "Your coding agent finishes on current evidence, and runs each side effect at most once.",
+    "tagline": "Your coding agent finishes on current evidence, and never repeats a side effect that already succeeded at the same commit.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Install",
     "overview": "Overview",
@@ -53,7 +53,7 @@
     "ctaInstall": "Install for Claude Code",
     "ctaDemo": "See it stop",
     "specTitle": "Core",
-    "status": "Pre-alpha. Running daily on two of the maintainer's repositories.",
+    "status": "Pre-alpha. In self-use on two of the maintainer's repositories since October 2026.",
     "host": "Claude Code (hooks plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 STOPS · 0 FALSE DONES",
-    "halt": "Twice the agent was about to report something that was not true. Both times it was sent back with the reason.",
-    "note": "Shortened from the stale-green demo in the repository; the tree ids are illustrative. Run the full demo yourself in about 2 seconds, without Claude."
+    "halt": "Core stopped the agent twice: once from finishing on an old pass, once from pushing again. Both times it was sent back with the reason.",
+    "note": "Shortened from the stale-green demo in the repository; the tree ids are illustrative. Run the full demo yourself in a few seconds, without Claude."
   },
   "strip": {
     "label": "Core in numbers",
     "items": [
       [
         "lines of kernel code",
-        "a limit of 3,000 is enforced in review"
+        "the limit is 3,000"
       ],
       [
         "tests",
@@ -146,7 +146,7 @@
       ],
       [
         "Claude Code hooks",
-        "SessionStart, PreToolUse, PostToolUse and Stop; no server, no account"
+        "SessionStart, PreToolUse, PostToolUse(Failure) and (Subagent)Stop; no server, no account"
       ],
       [
         "CI lanes",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Written and changed by a person. The agent may read it, never edit it.",
+        "Written and changed by a person. Core refuses the agent's direct edits to it.",
         "hard",
         "SOURCE"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "How it works",
     "en": "HOW IT WORKS",
-    "title": "Four hooks, one ledger in .git.",
+    "title": "Six hooks, one ledger in .git.",
     "lead": "Core runs inside Claude Code's own hooks. Nothing to start, no server, no account; state lives in <code>.git/better-workflows/</code> of each repository.",
     "hooksTitle": "the hooks",
     "hooks": [
-      "<b>SessionStart</b>: loads the policy and warns when something it needs, like <code>gh</code>, is missing.",
+      "<b>SessionStart</b>: tells the agent which checks must pass and which side effects are unsettled, and warns if the policy is invalid or <code>gh</code> is needed but unusable.",
       "<b>PreToolUse</b>: allows, asks or denies each side effect, and refuses edits to the policy and the ledger.",
       "<b>PostToolUse</b>: records each check with the Git tree it ran on, and each side effect with its exit code.",
-      "<b>Stop</b>: sends the agent back while a required check is missing, failed or stale.",
-      "<b>bw status</b>: shows the same state to you."
+      "<b>Stop</b>: if files changed and a required check is missing, failed or stale, sends the agent back once with the reason; the next time it only warns.",
+      "<b>bw status</b> (a command, not a hook): shows you the same state."
     ],
     "completion": {
       "name": "Finishing",
       "sub": "evidence tied to the files",
       "body": "A test, lint, typecheck or build counts only if it passed, its own exit code decided the line, no file changed while it ran, and the files are still exactly what it ran on.",
-      "guardsK": "Optional, per check",
+      "guardsK": "Optional",
       "guards": [
-        "<code>exact</code>: only the whole command counts, from the right directory.",
-        "<code>scope</code>: a change outside the named directories leaves the result fresh.",
-        "<code>ignore</code>: output a check writes, like coverage, is not counted as a change."
+        "<code>exact</code>: only the whole command counts, and <code>cwd</code> sets where it must run.",
+        "<code>scope</code> (with <code>exact</code>): a change outside the named directories leaves the result fresh.",
+        "<code>ignore</code> (whole policy): output a check writes, like coverage, is not counted as a change."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Read-only checks used to settle an unknown result",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "An invalid policy denies every side effect instead of falling back to defaults.",
       "An expired permission falls back to ask. Only a person extends it, by editing the policy.",
       "Commands Core cannot read, like <code>eval</code> or <code>sh -c</code>, are treated as opaque and asked about.",
-      "The ledger is append-only and hash-chained; <code>bw verify</code> detects edits and truncation."
+      "The ledger is append-only and hash-chained; <code>bw verify</code> detects edited or removed entries and a half-written last line, but not whole entries cut from the end."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Clone Core",
-        "Once per machine. If you ran V5 here, move <code>~/.better-workflows</code> to <code>~/.better-workflows-V5</code> first."
+        "Once per machine. If you ran V5 here, first move <code>~/.better-workflows</code> to <code>~/.better-workflows-V5</code> and point <code>SBW_STATE_ROOT</code> at it."
       ],
       [
         "Add the plugin",
@@ -329,7 +329,7 @@
     "firstAsk": "Change one line in this repository, and don't run the tests.",
     "copyRequest": "Copy this request",
     "firstNote": "When Claude Code tries to finish, it is sent back and told which check is missing.",
-    "demoNote": "Optional: run both stories without Claude, in about 2 seconds."
+    "demoNote": "Optional: run both stories without Claude, in a few seconds."
   },
   "boundary": {
     "idx": "Limits",
@@ -343,11 +343,11 @@
         "Stops",
         "Observable mistakes",
         [
-          "Finishing on a stale, failed or partial test run",
+          "Finishing on a stale or failed test run, or a partial one when the check is marked <code>exact</code>",
           "A pipe or <code>|| true</code> hiding a failure",
           "A repeated push, merge, release or publish",
           "Side effects while an earlier one is unknown",
-          "The agent editing its own policy"
+          "The agent editing its policy or ledger directly"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core blocks the mistakes above. It has not been measured whether it lowers rework or wrong decisions over long tasks; that is what the current self-use period is for.",
     "rulesLabel": "Design limits",
     "rules": [
-      "The shell parser does not grow: a command it cannot read never counts as evidence and is asked about as an action.",
+      "The shell parser does not grow: a command it cannot read is asked about before it runs, and a test hidden inside <code>eval</code> or <code>sh -c</code> never counts as evidence.",
       "Core only counts how a session is going. Whether it is converging is for the agent or you to judge.",
       "Pull requests and releases are reconciled with <code>gh</code>; without it, they stay unknown until you settle them."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Policy reference",
-      "Every field of policy.json, with examples."
+      "The fields of policy.json, with examples."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Does it slow Claude Code down?",
-        "Each hook hashes the working tree with Git, which takes milliseconds in a normal repository. Very large repositories pay more on each call."
+        "Hooks that handle a check or a side effect hash the working tree with Git, which takes milliseconds in a normal repository. Very large repositories pay more on each such call."
       ],
       [
         "Will it get stuck sending the agent back forever?",
@@ -492,11 +492,11 @@
       ],
       [
         "Can the agent turn it off?",
-        "No. It cannot edit the policy or the ledger, and cannot run <code>bw init</code> or settle an unknown action itself. You can uninstall the plugin at any time."
+        "Not directly. Core refuses the agent's edits to the policy and the ledger, and refuses <code>bw init</code> and settling an action by hand. Uninstalling the plugin, or changing those files in roundabout ways, is governed by Claude Code's own permission rules, so keep those prompts on."
       ],
       [
         "Does it send anything anywhere?",
-        "No. There is no server and no telemetry. Everything stays in your repository's <code>.git</code> folder."
+        "There is no server and no telemetry. Its only network calls are read-only checks with your own <code>git</code>, <code>gh</code> and <code>npm</code>, to confirm whether a side effect happened. The ledger stays in <code>.git/better-workflows/</code>."
       ],
       [
         "What about Codex, Gemini CLI or Qwen Code?",
@@ -514,7 +514,7 @@
     "copyAddress": "Copy the address"
   },
   "cta": {
-    "kicker": "Try it in 2 seconds",
+    "kicker": "Try it in a few seconds",
     "title": "Running a command is not proof. The files are.",
     "body": "Run the demo without Claude, then install it on one repository and ask for a change.",
     "notes": "View on GitHub"

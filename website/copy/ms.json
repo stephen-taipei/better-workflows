@@ -19,7 +19,7 @@
     "themeToLight": "Tukar ke tema cerah",
     "themeToggle": "Togol tema warna",
     "homeLabel": "Laman utama Better Workflows",
-    "tagline": "Ejen pengekodan anda menamatkan kerja berdasarkan bukti terkini, dan menjalankan setiap kesan sampingan paling banyak sekali.",
+    "tagline": "Ejen pengekodan anda menamatkan kerja berdasarkan bukti terkini, dan tidak sekali-kali mengulangi kesan sampingan yang sudah berjaya pada commit yang sama.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Pasang",
     "overview": "Gambaran keseluruhan",
@@ -53,7 +53,7 @@
     "ctaInstall": "Pasang untuk Claude Code",
     "ctaDemo": "Lihat ia berhenti",
     "specTitle": "Core",
-    "status": "Pre-alpha. Berjalan setiap hari pada dua repositori penyelenggara.",
+    "status": "Pre-alpha. Digunakan sendiri oleh penyelenggara pada dua repositorinya sejak Oktober 2026.",
     "host": "Claude Code (plugin hooks)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 HENTIAN · 0 SIAP PALSU",
-    "halt": "Dua kali ejen hampir melaporkan sesuatu yang tidak benar. Kedua-dua kali ia dihantar balik bersama sebabnya.",
-    "note": "Diringkaskan daripada demo stale-green dalam repositori; id tree hanyalah contoh. Jalankan demo penuh sendiri dalam kira-kira 2 saat, tanpa Claude."
+    "halt": "Core menghentikan ejen dua kali: sekali daripada menamatkan kerja berdasarkan keputusan lulus yang lama, sekali daripada push sekali lagi. Kedua-dua kali ia dihantar balik bersama sebabnya.",
+    "note": "Diringkaskan daripada demo stale-green dalam repositori; id tree hanyalah contoh. Jalankan demo penuh sendiri dalam beberapa saat, tanpa Claude."
   },
   "strip": {
     "label": "Core dalam angka",
     "items": [
       [
         "baris kod kernel",
-        "had 3,000 dikuatkuasakan semasa semakan"
+        "hadnya 3,000"
       ],
       [
         "ujian",
@@ -146,7 +146,7 @@
       ],
       [
         "hooks Claude Code",
-        "SessionStart, PreToolUse, PostToolUse dan Stop; tiada pelayan, tiada akaun"
+        "SessionStart, PreToolUse, PostToolUse(Failure) dan (Subagent)Stop; tiada pelayan, tiada akaun"
       ],
       [
         "lorong CI",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Ditulis dan diubah oleh manusia. Ejen boleh membacanya, tidak sekali-kali menyuntingnya.",
+        "Ditulis dan diubah oleh manusia. Core menolak suntingan langsung ejen padanya.",
         "hard",
         "SUMBER"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Cara ia berfungsi",
     "en": "HOW IT WORKS",
-    "title": "Empat hooks, satu lejar dalam .git.",
+    "title": "Enam hooks, satu lejar dalam .git.",
     "lead": "Core berjalan di dalam hooks Claude Code sendiri. Tiada apa-apa untuk dimulakan, tiada pelayan, tiada akaun; keadaan disimpan dalam <code>.git/better-workflows/</code> setiap repositori.",
     "hooksTitle": "hooks",
     "hooks": [
-      "<b>SessionStart</b>: memuatkan policy dan memberi amaran apabila sesuatu yang diperlukannya tiada, seperti <code>gh</code>.",
+      "<b>SessionStart</b>: memberitahu ejen semakan mana yang mesti lulus dan kesan sampingan mana yang belum diselesaikan, serta memberi amaran jika policy tidak sah atau <code>gh</code> diperlukan tetapi tidak dapat digunakan.",
       "<b>PreToolUse</b>: membenarkan, bertanya atau menolak setiap kesan sampingan, dan menolak suntingan pada policy dan lejar.",
       "<b>PostToolUse</b>: merekod setiap semakan bersama tree Git tempat ia dijalankan, dan setiap kesan sampingan bersama kod keluarnya.",
-      "<b>Stop</b>: menghantar ejen balik selagi semakan wajib tiada, gagal atau lapuk.",
-      "<b>bw status</b>: menunjukkan keadaan yang sama kepada anda."
+      "<b>Stop</b>: jika fail berubah dan semakan wajib tiada, gagal atau lapuk, menghantar ejen balik sekali bersama sebabnya; pada kali berikutnya ia hanya memberi amaran.",
+      "<b>bw status</b> (arahan, bukan hook): menunjukkan keadaan yang sama kepada anda."
     ],
     "completion": {
       "name": "Menamatkan kerja",
       "sub": "bukti terikat pada fail",
       "body": "Ujian, lint, typecheck atau build hanya dikira jika ia lulus, kod keluarnya sendiri yang menentukan keputusan, tiada fail berubah semasa ia berjalan, dan fail masih tepat seperti semasa ia dijalankan.",
-      "guardsK": "Pilihan, bagi setiap semakan",
+      "guardsK": "Pilihan",
       "guards": [
-        "<code>exact</code>: hanya arahan penuh dikira, dari direktori yang betul.",
-        "<code>scope</code>: perubahan di luar direktori yang dinamakan mengekalkan keputusan sebagai terkini.",
-        "<code>ignore</code>: output yang ditulis oleh semakan, seperti coverage, tidak dikira sebagai perubahan."
+        "<code>exact</code>: hanya arahan penuh dikira, dan <code>cwd</code> menetapkan tempat ia mesti dijalankan.",
+        "<code>scope</code> (dengan <code>exact</code>): perubahan di luar direktori yang dinamakan mengekalkan keputusan sebagai terkini.",
+        "<code>ignore</code> (seluruh policy): output yang ditulis oleh semakan, seperti coverage, tidak dikira sebagai perubahan."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Semakan baca sahaja untuk menyelesaikan hasil yang tidak diketahui",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Policy yang tidak sah menolak setiap kesan sampingan dan tidak kembali kepada nilai lalai.",
       "Kebenaran yang tamat tempoh kembali kepada ask. Hanya manusia boleh melanjutkannya, dengan menyunting policy.",
       "Arahan yang tidak dapat dibaca oleh Core, seperti <code>eval</code> atau <code>sh -c</code>, dianggap legap dan pengesahan akan diminta.",
-      "Lejar bersifat append-only dan dirantai dengan hash; <code>bw verify</code> mengesan suntingan dan pemangkasan."
+      "Lejar bersifat append-only dan dirantai dengan hash; <code>bw verify</code> mengesan entri yang disunting atau dibuang dan baris terakhir yang separuh ditulis, tetapi bukan entri penuh yang dipotong dari hujung."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Klon Core",
-        "Sekali bagi setiap mesin. Jika anda pernah menjalankan V5 di sini, alihkan <code>~/.better-workflows</code> ke <code>~/.better-workflows-V5</code> dahulu."
+        "Sekali bagi setiap mesin. Jika anda pernah menjalankan V5 di sini, alihkan <code>~/.better-workflows</code> ke <code>~/.better-workflows-V5</code> dahulu dan halakan <code>SBW_STATE_ROOT</code> kepadanya."
       ],
       [
         "Tambah plugin",
@@ -329,7 +329,7 @@
     "firstAsk": "Ubah satu baris dalam repositori ini, dan jangan jalankan ujian.",
     "copyRequest": "Salin permintaan ini",
     "firstNote": "Apabila Claude Code cuba menamatkan kerja, ia dihantar balik dan diberitahu semakan mana yang tiada.",
-    "demoNote": "Pilihan: jalankan kedua-dua senario tanpa Claude, dalam kira-kira 2 saat."
+    "demoNote": "Pilihan: jalankan kedua-dua senario tanpa Claude, dalam beberapa saat."
   },
   "boundary": {
     "idx": "Had",
@@ -343,11 +343,11 @@
         "Menghalang",
         "Kesilapan yang boleh diperhatikan",
         [
-          "Menamatkan kerja berdasarkan larian ujian yang lapuk, gagal atau separa",
+          "Menamatkan kerja berdasarkan larian ujian yang lapuk atau gagal, atau larian separa apabila semakan ditandakan <code>exact</code>",
           "Pipe atau <code>|| true</code> yang menyembunyikan kegagalan",
           "Push, merge, release atau publish yang berulang",
           "Kesan sampingan semasa kesan sebelumnya belum diketahui",
-          "Ejen menyunting policynya sendiri"
+          "Ejen menyunting policy atau lejarnya secara langsung"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core menyekat kesilapan di atas. Belum diukur sama ada ia mengurangkan kerja semula atau keputusan yang salah dalam tugas panjang; itulah tujuan tempoh penggunaan sendiri sekarang.",
     "rulesLabel": "Had reka bentuk",
     "rules": [
-      "Penghurai shell tidak dikembangkan: arahan yang tidak dapat dibacanya tidak pernah dikira sebagai bukti dan ditanya sebagai tindakan.",
+      "Penghurai shell tidak dikembangkan: arahan yang tidak dapat dibacanya ditanya sebelum ia dijalankan, dan ujian yang disembunyikan dalam <code>eval</code> atau <code>sh -c</code> tidak pernah dikira sebagai bukti.",
       "Core hanya mengira perjalanan sesi. Sama ada ia menumpu ke arah penyelesaian, ejen atau anda yang menilai.",
       "Pull request dan release disesuaikan menggunakan <code>gh</code>; tanpanya, ia kekal tidak diketahui sehingga anda menyelesaikannya."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Rujukan policy",
-      "Setiap medan policy.json, dengan contoh."
+      "Medan-medan policy.json, dengan contoh."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Adakah ia melambatkan Claude Code?",
-        "Setiap hook mengira hash pokok kerja dengan Git, yang mengambil masa beberapa milisaat dalam repositori biasa. Repositori yang sangat besar menanggung kos lebih pada setiap panggilan."
+        "Hook yang mengendalikan semakan atau kesan sampingan mengira hash pokok kerja dengan Git, yang mengambil masa beberapa milisaat dalam repositori biasa. Repositori yang sangat besar menanggung kos lebih pada setiap panggilan sedemikian."
       ],
       [
         "Bolehkah ia tersekat dan menghantar ejen balik tanpa henti?",
@@ -492,11 +492,11 @@
       ],
       [
         "Bolehkah ejen mematikannya?",
-        "Tidak. Ia tidak boleh menyunting policy atau lejar, dan tidak boleh menjalankan <code>bw init</code> atau menyelesaikan sendiri tindakan yang tidak diketahui. Anda boleh menyahpasang plugin pada bila-bila masa."
+        "Tidak secara langsung. Core menolak suntingan ejen pada policy dan lejar, dan menolak <code>bw init</code> serta penyelesaian tindakan secara manual. Menyahpasang plugin, atau mengubah fail tersebut melalui cara tidak langsung, tertakluk pada peraturan kebenaran Claude Code sendiri, jadi pastikan gesaan tersebut kekal aktif."
       ],
       [
         "Adakah ia menghantar apa-apa ke mana-mana?",
-        "Tidak. Tiada pelayan dan tiada telemetri. Semuanya kekal dalam folder <code>.git</code> repositori anda."
+        "Tiada pelayan dan tiada telemetri. Satu-satunya panggilan rangkaian ialah semakan baca sahaja dengan <code>git</code>, <code>gh</code> dan <code>npm</code> anda sendiri, untuk mengesahkan sama ada sesuatu kesan sampingan telah berlaku. Lejar kekal dalam <code>.git/better-workflows/</code>."
       ],
       [
         "Bagaimana dengan Codex, Gemini CLI atau Qwen Code?",
@@ -514,7 +514,7 @@
     "copyAddress": "Salin alamat"
   },
   "cta": {
-    "kicker": "Cuba dalam 2 saat",
+    "kicker": "Cuba dalam beberapa saat",
     "title": "Menjalankan arahan bukan bukti. Fail itulah buktinya.",
     "body": "Jalankan demo tanpa Claude, kemudian pasang pada satu repositori dan minta satu perubahan.",
     "notes": "Lihat di GitHub"

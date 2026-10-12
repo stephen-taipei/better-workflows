@@ -22,7 +22,7 @@ O agente é avaliado pelos arquivos como estão agora e pelo que o provedor real
 
 ## Experimente
 
-Veja os dois cenários rodando em cerca de 2 segundos, sem o Claude:
+Veja os dois cenários rodando em poucos segundos, sem o Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

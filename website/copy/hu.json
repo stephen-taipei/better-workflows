@@ -19,7 +19,7 @@
     "themeToLight": "Váltás világos témára",
     "themeToggle": "Színtéma váltása",
     "homeLabel": "Better Workflows kezdőlap",
-    "tagline": "A kódolóügynököd aktuális bizonyíték alapján fejezi be a munkát, és minden mellékhatást legfeljebb egyszer futtat.",
+    "tagline": "A kódolóügynököd aktuális bizonyíték alapján fejezi be a munkát, és sosem ismétel meg olyan mellékhatást, amely ugyanazon a commiton már sikerült.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Telepítés",
     "overview": "Áttekintés",
@@ -53,7 +53,7 @@
     "ctaInstall": "Telepítés Claude Code-hoz",
     "ctaDemo": "Nézd, hogyan állít meg",
     "specTitle": "Core",
-    "status": "Pre-alpha. Naponta fut a karbantartó két repositoryjában.",
+    "status": "Pre-alpha. 2026 októbere óta saját használatban a karbantartó két repositoryjában.",
     "host": "Claude Code (hooks plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 MEGÁLLÍTÁS · 0 HAMIS KÉSZ",
-    "halt": "Az ügynök kétszer is olyasmit akart jelenteni, ami nem volt igaz. Mindkétszer visszaküldték az okkal együtt.",
-    "note": "A repository stale-green demójából rövidítve; a fa-azonosítók szemléltető jellegűek. A teljes demót magad is lefuttathatod körülbelül 2 másodperc alatt, Claude nélkül."
+    "halt": "A Core kétszer állította meg az ügynököt: egyszer, amikor egy régi sikeres futás alapján akarta befejezni, egyszer, amikor újra pusholni akart. Mindkétszer visszaküldték az okkal együtt.",
+    "note": "A repository stale-green demójából rövidítve; a fa-azonosítók szemléltető jellegűek. A teljes demót magad is lefuttathatod pár másodperc alatt, Claude nélkül."
   },
   "strip": {
     "label": "A Core számokban",
     "items": [
       [
         "sor kernelkód",
-        "a review 3000 soros korlátot tart be"
+        "a korlát 3000"
       ],
       [
         "teszt",
@@ -146,7 +146,7 @@
       ],
       [
         "Claude Code-hook",
-        "SessionStart, PreToolUse, PostToolUse és Stop; nincs szerver, nincs fiók"
+        "SessionStart, PreToolUse, PostToolUse(Failure) és (Subagent)Stop; nincs szerver, nincs fiók"
       ],
       [
         "CI-sáv",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Ember írja és módosítja. Az ügynök olvashatja, de sosem szerkesztheti.",
+        "Ember írja és módosítja. A Core elutasítja az ügynök közvetlen módosításait.",
         "hard",
         "FORRÁS"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Működés",
     "en": "HOW IT WORKS",
-    "title": "Négy hook, egy napló a .git-ben.",
+    "title": "Hat hook, egy napló a .git-ben.",
     "lead": "A Core a Claude Code saját hookjaiban fut. Nincs mit elindítani, nincs szerver, nincs fiók; az állapot minden repository <code>.git/better-workflows/</code> könyvtárában van.",
     "hooksTitle": "a hookok",
     "hooks": [
-      "<b>SessionStart</b>: betölti a policyt, és figyelmeztet, ha hiányzik valami, amire szüksége van, például a <code>gh</code>.",
+      "<b>SessionStart</b>: megmondja az ügynöknek, mely ellenőrzéseknek kell sikerülniük és mely mellékhatások lezáratlanok, és figyelmeztet, ha a policy érvénytelen, vagy ha a <code>gh</code> szükséges, de nem használható.",
       "<b>PreToolUse</b>: minden mellékhatást engedélyez, rákérdez vagy elutasít, és elutasítja a policy és a napló szerkesztését.",
       "<b>PostToolUse</b>: rögzít minden ellenőrzést azzal a Git-fával, amelyen lefutott, és minden mellékhatást a kilépési kódjával.",
-      "<b>Stop</b>: visszaküldi az ügynököt, amíg egy kötelező ellenőrzés hiányzik, sikertelen vagy elavult.",
-      "<b>bw status</b>: ugyanezt az állapotot mutatja neked."
+      "<b>Stop</b>: ha fájlok változtak, és egy kötelező ellenőrzés hiányzik, sikertelen vagy elavult, egyszer visszaküldi az ügynököt az okkal együtt; legközelebb már csak figyelmeztet.",
+      "<b>bw status</b> (parancs, nem hook): ugyanezt az állapotot mutatja neked."
     ],
     "completion": {
       "name": "Befejezés",
       "sub": "fájlokhoz kötött bizonyíték",
       "body": "Egy teszt, lint, típusellenőrzés vagy build csak akkor számít, ha sikeres volt, a saját kilépési kódja döntötte el a sor eredményét, futás közben nem változott fájl, és a fájlok még mindig pontosan azok, amelyeken lefutott.",
-      "guardsK": "Opcionális, ellenőrzésenként",
+      "guardsK": "Opcionális",
       "guards": [
-        "<code>exact</code>: csak a teljes parancs számít, a megfelelő könyvtárból.",
-        "<code>scope</code>: a megnevezett könyvtárakon kívüli változás frissen hagyja az eredményt.",
-        "<code>ignore</code>: az ellenőrzés által írt kimenet, például a coverage, nem számít változásnak."
+        "<code>exact</code>: csak a teljes parancs számít, és a <code>cwd</code> adja meg, hol kell futnia.",
+        "<code>scope</code> (az <code>exact</code> mellett): a megnevezett könyvtárakon kívüli változás frissen hagyja az eredményt.",
+        "<code>ignore</code> (az egész policyra): az ellenőrzés által írt kimenet, például a coverage, nem számít változásnak."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Csak olvasó ellenőrzések egy ismeretlen eredmény lezárásához",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Egy érvénytelen policy minden mellékhatást elutasít, ahelyett hogy alapértelmezésekre esne vissza.",
       "Egy lejárt engedély visszaesik ask-ra. Csak ember hosszabbíthatja meg, a policy szerkesztésével.",
       "Azokat a parancsokat, amelyeket a Core nem tud értelmezni, például az <code>eval</code> vagy az <code>sh -c</code>, átláthatatlanként kezeli, és rákérdez.",
-      "A napló csak hozzáfűzhető és hash-lánccal védett; a <code>bw verify</code> észleli a szerkesztést és a csonkítást."
+      "A napló csak hozzáfűzhető és hash-lánccal védett; a <code>bw verify</code> észleli a módosított vagy eltávolított bejegyzéseket és a félig megírt utolsó sort, de a végéről levágott teljes bejegyzéseket nem."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Klónozd a Core-t",
-        "Gépenként egyszer. Ha itt korábban V5-öt futtattál, előbb helyezd át a <code>~/.better-workflows</code> könyvtárat ide: <code>~/.better-workflows-V5</code>."
+        "Gépenként egyszer. Ha itt korábban V5-öt futtattál, előbb helyezd át a <code>~/.better-workflows</code> könyvtárat ide: <code>~/.better-workflows-V5</code>, és állítsd rá a <code>SBW_STATE_ROOT</code> változót."
       ],
       [
         "Add hozzá a plugint",
@@ -329,7 +329,7 @@
     "firstAsk": "Változtass meg egy sort ebben a repositoryban, és ne futtasd a teszteket.",
     "copyRequest": "Kérés másolása",
     "firstNote": "Amikor a Claude Code be akarja fejezni, visszaküldi a rendszer, és megmondja, melyik ellenőrzés hiányzik.",
-    "demoNote": "Opcionális: futtasd le mindkét forgatókönyvet Claude nélkül, körülbelül 2 másodperc alatt."
+    "demoNote": "Opcionális: futtasd le mindkét forgatókönyvet Claude nélkül, pár másodperc alatt."
   },
   "boundary": {
     "idx": "Korlátok",
@@ -343,11 +343,11 @@
         "Megállítja",
         "Megfigyelhető hibák",
         [
-          "Befejezés elavult, sikertelen vagy részleges tesztfuttatás alapján",
+          "Befejezés elavult vagy sikertelen tesztfuttatás alapján, illetve részleges futtatás alapján, ha az ellenőrzés <code>exact</code> jelölésű",
           "Egy pipe vagy <code>|| true</code>, amely elrejt egy hibát",
           "Ismételt push, merge, kiadás vagy publikálás",
           "Mellékhatások, amíg egy korábbi eredménye ismeretlen",
-          "Ha az ügynök a saját policyját szerkeszti"
+          "Ha az ügynök közvetlenül a saját policyját vagy a naplót szerkeszti"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "A Core megakadályozza a fenti hibákat. Azt még nem mérték, hogy hosszú feladatoknál csökkenti-e az újramunkát vagy a rossz döntéseket; erre szolgál a jelenlegi saját használati időszak.",
     "rulesLabel": "Tervezési korlátok",
     "rules": [
-      "A shell-elemző nem bővül: egy parancs, amelyet nem tud értelmezni, sosem számít bizonyítéknak, és műveletként rákérdez.",
+      "A shell-elemző nem bővül: egy parancsra, amelyet nem tud értelmezni, a futása előtt rákérdez, egy <code>eval</code> vagy <code>sh -c</code> parancsba rejtett teszt pedig sosem számít bizonyítéknak.",
       "A Core csak számolja, hogyan halad egy munkamenet. Azt, hogy konvergál-e, az ügynök vagy te ítéled meg.",
       "A pull requesteket és a kiadásokat a <code>gh</code> segítségével egyezteti; nélküle ismeretlenek maradnak, amíg le nem zárod őket."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Policy-referencia",
-      "A policy.json minden mezője, példákkal."
+      "A policy.json mezői, példákkal."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Lassítja a Claude Code-ot?",
-        "Minden hook kiszámítja a munkafa hash-ét a Gittel, ami egy átlagos repositoryban ezredmásodpercekig tart. A nagyon nagy repositoryk minden hívásnál többet fizetnek."
+        "Az ellenőrzést vagy mellékhatást kezelő hookok kiszámítják a munkafa hash-ét a Gittel, ami egy átlagos repositoryban ezredmásodpercekig tart. A nagyon nagy repositoryk minden ilyen hívásnál többet fizetnek."
       ],
       [
         "Beragadhat úgy, hogy örökké visszaküldi az ügynököt?",
@@ -492,11 +492,11 @@
       ],
       [
         "Ki tudja kapcsolni az ügynök?",
-        "Nem. Nem szerkesztheti sem a policyt, sem a naplót, és nem futtathatja a <code>bw init</code> parancsot, és egy ismeretlen műveletet sem zárhat le maga. A plugint bármikor eltávolíthatod."
+        "Közvetlenül nem. A Core elutasítja, hogy az ügynök szerkessze a policyt és a naplót, és elutasítja a <code>bw init</code> parancsot és egy művelet kézi lezárását is. A plugin eltávolítására, illetve ezeknek a fájloknak kerülőúton történő módosítására a Claude Code saját engedélyszabályai vonatkoznak, ezért hagyd bekapcsolva ezeket a megerősítéskéréseket."
       ],
       [
         "Küld bármit bárhová?",
-        "Nem. Nincs szerver és nincs telemetria. Minden a repositoryd <code>.git</code> mappájában marad."
+        "Nincs szerver és nincs telemetria. Egyetlen hálózati hívásai a saját <code>git</code>, <code>gh</code> és <code>npm</code> eszközeiddel végzett, csak olvasó lekérdezések, amelyekkel megerősíti, hogy egy mellékhatás megtörtént-e. A napló a <code>.git/better-workflows/</code> mappában marad."
       ],
       [
         "Mi a helyzet a Codexszel, a Gemini CLI-jal vagy a Qwen Code-dal?",
@@ -514,7 +514,7 @@
     "copyAddress": "Cím másolása"
   },
   "cta": {
-    "kicker": "Próbáld ki 2 másodperc alatt",
+    "kicker": "Próbáld ki pár másodperc alatt",
     "title": "Egy parancs lefuttatása nem bizonyíték. A fájlok azok.",
     "body": "Futtasd a demót Claude nélkül, majd telepítsd egy repositoryba, és kérj egy módosítást.",
     "notes": "Megtekintés a GitHubon"

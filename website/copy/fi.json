@@ -19,7 +19,7 @@
     "themeToLight": "Vaihda vaaleaan teemaan",
     "themeToggle": "Vaihda väriteemaa",
     "homeLabel": "Better Workflows -etusivu",
-    "tagline": "Koodausagenttisi lopettaa ajantasaisen näytön perusteella ja suorittaa jokaisen sivuvaikutuksen enintään kerran.",
+    "tagline": "Koodausagenttisi lopettaa ajantasaisen näytön perusteella eikä koskaan toista sivuvaikutusta, joka on jo onnistunut samassa commitissa.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Asenna",
     "overview": "Yleiskatsaus",
@@ -53,7 +53,7 @@
     "ctaInstall": "Asenna Claude Codeen",
     "ctaDemo": "Katso, miten se pysäyttää",
     "specTitle": "Core",
-    "status": "Pre-alpha. Käytössä päivittäin kahdessa ylläpitäjän repositoriossa.",
+    "status": "Pre-alpha. Ylläpitäjän omassa käytössä kahdessa hänen repositoriossaan lokakuusta 2026 lähtien.",
     "host": "Claude Code (hooks-plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 PYSÄYTYSTÄ · 0 VÄÄRÄÄ VALMIS-ILMOITUSTA",
-    "halt": "Kahdesti agentti oli ilmoittamassa jotain, mikä ei pitänyt paikkaansa. Molemmilla kerroilla se palautettiin syyn kera.",
-    "note": "Lyhennetty repositorion stale-green-demosta; tree-tunnisteet ovat havainnollistavia. Aja koko demo itse noin 2 sekunnissa ilman Claudea."
+    "halt": "Core pysäytti agentin kahdesti: kerran lopettamasta vanhan läpimenon perusteella, kerran pushaamasta uudelleen. Molemmilla kerroilla se palautettiin syyn kera.",
+    "note": "Lyhennetty repositorion stale-green-demosta; tree-tunnisteet ovat havainnollistavia. Aja koko demo itse muutamassa sekunnissa ilman Claudea."
   },
   "strip": {
     "label": "Core lukuina",
     "items": [
       [
         "riviä ytimen koodia",
-        "katselmoinnissa valvotaan 3 000 rivin rajaa"
+        "raja on 3 000"
       ],
       [
         "testiä",
@@ -146,7 +146,7 @@
       ],
       [
         "Claude Code -hookia",
-        "SessionStart, PreToolUse, PostToolUse ja Stop; ei palvelinta, ei tiliä"
+        "SessionStart, PreToolUse, PostToolUse(Failure) ja (Subagent)Stop; ei palvelinta, ei tiliä"
       ],
       [
         "CI-ajolinjaa",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Ihmisen kirjoittama ja muuttama. Agentti saa lukea sitä, ei koskaan muokata.",
+        "Ihmisen kirjoittama ja muuttama. Core torjuu agentin suorat muokkaukset siihen.",
         "hard",
         "LÄHDE"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Miten se toimii",
     "en": "HOW IT WORKS",
-    "title": "Neljä hookia, yksi lokikirja .gitissä.",
+    "title": "Kuusi hookia, yksi lokikirja .gitissä.",
     "lead": "Core toimii Claude Coden omien hookien sisällä. Ei mitään käynnistettävää, ei palvelinta, ei tiliä; tila on kunkin repositorion hakemistossa <code>.git/better-workflows/</code>.",
     "hooksTitle": "hookit",
     "hooks": [
-      "<b>SessionStart</b>: lataa policyn ja varoittaa, jos jotain tarvittavaa, kuten <code>gh</code>, puuttuu.",
+      "<b>SessionStart</b>: kertoo agentille, minkä tarkistusten on mentävä läpi ja mitkä sivuvaikutukset ovat ratkaisematta, ja varoittaa, jos policy on virheellinen tai <code>gh</code> tarvitaan mutta se ei ole käytettävissä.",
       "<b>PreToolUse</b>: sallii, kysyy tai estää jokaisen sivuvaikutuksen ja torjuu policyn ja lokikirjan muokkaukset.",
       "<b>PostToolUse</b>: kirjaa jokaisen tarkistuksen sen Git-puun kanssa, jolla se ajettiin, ja jokaisen sivuvaikutuksen paluukoodeineen.",
-      "<b>Stop</b>: palauttaa agentin niin kauan kuin vaadittu tarkistus puuttuu, on epäonnistunut tai vanhentunut.",
-      "<b>bw status</b>: näyttää saman tilan sinulle."
+      "<b>Stop</b>: jos tiedostot ovat muuttuneet ja vaadittu tarkistus puuttuu, on epäonnistunut tai vanhentunut, palauttaa agentin kerran syyn kera; seuraavalla kerralla se vain varoittaa.",
+      "<b>bw status</b> (komento, ei hook): näyttää saman tilan sinulle."
     ],
     "completion": {
       "name": "Lopettaminen",
       "sub": "näyttö sidottu tiedostoihin",
       "body": "Testi, lint, tyyppitarkistus tai build kelpaa vain, jos se meni läpi, sen oma paluukoodi ratkaisi komentorivin tuloksen, mikään tiedosto ei muuttunut ajon aikana ja tiedostot ovat yhä täsmälleen ne, joilla se ajettiin.",
-      "guardsK": "Valinnainen, tarkistuskohtainen",
+      "guardsK": "Valinnainen",
       "guards": [
-        "<code>exact</code>: vain koko komento kelpaa, oikeasta hakemistosta ajettuna.",
-        "<code>scope</code>: muutos nimettyjen hakemistojen ulkopuolella jättää tuloksen tuoreeksi.",
-        "<code>ignore</code>: tarkistuksen kirjoittamaa tulostetta, kuten kattavuusraporttia, ei lasketa muutokseksi."
+        "<code>exact</code>: vain koko komento kelpaa, ja <code>cwd</code> määrää, missä se on ajettava.",
+        "<code>scope</code> (yhdessä <code>exact</code>-asetuksen kanssa): muutos nimettyjen hakemistojen ulkopuolella jättää tuloksen tuoreeksi.",
+        "<code>ignore</code> (koko policy): tarkistuksen kirjoittamaa tulostetta, kuten kattavuusraporttia, ei lasketa muutokseksi."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Vain luku -tarkistukset, joilla tuntematon tulos ratkaistaan",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Virheellinen policy estää kaikki sivuvaikutukset sen sijaan, että palaisi oletuksiin.",
       "Vanhentunut oikeus palaa tilaan ask. Vain ihminen voi jatkaa sitä muokkaamalla policya.",
       "Komennot, joita Core ei pysty lukemaan, kuten <code>eval</code> tai <code>sh -c</code>, käsitellään läpinäkymättöminä, ja niistä kysytään.",
-      "Lokikirjaan voi vain lisätä, ja se on ketjutettu tiivisteillä; <code>bw verify</code> havaitsee muokkaukset ja katkaisut."
+      "Lokikirjaan voi vain lisätä, ja se on ketjutettu tiivisteillä; <code>bw verify</code> havaitsee muokatut tai poistetut merkinnät ja puoliksi kirjoitetun viimeisen rivin, mutta ei lopusta kokonaan katkaistuja merkintöjä."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Kloonaa Core",
-        "Kerran konetta kohden. Jos olet käyttänyt tällä koneella V5:tä, siirrä ensin <code>~/.better-workflows</code> nimelle <code>~/.better-workflows-V5</code>."
+        "Kerran konetta kohden. Jos olet käyttänyt tällä koneella V5:tä, siirrä ensin <code>~/.better-workflows</code> nimelle <code>~/.better-workflows-V5</code> ja osoita <code>SBW_STATE_ROOT</code> siihen."
       ],
       [
         "Lisää plugin",
@@ -329,7 +329,7 @@
     "firstAsk": "Muuta yksi rivi tässä repositoriossa, äläkä aja testejä.",
     "copyRequest": "Kopioi tämä pyyntö",
     "firstNote": "Kun Claude Code yrittää lopettaa, se palautetaan ja sille kerrotaan, mikä tarkistus puuttuu.",
-    "demoNote": "Valinnainen: aja molemmat skenaariot ilman Claudea noin 2 sekunnissa."
+    "demoNote": "Valinnainen: aja molemmat skenaariot ilman Claudea muutamassa sekunnissa."
   },
   "boundary": {
     "idx": "Rajat",
@@ -343,11 +343,11 @@
         "Pysäyttää",
         "Havaittavat virheet",
         [
-          "Lopettamisen vanhentuneen, epäonnistuneen tai osittaisen testiajon perusteella",
+          "Lopettamisen vanhentuneen tai epäonnistuneen testiajon perusteella, tai osittaisen, kun tarkistukselle on asetettu <code>exact</code>",
           "Putken tai <code>|| true</code> -rakenteen, joka peittää virheen",
           "Toistetun pushin, mergen, releasen tai julkaisun",
           "Sivuvaikutukset, kun aiemman tulos on vielä tuntematon",
-          "Agentin oman policyn muokkaamisen"
+          "Agentin oman policyn tai lokikirjan suoran muokkaamisen"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core estää yllä mainitut virheet. Sitä ei ole mitattu, vähentääkö se uudelleentyötä tai vääriä päätöksiä pitkissä tehtävissä; sitä varten on nykyinen omakäyttöjakso.",
     "rulesLabel": "Suunnittelun rajat",
     "rules": [
-      "Shell-jäsennin ei kasva: komento, jota se ei pysty lukemaan, ei koskaan kelpaa näytöksi, ja siitä kysytään toimintona.",
+      "Shell-jäsennin ei kasva: komennosta, jota se ei pysty lukemaan, kysytään ennen kuin se ajetaan, eikä <code>eval</code>- tai <code>sh -c</code> -komennon sisään piilotettu testi koskaan kelpaa näytöksi.",
       "Core vain laskee, miten istunto etenee. Onko se lähestymässä ratkaisua, sen arvioi agentti tai sinä.",
       "Pull requestit ja releaset täsmäytetään <code>gh</code>-työkalulla; ilman sitä ne jäävät tuntemattomiksi, kunnes ratkaiset ne."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Policy-viite",
-      "Jokainen policy.json-kenttä esimerkkeineen."
+      "policy.json-kentät esimerkkeineen."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Hidastaako se Claude Codea?",
-        "Jokainen hook laskee työpuun tiivisteen Gitillä, mikä vie tavallisessa repositoriossa millisekunteja. Hyvin suurissa repositorioissa jokainen kutsu maksaa enemmän."
+        "Tarkistuksia tai sivuvaikutuksia käsittelevät hookit laskevat työpuun tiivisteen Gitillä, mikä vie tavallisessa repositoriossa millisekunteja. Hyvin suurissa repositorioissa jokainen tällainen kutsu maksaa enemmän."
       ],
       [
         "Jääkö se jumiin palauttamaan agenttia loputtomasti?",
@@ -492,11 +492,11 @@
       ],
       [
         "Voiko agentti kytkeä sen pois?",
-        "Ei. Se ei voi muokata policya eikä lokikirjaa, eikä se voi ajaa komentoa <code>bw init</code> tai ratkaista tuntematonta toimintoa itse. Sinä voit poistaa pluginin milloin tahansa."
+        "Ei suoraan. Core torjuu agentin muokkaukset policyyn ja lokikirjaan sekä torjuu komennon <code>bw init</code> ja toiminnon ratkaisemisen käsin. Pluginin poistamista tai noiden tiedostojen muuttamista kiertoteitse säätelevät Claude Coden omat käyttöoikeussäännöt, joten pidä niiden vahvistuskyselyt päällä."
       ],
       [
         "Lähettääkö se mitään minnekään?",
-        "Ei. Palvelinta tai telemetriaa ei ole. Kaikki pysyy repositoriosi <code>.git</code>-kansiossa."
+        "Palvelinta tai telemetriaa ei ole. Sen ainoat verkkokutsut ovat vain lukevia kyselyitä omilla <code>git</code>-, <code>gh</code>- ja <code>npm</code>-työkaluillasi, joilla varmistetaan, tapahtuiko sivuvaikutus. Lokikirja pysyy hakemistossa <code>.git/better-workflows/</code>."
       ],
       [
         "Entä Codex, Gemini CLI tai Qwen Code?",
@@ -514,7 +514,7 @@
     "copyAddress": "Kopioi osoite"
   },
   "cta": {
-    "kicker": "Kokeile 2 sekunnissa",
+    "kicker": "Kokeile muutamassa sekunnissa",
     "title": "Komennon ajaminen ei todista mitään. Tiedostot todistavat.",
     "body": "Aja demo ilman Claudea, asenna se sitten yhteen repositorioon ja pyydä muutosta.",
     "notes": "Näytä GitHubissa"

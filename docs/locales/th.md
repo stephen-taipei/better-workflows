@@ -22,7 +22,7 @@ agent ต้องยึดตามไฟล์ในสภาพปัจจ�
 
 ## ลองใช้
 
-ดูทั้งสองสถานการณ์ทำงานในราว 2 วินาที โดยไม่ต้องใช้ Claude:
+ดูทั้งสองสถานการณ์ทำงานในไม่กี่วินาที โดยไม่ต้องใช้ Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

@@ -22,7 +22,7 @@ Agent jest rozliczany z plików w ich obecnym stanie i z tego, co dostawca fakty
 
 ## Wypróbuj
 
-Zobacz, jak oba scenariusze działają w około 2 sekundy, bez Claude:
+Zobacz, jak oba scenariusze działają w kilka sekund, bez Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

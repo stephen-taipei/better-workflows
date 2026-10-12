@@ -22,7 +22,7 @@ O agente é avaliado pelos ficheiros tal como estão agora e pelo que o forneced
 
 ## Experimente
 
-Veja os dois cenários a correr em cerca de 2 segundos, sem o Claude:
+Veja os dois cenários a correr em poucos segundos, sem o Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

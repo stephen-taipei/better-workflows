@@ -22,7 +22,7 @@ agent 必須以檔案現時的內容為準，以 provider 實際做了甚麼為�
 
 ## 試一試
 
-毋須 Claude，大約 2 秒就能看到兩個情境實際運行一次：
+毋須 Claude，幾秒就能看到兩個情境實際運行一次：
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

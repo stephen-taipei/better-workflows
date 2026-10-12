@@ -19,7 +19,7 @@
     "themeToLight": "切换到浅色主题",
     "themeToggle": "切换颜色主题",
     "homeLabel": "Better Workflows 首页",
-    "tagline": "编程 agent 以当前的文件为准才算完成，每个副作用最多执行一次。",
+    "tagline": "编程 agent 以当前的文件为准才算完成，同一个 commit 上已经成功的副作用绝不重复执行。",
     "chip": "V6 Core · pre-alpha",
     "installCta": "安装",
     "overview": "概览",
@@ -53,7 +53,7 @@
     "ctaInstall": "安装到 Claude Code",
     "ctaDemo": "看它如何拦下",
     "specTitle": "Core",
-    "status": "Pre-alpha。每天在维护者的两个仓库上实际运行。",
+    "status": "Pre-alpha。自 2026 年 10 月起在维护者的两个仓库上自用。",
     "host": "Claude Code（hooks 插件）",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "拦下 2 次 · 0 次假完成",
-    "halt": "agent 两次差点汇报不实的结果，两次都附上原因被退回。",
-    "note": "节选自仓库中的 stale-green 演示，tree 编号仅为示意。无需 Claude，大约 2 秒即可自己运行完整版。"
+    "halt": "Core 两次拦下 agent：一次是拿旧的通过结果收工，一次是再次 push。两次都附上原因退回。",
+    "note": "节选自仓库中的 stale-green 演示，tree 编号仅为示意。无需 Claude，几秒即可自己运行完整版。"
   },
   "strip": {
     "label": "Core 的数字",
     "items": [
       [
         "行内核代码",
-        "评审时强制上限 3,000 行"
+        "上限 3,000 行"
       ],
       [
         "项测试",
@@ -146,7 +146,7 @@
       ],
       [
         "个 Claude Code hook",
-        "SessionStart、PreToolUse、PostToolUse 和 Stop；无需服务器或账号"
+        "SessionStart、PreToolUse、PostToolUse(Failure) 和 (Subagent)Stop；无需服务器或账号"
       ],
       [
         "条 CI 流水线",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "由人编写和修改。agent 可以读，绝不能改。",
+        "由人编写和修改。Core 会拒绝 agent 直接修改它。",
         "hard",
         "来源"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "工作原理",
     "en": "HOW IT WORKS",
-    "title": "四个 hook，一本账存在 .git 里。",
+    "title": "六个 hook，一本账存在 .git 里。",
     "lead": "Core 运行在 Claude Code 自带的 hooks 里。无需启动服务、没有服务器、无需账号；状态存放在每个仓库的 <code>.git/better-workflows/</code> 中。",
     "hooksTitle": "hooks",
     "hooks": [
-      "<b>SessionStart</b>：加载 policy，缺少必要工具（例如 <code>gh</code>）时发出警告。",
+      "<b>SessionStart</b>：告诉 agent 哪些检查必须通过、哪些副作用尚未结案；policy 无效，或需要 <code>gh</code> 却无法使用时发出警告。",
       "<b>PreToolUse</b>：对每个副作用决定 allow、ask 或 deny，并拒绝修改 policy 和账本。",
       "<b>PostToolUse</b>：记录每次检查运行在哪个 Git tree 上，以及每个副作用的 exit code。",
-      "<b>Stop</b>：必要的检查缺失、失败或已过期时，把 agent 退回。",
-      "<b>bw status</b>：把同样的状态展示给你。"
+      "<b>Stop</b>：文件有改动，且必要的检查缺失、失败或已过期时，附上原因把 agent 退回一次；下一次只警告。",
+      "<b>bw status</b>（是命令，不是 hook）：把同样的状态展示给你。"
     ],
     "completion": {
       "name": "收工",
       "sub": "证据绑定文件",
       "body": "test、lint、typecheck 或 build 必须同时满足：通过、由它自己的 exit code 决定结果、运行期间没有文件变动、文件仍是它运行时的那一份，才算数。",
-      "guardsK": "每项检查可选",
+      "guardsK": "可选",
       "guards": [
-        "<code>exact</code>：只认完整命令，而且要在正确的目录下运行。",
-        "<code>scope</code>：指定目录以外的改动不会让结果过期。",
-        "<code>ignore</code>：检查自己产生的输出（例如 coverage）不算改动。"
+        "<code>exact</code>：只认完整命令，<code>cwd</code> 指定它必须在哪里运行。",
+        "<code>scope</code>（配合 <code>exact</code>）：指定目录以外的改动不会让结果过期。",
+        "<code>ignore</code>（整个 policy）：检查自己产生的输出（例如 coverage）不算改动。"
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "用于核实不明结果的只读查询",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "policy 无效时，拒绝所有副作用，而不是回退到默认值。",
       "权限过期后回退为 ask。只有人能通过修改 policy 来延长。",
       "Core 读不懂的命令（例如 <code>eval</code>、<code>sh -c</code>）一律视为 opaque，交由你决定。",
-      "账本只能追加、以哈希链接；<code>bw verify</code> 能检测篡改和截断。"
+      "账本只能追加、以哈希链接；<code>bw verify</code> 能检测被修改或删除的条目以及写了一半的最后一行，但检测不到从末尾整条截掉的条目。"
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Clone Core",
-        "每台机器一次。如果这台机器运行过 V5，先把 <code>~/.better-workflows</code> 重命名为 <code>~/.better-workflows-V5</code>。"
+        "每台机器一次。如果这台机器运行过 V5，先把 <code>~/.better-workflows</code> 重命名为 <code>~/.better-workflows-V5</code>，并让 <code>SBW_STATE_ROOT</code> 指向它。"
       ],
       [
         "添加插件",
@@ -329,7 +329,7 @@
     "firstAsk": "帮我改这个仓库里的一行代码，不要跑测试。",
     "copyRequest": "复制这段请求",
     "firstNote": "Claude Code 试图收工时会被退回，并被告知缺少哪一项检查。",
-    "demoNote": "可选：无需 Claude，大约 2 秒跑完两个场景。"
+    "demoNote": "可选：无需 Claude，几秒跑完两个场景。"
   },
   "boundary": {
     "idx": "限制",
@@ -343,11 +343,11 @@
         "拦得住",
         "可观察的错误",
         [
-          "拿过期、失败或只跑了一部分的测试收工",
+          "拿过期或失败的测试收工；检查标为 <code>exact</code> 时，只跑了一部分也会拦下",
           "用管道或 <code>|| true</code> 掩盖失败",
           "重复 push、merge、release 或 publish",
           "前一个副作用结果不明时又执行新的副作用",
-          "agent 修改自己的 policy"
+          "agent 直接修改自己的 policy 或账本"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core 能拦下上面列出的错误。它能否在长任务中减少返工或错误决策，尚未经过测量；当前的自用期正是为此。",
     "rulesLabel": "设计上的限制",
     "rules": [
-      "shell 解析器不再扩充：读不懂的命令永远不算证据，作为操作时一律询问。",
+      "shell 解析器不再扩充：读不懂的命令在运行前一律询问，藏在 <code>eval</code> 或 <code>sh -c</code> 里的测试永远不算证据。",
       "Core 只统计会话的进展。是否在收敛，由 agent 或你来判断。",
       "PR 和 release 依靠 <code>gh</code> 对账；没有它，结果会一直不明，直到你手动结案。"
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Policy 参考",
-      "policy.json 每个字段的说明和示例。"
+      "policy.json 的字段说明和示例。"
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "会让 Claude Code 变慢吗？",
-        "每个 hook 会用 Git 计算一次工作区的哈希，普通大小的仓库只需几毫秒。超大仓库每次调用会多花一些时间。"
+        "处理检查或副作用的 hook 会用 Git 计算一次工作区的哈希，普通大小的仓库只需几毫秒。超大仓库每次这类调用会多花一些时间。"
       ],
       [
         "会不会一直把 agent 退回，卡住出不来？",
@@ -492,11 +492,11 @@
       ],
       [
         "agent 能把它关掉吗？",
-        "不能。它不能修改 policy 或账本，也不能自己运行 <code>bw init</code> 或为不明的操作结案。你随时可以卸载插件。"
+        "不能直接关闭。Core 会拒绝 agent 修改 policy 和账本，也会拒绝 <code>bw init</code> 和手动结案。卸载插件，或以迂回方式修改这些文件，则由 Claude Code 自身的权限规则把关，所以请保持这些确认提示开启。"
       ],
       [
         "会把数据发送到别处吗？",
-        "不会。没有服务器，也没有遥测。所有内容都留在你仓库的 <code>.git</code> 文件夹里。"
+        "没有服务器，也没有遥测。唯一的网络调用，是用你自己的 <code>git</code>、<code>gh</code> 和 <code>npm</code> 做只读查询，确认副作用是否发生。账本保存在 <code>.git/better-workflows/</code>。"
       ],
       [
         "Codex、Gemini CLI 或 Qwen Code 呢？",
@@ -514,7 +514,7 @@
     "copyAddress": "复制地址"
   },
   "cta": {
-    "kicker": "2 秒即可试用",
+    "kicker": "几秒即可试用",
     "title": "运行过命令不是证明，文件才是。",
     "body": "先在没有 Claude 的情况下运行演示，再安装到一个仓库，让它改点东西。",
     "notes": "在 GitHub 上查看"

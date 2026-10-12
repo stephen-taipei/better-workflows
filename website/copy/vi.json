@@ -19,7 +19,7 @@
     "themeToLight": "Chuyển sang giao diện sáng",
     "themeToggle": "Đổi giao diện màu",
     "homeLabel": "Trang chủ Better Workflows",
-    "tagline": "Agent lập trình của bạn chỉ kết thúc dựa trên bằng chứng hiện tại, và chạy mỗi tác động phụ nhiều nhất một lần.",
+    "tagline": "Agent lập trình của bạn chỉ kết thúc dựa trên bằng chứng hiện tại, và không bao giờ lặp lại một tác động phụ đã thành công ở cùng một commit.",
     "chip": "V6 Core · pre-alpha",
     "installCta": "Cài đặt",
     "overview": "Tổng quan",
@@ -53,7 +53,7 @@
     "ctaInstall": "Cài cho Claude Code",
     "ctaDemo": "Xem nó chặn",
     "specTitle": "Core",
-    "status": "Pre-alpha. Đang chạy hằng ngày trên hai repository của người bảo trì.",
+    "status": "Pre-alpha. Người bảo trì tự dùng trên hai repository của mình từ tháng 10 năm 2026.",
     "host": "Claude Code (hooks plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -126,15 +126,15 @@
       ]
     ],
     "progress": "2 LẦN CHẶN · 0 LẦN XONG GIẢ",
-    "halt": "Hai lần agent sắp báo cáo một điều không đúng. Cả hai lần nó đều bị trả lại kèm lý do.",
-    "note": "Rút gọn từ demo stale-green trong repository; các id tree chỉ mang tính minh họa. Tự chạy bản demo đầy đủ trong khoảng 2 giây, không cần Claude."
+    "halt": "Core đã chặn agent hai lần: một lần khi nó định kết thúc dựa trên một lần pass cũ, một lần khi nó định push lại. Cả hai lần nó đều bị trả lại kèm lý do.",
+    "note": "Rút gọn từ demo stale-green trong repository; các id tree chỉ mang tính minh họa. Tự chạy bản demo đầy đủ trong vài giây, không cần Claude."
   },
   "strip": {
     "label": "Core qua các con số",
     "items": [
       [
         "dòng mã kernel",
-        "giới hạn 3.000 dòng được áp dụng khi review"
+        "giới hạn là 3.000"
       ],
       [
         "test",
@@ -146,7 +146,7 @@
       ],
       [
         "hook của Claude Code",
-        "SessionStart, PreToolUse, PostToolUse và Stop; không server, không tài khoản"
+        "SessionStart, PreToolUse, PostToolUse(Failure) và (Subagent)Stop; không server, không tài khoản"
       ],
       [
         "luồng CI",
@@ -215,7 +215,7 @@
     "layers": [
       [
         "policy.json",
-        "Do một người viết và thay đổi. Agent có thể đọc, không bao giờ được sửa.",
+        "Do một người viết và thay đổi. Core từ chối các chỉnh sửa trực tiếp của agent đối với nó.",
         "hard",
         "NGUỒN"
       ],
@@ -242,25 +242,25 @@
   "workflow": {
     "idx": "Cách hoạt động",
     "en": "HOW IT WORKS",
-    "title": "Bốn hook, một sổ cái trong .git.",
+    "title": "Sáu hook, một sổ cái trong .git.",
     "lead": "Core chạy bên trong chính các hook của Claude Code. Không cần khởi động gì, không server, không tài khoản; trạng thái nằm trong <code>.git/better-workflows/</code> của từng repository.",
     "hooksTitle": "các hook",
     "hooks": [
-      "<b>SessionStart</b>: tải policy và cảnh báo khi thiếu thứ nó cần, như <code>gh</code>.",
+      "<b>SessionStart</b>: cho agent biết những kiểm tra nào phải đạt và những tác động phụ nào chưa được xử lý, đồng thời cảnh báo nếu policy không hợp lệ hoặc cần <code>gh</code> nhưng không dùng được.",
       "<b>PreToolUse</b>: cho phép, hỏi hoặc từ chối từng tác động phụ, và chặn việc sửa policy cũng như sổ cái.",
       "<b>PostToolUse</b>: ghi lại mỗi lần kiểm tra cùng Git tree mà nó chạy trên đó, và mỗi tác động phụ cùng exit code của nó.",
-      "<b>Stop</b>: trả agent lại khi một kiểm tra bắt buộc còn thiếu, thất bại hoặc đã cũ.",
-      "<b>bw status</b>: hiển thị cùng trạng thái đó cho bạn."
+      "<b>Stop</b>: nếu có tệp thay đổi và một kiểm tra bắt buộc còn thiếu, thất bại hoặc đã cũ, trả agent lại một lần kèm lý do; lần sau chỉ cảnh báo.",
+      "<b>bw status</b> (một lệnh, không phải hook): hiển thị cùng trạng thái đó cho bạn."
     ],
     "completion": {
       "name": "Kết thúc",
       "sub": "bằng chứng gắn với tệp",
       "body": "Một lần test, lint, typecheck hoặc build chỉ được tính nếu nó đạt, exit code của chính nó quyết định kết quả, không tệp nào thay đổi trong lúc chạy, và các tệp vẫn y như lúc nó chạy.",
-      "guardsK": "Tùy chọn, cho từng kiểm tra",
+      "guardsK": "Tùy chọn",
       "guards": [
-        "<code>exact</code>: chỉ toàn bộ lệnh mới được tính, chạy từ đúng thư mục.",
-        "<code>scope</code>: thay đổi bên ngoài các thư mục đã chỉ định không làm kết quả bị cũ.",
-        "<code>ignore</code>: đầu ra do kiểm tra tự ghi, như coverage, không bị tính là thay đổi."
+        "<code>exact</code>: chỉ toàn bộ lệnh mới được tính, và <code>cwd</code> xác định nơi lệnh phải chạy.",
+        "<code>scope</code> (cùng với <code>exact</code>): thay đổi bên ngoài các thư mục đã chỉ định không làm kết quả bị cũ.",
+        "<code>ignore</code> (toàn bộ policy): đầu ra do kiểm tra tự ghi, như coverage, không bị tính là thay đổi."
       ]
     },
     "actions": {
@@ -270,7 +270,7 @@
       "kindsK": "Các kiểm tra chỉ đọc dùng để xác minh kết quả chưa rõ",
       "kinds": [
         "git ls-remote",
-        "gh pr view",
+        "gh pr list / view",
         "gh release view",
         "npm view"
       ]
@@ -280,7 +280,7 @@
       "Một policy không hợp lệ sẽ từ chối mọi tác động phụ thay vì quay về mặc định.",
       "Một quyền đã hết hạn sẽ quay về ask. Chỉ một người mới gia hạn được, bằng cách sửa policy.",
       "Các lệnh Core không đọc được, như <code>eval</code> hay <code>sh -c</code>, được coi là không minh bạch và sẽ được hỏi.",
-      "Sổ cái chỉ ghi thêm và được nối chuỗi bằng hash; <code>bw verify</code> phát hiện chỉnh sửa và cắt bớt."
+      "Sổ cái chỉ ghi thêm và được nối chuỗi bằng hash; <code>bw verify</code> phát hiện các mục bị sửa hoặc bị xóa và một dòng cuối ghi dở, nhưng không phát hiện các mục bị cắt nguyên vẹn khỏi phần cuối."
     ]
   },
   "hosts": {
@@ -309,7 +309,7 @@
     "steps": [
       [
         "Clone Core",
-        "Một lần cho mỗi máy. Nếu từng chạy V5 trên máy này, hãy chuyển <code>~/.better-workflows</code> thành <code>~/.better-workflows-V5</code> trước."
+        "Một lần cho mỗi máy. Nếu từng chạy V5 trên máy này, trước hết hãy chuyển <code>~/.better-workflows</code> thành <code>~/.better-workflows-V5</code> và trỏ <code>SBW_STATE_ROOT</code> tới đó."
       ],
       [
         "Thêm plugin",
@@ -329,7 +329,7 @@
     "firstAsk": "Sửa một dòng trong repository này, và đừng chạy test.",
     "copyRequest": "Sao chép yêu cầu này",
     "firstNote": "Khi Claude Code cố kết thúc, nó sẽ bị trả lại và được cho biết kiểm tra nào còn thiếu.",
-    "demoNote": "Tùy chọn: chạy cả hai tình huống không cần Claude, trong khoảng 2 giây."
+    "demoNote": "Tùy chọn: chạy cả hai tình huống không cần Claude, trong vài giây."
   },
   "boundary": {
     "idx": "Giới hạn",
@@ -343,11 +343,11 @@
         "Chặn được",
         "Lỗi quan sát được",
         [
-          "Kết thúc dựa trên một lần test đã cũ, thất bại hoặc chỉ chạy một phần",
+          "Kết thúc dựa trên một lần test đã cũ hoặc thất bại, hoặc chỉ chạy một phần khi kiểm tra được đánh dấu <code>exact</code>",
           "Một pipe hoặc <code>|| true</code> che giấu lỗi",
           "Push, merge, release hoặc publish lặp lại",
           "Tác động phụ khi một tác động trước đó chưa rõ kết quả",
-          "Agent sửa chính policy của nó"
+          "Agent sửa trực tiếp policy hoặc sổ cái của chính nó"
         ]
       ],
       [
@@ -378,7 +378,7 @@
     "claim": "Core chặn được các lỗi nêu trên. Việc nó có giảm làm lại hoặc quyết định sai trong các tác vụ dài hay không thì chưa được đo; giai đoạn tự dùng hiện tại là để làm việc đó.",
     "rulesLabel": "Giới hạn thiết kế",
     "rules": [
-      "Bộ phân tích shell không mở rộng thêm: lệnh nó không đọc được sẽ không bao giờ được tính là bằng chứng và sẽ được hỏi như một hành động.",
+      "Bộ phân tích shell không mở rộng thêm: lệnh nó không đọc được sẽ được hỏi trước khi chạy, và một test giấu trong <code>eval</code> hoặc <code>sh -c</code> không bao giờ được tính là bằng chứng.",
       "Core chỉ đếm diễn tiến của một phiên. Phiên có đang hội tụ hay không là do agent hoặc bạn đánh giá.",
       "Pull request và release được đối soát bằng <code>gh</code>; nếu không có nó, chúng sẽ ở trạng thái chưa rõ cho đến khi bạn xử lý."
     ]
@@ -468,7 +468,7 @@
     [
       "policyRef",
       "Tham chiếu policy",
-      "Mọi trường của policy.json, kèm ví dụ."
+      "Các trường của policy.json, kèm ví dụ."
     ],
     [
       "readme",
@@ -484,7 +484,7 @@
     "items": [
       [
         "Nó có làm Claude Code chậm đi không?",
-        "Mỗi hook băm cây làm việc bằng Git, mất vài mili giây trong một repository bình thường. Repository rất lớn sẽ tốn thêm thời gian ở mỗi lần gọi."
+        "Các hook xử lý một kiểm tra hoặc một tác động phụ sẽ băm cây làm việc bằng Git, mất vài mili giây trong một repository bình thường. Repository rất lớn sẽ tốn thêm thời gian ở mỗi lần gọi như vậy."
       ],
       [
         "Nó có bị kẹt, trả agent lại mãi không?",
@@ -492,11 +492,11 @@
       ],
       [
         "Agent có tắt nó được không?",
-        "Không. Nó không thể sửa policy hay sổ cái, và không thể tự chạy <code>bw init</code> hoặc tự xử lý một hành động chưa rõ kết quả. Bạn có thể gỡ plugin bất cứ lúc nào."
+        "Không trực tiếp. Core từ chối các chỉnh sửa của agent đối với policy và sổ cái, đồng thời từ chối <code>bw init</code> và việc xử lý thủ công một hành động. Việc gỡ plugin, hoặc thay đổi các tệp đó bằng cách vòng vo, do chính các quy tắc quyền của Claude Code quản lý, vì vậy hãy giữ các lời nhắc xác nhận đó luôn bật."
       ],
       [
         "Nó có gửi dữ liệu đi đâu không?",
-        "Không. Không có server và không có telemetry. Mọi thứ nằm trong thư mục <code>.git</code> của repository của bạn."
+        "Không có server và không có telemetry. Các lệnh gọi mạng duy nhất là những kiểm tra chỉ đọc bằng <code>git</code>, <code>gh</code> và <code>npm</code> của chính bạn, để xác nhận một tác động phụ đã xảy ra hay chưa. Sổ cái nằm trong <code>.git/better-workflows/</code>."
       ],
       [
         "Còn Codex, Gemini CLI hay Qwen Code thì sao?",
@@ -514,7 +514,7 @@
     "copyAddress": "Sao chép địa chỉ"
   },
   "cta": {
-    "kicker": "Thử trong 2 giây",
+    "kicker": "Thử trong vài giây",
     "title": "Chạy một lệnh không phải là bằng chứng. Các tệp mới là.",
     "body": "Chạy demo không cần Claude, rồi cài lên một repository và yêu cầu một thay đổi.",
     "notes": "Xem trên GitHub"
