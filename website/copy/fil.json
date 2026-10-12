@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "title": "Better Workflows | Tinatapos ng iyong coding agent ang trabaho batay sa kasalukuyang ebidensya",
+    "description": "Isang open-source na Claude Code plugin: hindi makakatapos ang agent gamit ang lumang green na test, at hindi nito mauulit o mapapatong ang mga side effect na hindi pa nito nakita ang resulta. Ang mga pahintulot ay galing sa isang policy file, hindi kailanman sa prompt.",
+    "imageAlt": "Ilustrasyon ng control plane ng Better Workflows: ledger, mga selyo ng ebidensya at mga reconciliation node"
+  },
+  "shell": {
+    "skip": "Lumaktaw sa pangunahing nilalaman",
+    "product": "Produkto",
+    "principles": "Mga prinsipyo",
+    "workflow": "Paano ito gumagana",
+    "install": "Magsimula",
+    "docs": "Docs",
+    "sponsor": "Mag-sponsor",
+    "menuOpen": "Buksan ang menu",
+    "menuClose": "Isara ang menu",
+    "language": "Wika",
+    "themeToDark": "Lumipat sa dark theme",
+    "themeToLight": "Lumipat sa light theme",
+    "themeToggle": "Palitan ang color theme",
+    "homeLabel": "Home ng Better Workflows",
+    "tagline": "Tinatapos ng iyong coding agent ang trabaho batay sa kasalukuyang ebidensya, at pinapatakbo ang bawat side effect nang hindi hihigit sa isang beses.",
+    "chip": "V6 Core · pre-alpha",
+    "installCta": "I-install",
+    "overview": "Pangkalahatang-ideya",
+    "hosts": "Mga host",
+    "boundary": "Mga limitasyon",
+    "status": "Status",
+    "faq": "FAQ",
+    "resources": "Mga resource",
+    "project": "Open source",
+    "guideEn": "Pagsisimula (English)",
+    "guideZh": "Pagsisimula (繁體中文)",
+    "policyRef": "Reference ng policy",
+    "v5Archive": "Archive ng V5",
+    "contribute": "Mag-ambag",
+    "security": "Seguridad",
+    "license": "Core Apache-2.0",
+    "alias": "(nire-redirect dito ang betterworkflows.org)"
+  },
+  "hero": {
+    "badge": "pre-alpha",
+    "h1": "Sariwang patunay lang.",
+    "h1Signal": "Hindi alam? Huminto.",
+    "lead": "Isang Claude Code plugin na pumipigil sa AI agent na tumapos gamit ang lumang green na test, at umulit o magpatong ng mga side effect na hindi pa nito nakita ang resulta. Ang puwede nitong gawin ay galing sa policy file na ikaw ang sumulat, hindi kailanman sa prompt.",
+    "taglineLabel": "Ang ipinapatupad ng Core",
+    "chips": [
+      "Kasalukuyang ebidensya",
+      "Isang beses lang",
+      "Policy, hindi prompt",
+      "Fail-closed"
+    ],
+    "ctaInstall": "I-install para sa Claude Code",
+    "ctaDemo": "Panoorin itong pumigil",
+    "specTitle": "Core",
+    "status": "Pre-alpha. Araw-araw na tumatakbo sa dalawang repository ng maintainer.",
+    "host": "Claude Code (hooks plugin)",
+    "platforms": "macOS · Linux",
+    "license": "Apache-2.0",
+    "notes": "Basahin ang gabay sa pagsisimula"
+  },
+  "demo": {
+    "title": "isang lumang green, tapos isang inulit na push",
+    "termLabel": "Pinaikling transcript ng session",
+    "prompt": "ayusin ang bug sa <code>sum.mjs</code>, hindi na kailangang patakbuhin ulit ang mga test",
+    "lines": [
+      [
+        "test",
+        "pumasa ang <code>node --test</code> sa mga file na <code>a1f3</code>"
+      ],
+      [
+        "edit",
+        "in-edit ng agent ang <code>sum.mjs</code>, <code>9c07</code> na ngayon ang mga file"
+      ],
+      [
+        "stop",
+        "“Tapos na. Pumapasa ang mga test.”"
+      ],
+      [
+        "bw",
+        "Ibinalik: huling pumasa ang <code>test</code> sa <code>a1f3</code>; nagbago na ang mga file mula noon."
+      ],
+      [
+        "test",
+        "pinatakbo ulit ng agent ang <code>node --test</code>: 1 failure, inayos ito, pumasa sa <code>b2e8</code>"
+      ],
+      [
+        "push",
+        "nag-time out ang <code>git push</code> kahit pumasok na ang push"
+      ],
+      [
+        "push",
+        "inulit ng agent ang <code>git push</code>"
+      ],
+      [
+        "bw",
+        "Tinanggihan: nagtagumpay na ang <code>git-push</code> sa commit na ito."
+      ]
+    ],
+    "gatesTitle": "Ang sinuri ng Core",
+    "gates": [
+      [
+        "Policy",
+        "mula sa .better-workflows/policy.json",
+        "pass"
+      ],
+      [
+        "Ebidensya",
+        "test sa mga file kung ano sila ngayon",
+        "blocked"
+      ],
+      [
+        "Rerun",
+        "pumasa ang test sa b2e8",
+        "pass"
+      ],
+      [
+        "Aksyon",
+        "git-push, unang beses",
+        "pass"
+      ],
+      [
+        "Isang beses lang",
+        "parehong push, parehong commit",
+        "blocked"
+      ]
+    ],
+    "progress": "2 PAGPIGIL · 0 MALING DONE",
+    "halt": "Dalawang beses na muntik mag-ulat ang agent ng bagay na hindi totoo. Sa parehong pagkakataon, ibinalik ito kasama ang dahilan.",
+    "note": "Pinaikli mula sa stale-green demo sa repository; halimbawa lang ang mga tree id. Patakbuhin mo mismo ang buong demo sa mga 2 segundo, nang walang Claude."
+  },
+  "strip": {
+    "label": "Core sa mga numero",
+    "items": [
+      [
+        "linya ng kernel code",
+        "ipinapatupad sa review ang limitasyong 3,000"
+      ],
+      [
+        "test",
+        "pinapangalanan ng bawat gate ang failure na pinipigilan nito"
+      ],
+      [
+        "runtime dependency",
+        "Node.js at Git lang"
+      ],
+      [
+        "Claude Code hook",
+        "SessionStart, PreToolUse, PostToolUse at Stop; walang server, walang account"
+      ],
+      [
+        "CI lane",
+        "macOS at Linux × Node 22 at 24"
+      ],
+      [
+        "wika",
+        "sa site na ito at sa README"
+      ]
+    ]
+  },
+  "principles": {
+    "idx": "Mga prinsipyo",
+    "en": "PRINCIPLES",
+    "title": "Tatlong patakaran na lalong nagiging kapaki-pakinabang habang lumalakas ang mga model.",
+    "lead": "Ang mas malakas na agent ay sumusulat ng mas maraming code bawat session at nagpapatakbo ng mas maraming command nang mag-isa. Hindi umaasa ang mga patakarang ito sa pag-iingat ng agent; tumatayo ang mga ito anuman ang sabihin nito.",
+    "pillars": [
+      [
+        "lock",
+        "Hindi awtoridad ang prompt",
+        "Kung ano ang puwedeng i-push, i-merge, i-release o i-publish ng agent ay galing sa policy file na hindi nito mae-edit. Walang mababago ang magalang na pakiusap sa prompt."
+      ],
+      [
+        "doc",
+        "Nakatali ang ebidensya sa mga file",
+        "Bilang lang ang pumasang test para sa eksaktong mga file kung saan ito tumakbo. Magbago ng isang linya at hindi na bilang ang pagpasang iyon."
+      ],
+      [
+        "stop",
+        "Ang hindi alam ay humihinto, hindi nanghuhula",
+        "Ang side effect na hindi alam ang resulta ay humaharang sa lahat ng susunod na side effect hanggang ma-check ito sa provider o mapagpasyahan ng isang tao."
+      ]
+    ],
+    "compareTitle": "ang parehong session",
+    "compareAspect": "Sitwasyon",
+    "without": "Agent lang",
+    "with": "May Core",
+    "compare": [
+      [
+        "Pumasa ang mga test, tapos nagbago ang isang file",
+        "“Pumapasa ang mga test.”",
+        "Ibinabalik para patakbuhin ulit sa kasalukuyang mga file."
+      ],
+      [
+        "<code>npm test | tail</code>",
+        "Binibilang na green; sa <code>tail</code> ang exit code.",
+        "Hindi kailanman bilang; sinasabi ng Stop kung bakit."
+      ],
+      [
+        "Isang spec file sa halip na buong suite",
+        "Binibilang na “pumapasa ang mga test.”",
+        "Kapag may <code>exact</code>, ang buong command lang ang bilang."
+      ],
+      [
+        "Nag-time out ang push pagkatapos pumasok",
+        "Nagpu-push ulit.",
+        "Tinatanggihan ang parehong push sa parehong commit."
+      ],
+      [
+        "Sabi ng prompt “puwede kang mag-publish”",
+        "Nagpa-publish.",
+        "Ang policy ang nagpapasya: allow, ask o deny."
+      ]
+    ],
+    "layersTitle": "kung saan galing ang awtoridad",
+    "layers": [
+      [
+        "policy.json",
+        "Isinusulat at binabago ng tao. Puwede itong basahin ng agent, pero hindi kailanman i-edit.",
+        "hard",
+        "SOURCE"
+      ],
+      [
+        "Mga pahintulot ng Claude Code",
+        "Umiiral pa rin. Hindi kailanman nagbibigay ang <code>allow</code> sa policy ng higit sa ibibigay ng Claude Code.",
+        "",
+        ""
+      ],
+      [
+        "Mga hook ng Core",
+        "Ipinapatupad ang policy sa bawat command, edit at pagtigil.",
+        "",
+        ""
+      ],
+      [
+        "Ang prompt",
+        "Inilalarawan ang layunin. Walang dalang awtoridad.",
+        "soft",
+        "WALA"
+      ]
+    ]
+  },
+  "workflow": {
+    "idx": "Paano ito gumagana",
+    "en": "HOW IT WORKS",
+    "title": "Apat na hook, isang ledger sa .git.",
+    "lead": "Tumatakbo ang Core sa loob ng sariling mga hook ng Claude Code. Walang kailangang i-start, walang server, walang account; nasa <code>.git/better-workflows/</code> ng bawat repository ang state.",
+    "hooksTitle": "ang mga hook",
+    "hooks": [
+      "<b>SessionStart</b>: nilo-load ang policy at nagbababala kapag may kulang na kailangan nito, gaya ng <code>gh</code>.",
+      "<b>PreToolUse</b>: pinapayagan, itinatanong o tinatanggihan ang bawat side effect, at tinatanggihan ang mga edit sa policy at sa ledger.",
+      "<b>PostToolUse</b>: itinatala ang bawat check kasama ang Git tree kung saan ito tumakbo, at ang bawat side effect kasama ang exit code nito.",
+      "<b>Stop</b>: ibinabalik ang agent habang may kinakailangang check na kulang, pumalya o luma na.",
+      "<b>bw status</b>: ipinapakita sa iyo ang parehong state."
+    ],
+    "completion": {
+      "name": "Pagtatapos",
+      "sub": "ebidensyang nakatali sa mga file",
+      "body": "Bilang lang ang test, lint, typecheck o build kung pumasa ito, ang sarili nitong exit code ang nagpasya sa resulta ng linya, walang file na nagbago habang tumatakbo ito, at ang mga file ay eksaktong pareho pa rin sa pinatakbuhan nito.",
+      "guardsK": "Opsyonal, bawat check",
+      "guards": [
+        "<code>exact</code>: ang buong command lang ang bilang, mula sa tamang directory.",
+        "<code>scope</code>: ang pagbabago sa labas ng mga nakapangalang directory ay hindi nagpapaluma sa resulta.",
+        "<code>ignore</code>: ang output na isinusulat ng isang check, gaya ng coverage, ay hindi binibilang na pagbabago."
+      ]
+    },
+    "actions": {
+      "name": "Mga side effect",
+      "sub": "isang beses lang, humihinto kapag hindi alam",
+      "body": "Ang mga push, paggawa at pag-merge ng PR, release, pag-publish ng package at ang sarili mong mga custom na uri ay nangangailangan ng <code>allow</code> mula sa policy. Exit code 0 lang ang alam na resulta.",
+      "kindsK": "Mga read-only na check na ginagamit para lutasin ang hindi alam na resulta",
+      "kinds": [
+        "git ls-remote",
+        "gh pr view",
+        "gh release view",
+        "npm view"
+      ]
+    },
+    "rulesTitle": "mga patakarang laging umiiral",
+    "rules": [
+      "Tinatanggihan ng invalid na policy ang lahat ng side effect sa halip na bumalik sa mga default.",
+      "Bumabalik sa ask ang expired na pahintulot. Tao lang ang makakapagpahaba nito, sa pag-edit ng policy.",
+      "Ang mga command na hindi mabasa ng Core, gaya ng <code>eval</code> o <code>sh -c</code>, ay itinuturing na opaque at itinatanong.",
+      "Append-only at hash-chained ang ledger; natutukoy ng <code>bw verify</code> ang mga edit at pagputol."
+    ]
+  },
+  "hosts": {
+    "idx": "Mga host",
+    "en": "HOSTS",
+    "title": "Claude Code muna.",
+    "lead": "Host-neutral ang Core; bawat host ay nangangailangan ng maliit na adapter. Ang Claude Code ang una at ang tanging suportado sa ngayon.",
+    "caption": "Suporta sa host at operating system",
+    "hostCol": "Host",
+    "supported": "Suportado, tinetest sa CI",
+    "untested": "Hindi pa natetest",
+    "v5only": "V5 lang, naka-freeze",
+    "planned": "Nakaplano",
+    "firstHost": "Unang host",
+    "matrixNote": "Pinapatakbo ng CI ang Core sa bawat pull request.",
+    "matrixNoteSub": "macOS 15 at Ubuntu 24.04, Node 22.23.3 at 24.21.0.",
+    "recoTitle": "Bakit Claude Code muna",
+    "recoBody": "Nakikita ng mga hook nito ang bawat command bago ito tumakbo at ang bawat pagtatangkang huminto. Doon mismo dapat nakapuwesto ang Core.",
+    "recoFoot": "Pinatakbo ng Codex, Gemini CLI at Qwen Code ang V5, na naka-freeze sa RC1. Babalik sila bilang mga adapter kapag stable na ang Core."
+  },
+  "install": {
+    "idx": "Magsimula",
+    "en": "GET STARTED",
+    "title": "Tatlong command, tapos humiling ng pagbabago.",
+    "lead": "Kailangan ng Node.js 22.14 o mas bago, Git, at Claude Code na may suporta sa plugin.",
+    "steps": [
+      [
+        "I-clone ang Core",
+        "Isang beses bawat machine. Kung nagpatakbo ka ng V5 dito, ilipat muna ang <code>~/.better-workflows</code> sa <code>~/.better-workflows-V5</code>."
+      ],
+      [
+        "Idagdag ang plugin",
+        "I-install ito bawat repository gamit ang <code>--scope local</code>, para walang maisulat sa mga file na kino-commit mo."
+      ],
+      [
+        "Sumulat ng policy",
+        "Isinusulat ng <code>bw init</code> ang <code>.better-workflows/policy.json</code>. I-commit ito para pareho ang mga patakaran ng lahat."
+      ]
+    ],
+    "stepsNote": "Saklaw ng buong walkthrough ang sarili mong mga check, side effect at hindi alam na resulta.",
+    "guideLink": "Pagsisimula",
+    "tabsLabel": "Mga install command",
+    "copyCommand": "Kopyahin ang command na ito",
+    "copy": "Kopyahin",
+    "firstK": "Tapos subukan ito",
+    "firstAsk": "Magbago ng isang linya sa repository na ito, at huwag patakbuhin ang mga test.",
+    "copyRequest": "Kopyahin ang request na ito",
+    "firstNote": "Kapag sinubukan ng Claude Code na tapusin, ibinabalik ito at sinasabi kung aling check ang kulang.",
+    "demoNote": "Opsyonal: patakbuhin ang dalawang sitwasyon nang walang Claude, sa mga 2 segundo."
+  },
+  "boundary": {
+    "idx": "Mga limitasyon",
+    "en": "LIMITS",
+    "title": "Ang pinipigilan nito, at ang hindi nito nakikita.",
+    "lead": "Kapaki-pakinabang lang ang isang gate kung alam mo ang mga hangganan nito.",
+    "cols": [
+      [
+        "yes",
+        "check",
+        "Pinipigilan",
+        "Mga nakikitang pagkakamali",
+        [
+          "Pagtatapos sa luma, pumalya o bahagyang test run",
+          "Pipe o <code>|| true</code> na nagtatago ng failure",
+          "Inulit na push, merge, release o publish",
+          "Mga side effect habang hindi pa alam ang resulta ng nauna",
+          "Pag-edit ng agent sa sarili nitong policy"
+        ]
+      ],
+      [
+        "no",
+        "x",
+        "Hindi ginagawa",
+        "Labas sa nakikita nito",
+        [
+          "Makita ang mga side effect sa loob ng script, maliban kung pinapangalanan ng policy ang script na iyon",
+          "Husgahan kung sapat na ang galing ng iyong mga test",
+          "Bumuo ng dependency graph: dapat pangalanan ng <code>scope</code> ang lahat ng inaasahan ng isang check",
+          "Bilangin ang mga file na ini-ignore ng Git bilang bahagi ng ebidensya"
+        ]
+      ],
+      [
+        "not",
+        "stop",
+        "Iniiwan sa iyo",
+        "Mga pasya ng tao",
+        [
+          "Paglutas sa side effect na hindi na mababasa pabalik ang resulta",
+          "Pagpapahaba ng pahintulot lampas sa <code>expiresAt</code> nito",
+          "Pagpili kung ano ang saklaw ng isang <code>scope</code>",
+          "Pagpapasya kung kailan paikot-ikot na lang ang isang session"
+        ]
+      ]
+    ],
+    "claim": "Hinaharangan ng Core ang mga pagkakamali sa itaas. Hindi pa nasusukat kung nababawasan nito ang pag-uulit ng trabaho o maling pasya sa mahahabang gawain; iyon ang layunin ng kasalukuyang panahon ng sariling paggamit.",
+    "rulesLabel": "Mga limitasyon ng disenyo",
+    "rules": [
+      "Hindi lumalaki ang shell parser: ang command na hindi nito mabasa ay hindi kailanman bilang na ebidensya at itinatanong bilang aksyon.",
+      "Binibilang lang ng Core kung paano tumatakbo ang isang session. Ang agent o ikaw ang hahatol kung papunta ito sa solusyon.",
+      "Nire-reconcile ang mga pull request at release gamit ang <code>gh</code>; kung wala ito, mananatili silang hindi alam hanggang lutasin mo."
+    ]
+  },
+  "status": {
+    "idx": "Status",
+    "en": "STATUS",
+    "title": "Nasaan na ang proyekto.",
+    "lead": "Pinapalitan ng V6 ang workflow engine ng V5 ng isang maliit na core. Ibinibigay ang mga petsa kapag naabot na.",
+    "road": [
+      [
+        "DONE",
+        "line",
+        "Naka-freeze",
+        "V5.0 RC1",
+        "tag V5.0.rc1",
+        "Multi-host na workflow engine. Naka-freeze sa branch na <code>frozen/v5</code>; wala nang bagong trabaho."
+      ],
+      [
+        "NOW",
+        "sig",
+        "Kasalukuyang ginagawa",
+        "V6 Core pre-alpha",
+        "packages/bw-core",
+        "Mga Claude Code hook, evidence scope, sariling paggamit sa dalawang repository."
+      ],
+      [
+        "NEXT",
+        "warn",
+        "Pagkatapos ng sariling paggamit",
+        "V6 Core alpha",
+        "unang naka-tag na release",
+        "Ilalabas kapag ipinakita ng panahon ng sariling paggamit ang tunay na mga nahuli at kaunting maling pagharang. Susunod ang iba pang host bilang maliliit na adapter."
+      ]
+    ],
+    "statementTitle": "pahayag",
+    "statementK": "PRE-ALPHA",
+    "statement": [
+      "Magagamit na ang Core ngayon at tumatakbo sa sariling mga repository ng maintainer. Puwede pang magbago ang format ng policy nito bago ang alpha.",
+      "Libre at open source ang lahat dito. Walang bayad na tier, account o telemetry."
+    ],
+    "licTitle": "lisensya",
+    "licItem": "Bahagi",
+    "licForm": "Lisensya",
+    "licState": "Kalagayan",
+    "lic": [
+      [
+        "V6 Core (<code>packages/bw-core</code>)",
+        "Apache-2.0",
+        "",
+        "sig",
+        "aktibo"
+      ],
+      [
+        "Website at ang natitirang bahagi ng repository",
+        "AGPL-3.0-only",
+        "",
+        "line",
+        "aktibo"
+      ],
+      [
+        "V5 plugin",
+        "AGPL-3.0-only",
+        "sa frozen/v5",
+        "warn",
+        "naka-freeze"
+      ]
+    ]
+  },
+  "docs": {
+    "idx": "Docs",
+    "en": "DOCS",
+    "title": "Nasa repository ang lahat.",
+    "lead": "Nakasulat ang mga gabay sa English at Traditional Chinese. Bawat wika sa site na ito ay may maikling README sa GitHub."
+  },
+  "docList": [
+    [
+      "guideEn",
+      "Pagsisimula",
+      "Pag-install, ang unang pagharang, ang sarili mong mga check at side effect."
+    ],
+    [
+      "guideZh",
+      "快速開始（繁體中文）",
+      "Ang parehong gabay sa Traditional Chinese."
+    ],
+    [
+      "policyRef",
+      "Reference ng policy",
+      "Bawat field ng policy.json, may mga halimbawa."
+    ],
+    [
+      "readme",
+      "README sa iyong wika",
+      "Ang pinipigilan nito at paano ito i-install, sa 41 wika."
+    ]
+  ],
+  "faq": {
+    "idx": "FAQ",
+    "en": "FAQ",
+    "title": "Mga karaniwang tanong, diretsong sagot.",
+    "lead": "May iba pa? Magbukas ng issue sa GitHub.",
+    "items": [
+      [
+        "Pinababagal ba nito ang Claude Code?",
+        "Hina-hash ng bawat hook ang working tree gamit ang Git, na tumatagal ng ilang millisecond sa karaniwang repository. Mas malaki ang gastos sa bawat tawag sa napakalalaking repository."
+      ],
+      [
+        "Maiipit ba ito sa walang katapusang pagbabalik sa agent?",
+        "Ibinabalik nito ang agent kasama ang dahilan at kung paano tumakbo ang session hanggang ngayon: mga run, sunod-sunod na failure, ilang beses nang naibalik. Puwede nang huminto ang agent at sabihin sa iyo nang malinaw kung aling check ang paulit-ulit na pumapalya."
+      ],
+      [
+        "Puwede ba itong i-off ng agent?",
+        "Hindi. Hindi nito mae-edit ang policy o ang ledger, at hindi nito mapapatakbo ang <code>bw init</code> o malulutas nang mag-isa ang isang hindi alam na aksyon. Puwede mong i-uninstall ang plugin anumang oras."
+      ],
+      [
+        "May ipinapadala ba ito kahit saan?",
+        "Wala. Walang server at walang telemetry. Nananatili ang lahat sa <code>.git</code> folder ng iyong repository."
+      ],
+      [
+        "Paano ang Codex, Gemini CLI o Qwen Code?",
+        "Pinatakbo nila ang V5, na naka-freeze na. Host-neutral ang Core, at nakaplano ang mga adapter para sa kanila pagkatapos ng alpha."
+      ]
+    ]
+  },
+  "sponsor": {
+    "idx": "Mag-sponsor",
+    "en": "SPONSOR",
+    "title": "Suportahan ang Better Workflows.",
+    "cta": "Isang beses na sponsorship sa USDT (TRC20)",
+    "body": "Ang sponsorship ay pambayad sa open-source na maintenance, sa docs sa English at Traditional Chinese, at sa hosting. Hindi ito bumibili ng membership, priyoridad sa roadmap o suporta.",
+    "qrLabel": "Buksan ang USDT (TRC20) QR code",
+    "copyAddress": "Kopyahin ang address"
+  },
+  "cta": {
+    "kicker": "Subukan sa loob ng 2 segundo",
+    "title": "Hindi patunay ang pagpapatakbo ng command. Ang mga file ang patunay.",
+    "body": "Patakbuhin ang demo nang walang Claude, tapos i-install ito sa isang repository at humiling ng pagbabago.",
+    "notes": "Tingnan sa GitHub"
+  }
+}

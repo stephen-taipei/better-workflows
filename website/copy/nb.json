@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "title": "Better Workflows | Kodeagenten din avslutter på ferske bevis",
+    "description": "En Claude Code-plugin med åpen kildekode: agenten kan ikke avslutte på en utdatert grønn test, og kan ikke gjenta eller stable sideeffekter den aldri så resultatet av. Tillatelser kommer fra en policy-fil, aldri fra prompten.",
+    "imageAlt": "Illustrasjon av kontrollplanet i Better Workflows: logg, bevisforseglinger og avstemmingsnoder"
+  },
+  "shell": {
+    "skip": "Hopp til hovedinnhold",
+    "product": "Produkt",
+    "principles": "Prinsipper",
+    "workflow": "Slik fungerer det",
+    "install": "Kom i gang",
+    "docs": "Dokumentasjon",
+    "sponsor": "Sponse",
+    "menuOpen": "Åpne meny",
+    "menuClose": "Lukk meny",
+    "language": "Språk",
+    "themeToDark": "Bytt til mørkt tema",
+    "themeToLight": "Bytt til lyst tema",
+    "themeToggle": "Bytt fargetema",
+    "homeLabel": "Better Workflows forside",
+    "tagline": "Kodeagenten din avslutter på ferske bevis og kjører hver sideeffekt høyst én gang.",
+    "chip": "V6 Core · pre-alpha",
+    "installCta": "Installer",
+    "overview": "Oversikt",
+    "hosts": "Verter",
+    "boundary": "Grenser",
+    "status": "Status",
+    "faq": "FAQ",
+    "resources": "Ressurser",
+    "project": "Åpen kildekode",
+    "guideEn": "Kom i gang (engelsk)",
+    "guideZh": "Kom i gang (繁體中文)",
+    "policyRef": "Policy-referanse",
+    "v5Archive": "V5-arkiv",
+    "contribute": "Bidra",
+    "security": "Sikkerhet",
+    "license": "Core Apache-2.0",
+    "alias": "(betterworkflows.org videresender hit)"
+  },
+  "hero": {
+    "badge": "pre-alpha",
+    "h1": "Bevis må være ferskt.",
+    "h1Signal": "Ukjent betyr stopp.",
+    "lead": "En Claude Code-plugin som hindrer en AI-agent i å avslutte på en utdatert grønn test, og i å gjenta eller stable sideeffekter den aldri så resultatet av. Hva den får gjøre, kommer fra en policy-fil du skriver, aldri fra prompten.",
+    "taglineLabel": "Hva Core håndhever",
+    "chips": [
+      "Ferske bevis",
+      "Høyst én gang",
+      "Policy, ikke prompt",
+      "Fail-closed"
+    ],
+    "ctaInstall": "Installer for Claude Code",
+    "ctaDemo": "Se den stoppe",
+    "specTitle": "Core",
+    "status": "Pre-alpha. Kjører daglig på to av vedlikeholderens repositorier.",
+    "host": "Claude Code (hooks-plugin)",
+    "platforms": "macOS · Linux",
+    "license": "Apache-2.0",
+    "notes": "Les kom i gang-veiledningen"
+  },
+  "demo": {
+    "title": "en utdatert grønn, så en ny push",
+    "termLabel": "Forkortet sesjonslogg",
+    "prompt": "fiks feilen i <code>sum.mjs</code>, du trenger ikke kjøre testene på nytt",
+    "lines": [
+      [
+        "test",
+        "<code>node --test</code> består på filene <code>a1f3</code>"
+      ],
+      [
+        "edit",
+        "agenten redigerer <code>sum.mjs</code>, filene er nå <code>9c07</code>"
+      ],
+      [
+        "stop",
+        "«Ferdig. Testene består.»"
+      ],
+      [
+        "bw",
+        "Sendt tilbake: <code>test</code> besto sist på <code>a1f3</code>; filene er endret siden."
+      ],
+      [
+        "test",
+        "agenten kjører <code>node --test</code> på nytt: 1 feil, fikser den, består på <code>b2e8</code>"
+      ],
+      [
+        "push",
+        "<code>git push</code> får tidsavbrudd etter at pushen har kommet fram"
+      ],
+      [
+        "push",
+        "agenten prøver <code>git push</code> på nytt"
+      ],
+      [
+        "bw",
+        "Avvist: <code>git-push</code> har allerede lyktes på denne commiten."
+      ]
+    ],
+    "gatesTitle": "Hva Core sjekket",
+    "gates": [
+      [
+        "Policy",
+        "fra .better-workflows/policy.json",
+        "pass"
+      ],
+      [
+        "Bevis",
+        "test på filene slik de er nå",
+        "blocked"
+      ],
+      [
+        "Ny kjøring",
+        "test består på b2e8",
+        "pass"
+      ],
+      [
+        "Handling",
+        "git-push, første gang",
+        "pass"
+      ],
+      [
+        "Høyst én gang",
+        "samme push, samme commit",
+        "blocked"
+      ]
+    ],
+    "progress": "2 STOPP · 0 FALSKE FERDIG",
+    "halt": "To ganger var agenten i ferd med å rapportere noe som ikke var sant. Begge gangene ble den sendt tilbake med begrunnelsen.",
+    "note": "Forkortet fra stale-green-demoen i repositoriet; tree-ID-ene er illustrative. Kjør hele demoen selv på rundt 2 sekunder, uten Claude."
+  },
+  "strip": {
+    "label": "Core i tall",
+    "items": [
+      [
+        "linjer kjernekode",
+        "en grense på 3 000 håndheves i review"
+      ],
+      [
+        "tester",
+        "hver port navngir feilen den forhindrer"
+      ],
+      [
+        "kjøretidsavhengigheter",
+        "bare Node.js og Git"
+      ],
+      [
+        "Claude Code-hooks",
+        "SessionStart, PreToolUse, PostToolUse og Stop; ingen server, ingen konto"
+      ],
+      [
+        "CI-løp",
+        "macOS og Linux × Node 22 og 24"
+      ],
+      [
+        "språk",
+        "på dette nettstedet og i README"
+      ]
+    ]
+  },
+  "principles": {
+    "idx": "Prinsipper",
+    "en": "PRINCIPLES",
+    "title": "Tre regler som blir nyttigere jo sterkere modellene blir.",
+    "lead": "En sterkere agent skriver mer kode per sesjon og kjører flere kommandoer på egen hånd. Disse reglene er ikke avhengige av at agenten er forsiktig; de gjelder uansett hva den sier.",
+    "pillars": [
+      [
+        "lock",
+        "Prompten er ikke autoritet",
+        "Om agenten får pushe, merge, release eller publisere, bestemmes av en policy-fil den ikke kan redigere. Å be pent i prompten endrer ingenting."
+      ],
+      [
+        "doc",
+        "Bevis er knyttet til filene",
+        "En bestått test teller bare for nøyaktig de filene den kjørte på. Endre én linje, og den beståtte kjøringen teller ikke lenger."
+      ],
+      [
+        "stop",
+        "Ukjent stopper, det gjetter ikke",
+        "En sideeffekt med ukjent resultat blokkerer alle videre sideeffekter til den er sjekket mot leverandøren eller avklart av et menneske."
+      ]
+    ],
+    "compareTitle": "samme sesjon",
+    "compareAspect": "Situasjon",
+    "without": "Bare agenten",
+    "with": "Med Core",
+    "compare": [
+      [
+        "Testene besto, så ble en fil endret",
+        "«Testene består.»",
+        "Sendt tilbake for å kjøre på nytt på dagens filer."
+      ],
+      [
+        "<code>npm test | tail</code>",
+        "Regnet som grønn; exit-koden tilhører <code>tail</code>.",
+        "Teller aldri; Stop sier hvorfor."
+      ],
+      [
+        "Én spec-fil i stedet for hele suiten",
+        "Regnet som «testene består».",
+        "Med <code>exact</code> teller bare hele kommandoen."
+      ],
+      [
+        "Push får tidsavbrudd etter at den kom fram",
+        "Pusher igjen.",
+        "Samme push på samme commit avvises."
+      ],
+      [
+        "Prompten sier «du kan publisere»",
+        "Publiserer.",
+        "Policyen avgjør: allow, ask eller deny."
+      ]
+    ],
+    "layersTitle": "hvor autoriteten kommer fra",
+    "layers": [
+      [
+        "policy.json",
+        "Skrevet og endret av et menneske. Agenten kan lese den, aldri redigere den.",
+        "hard",
+        "KILDE"
+      ],
+      [
+        "Claude Code-tillatelser",
+        "Gjelder fortsatt. <code>allow</code> i policyen gir aldri mer enn Claude Code ville gitt.",
+        "",
+        ""
+      ],
+      [
+        "Core-hooks",
+        "Håndhever policyen ved hver kommando, redigering og stopp.",
+        "",
+        ""
+      ],
+      [
+        "Prompten",
+        "Beskriver målet. Har ingen autoritet.",
+        "soft",
+        "INGEN"
+      ]
+    ]
+  },
+  "workflow": {
+    "idx": "Slik fungerer det",
+    "en": "HOW IT WORKS",
+    "title": "Fire hooks, én logg i .git.",
+    "lead": "Core kjører i Claude Codes egne hooks. Ingenting å starte, ingen server, ingen konto; tilstanden ligger i <code>.git/better-workflows/</code> i hvert repositorium.",
+    "hooksTitle": "hookene",
+    "hooks": [
+      "<b>SessionStart</b>: laster policyen og advarer når noe den trenger mangler, som <code>gh</code>.",
+      "<b>PreToolUse</b>: tillater, spør om eller avviser hver sideeffekt, og avviser endringer i policyen og loggen.",
+      "<b>PostToolUse</b>: registrerer hver sjekk med Git-treet den kjørte på, og hver sideeffekt med exit-koden sin.",
+      "<b>Stop</b>: sender agenten tilbake så lenge en påkrevd sjekk mangler, har feilet eller er utdatert.",
+      "<b>bw status</b>: viser deg den samme tilstanden."
+    ],
+    "completion": {
+      "name": "Avslutning",
+      "sub": "bevis knyttet til filene",
+      "body": "En test, lint, typecheck eller build teller bare hvis den besto, dens egen exit-kode avgjorde resultatet, ingen fil ble endret mens den kjørte, og filene fortsatt er nøyaktig de den kjørte på.",
+      "guardsK": "Valgfritt, per sjekk",
+      "guards": [
+        "<code>exact</code>: bare hele kommandoen teller, fra riktig katalog.",
+        "<code>scope</code>: en endring utenfor de navngitte katalogene holder resultatet ferskt.",
+        "<code>ignore</code>: utdata en sjekk skriver, som coverage, regnes ikke som en endring."
+      ]
+    },
+    "actions": {
+      "name": "Sideeffekter",
+      "sub": "høyst én gang, ukjent stopper",
+      "body": "Pusher, opprettelse og merging av PR-er, releaser, pakkepublisering og dine egne typer trenger hver for seg <code>allow</code> fra policyen. Bare exit-kode 0 er et kjent resultat.",
+      "kindsK": "Skrivebeskyttede sjekker brukt til å avklare et ukjent resultat",
+      "kinds": [
+        "git ls-remote",
+        "gh pr view",
+        "gh release view",
+        "npm view"
+      ]
+    },
+    "rulesTitle": "regler som holder",
+    "rules": [
+      "En ugyldig policy avviser alle sideeffekter i stedet for å falle tilbake til standardverdier.",
+      "En utløpt tillatelse faller tilbake til ask. Bare et menneske forlenger den, ved å redigere policyen.",
+      "Kommandoer Core ikke kan lese, som <code>eval</code> eller <code>sh -c</code>, behandles som ugjennomsiktige, og du blir spurt.",
+      "Loggen er append-only og hash-kjedet; <code>bw verify</code> oppdager endringer og avkorting."
+    ]
+  },
+  "hosts": {
+    "idx": "Verter",
+    "en": "HOSTS",
+    "title": "Claude Code først.",
+    "lead": "Core er vertsnøytral; hver vert trenger en liten adapter. Claude Code er den første og den eneste som støttes i dag.",
+    "caption": "Støtte for verter og operativsystemer",
+    "hostCol": "Vert",
+    "supported": "Støttet, testet i CI",
+    "untested": "Ikke testet",
+    "v5only": "Bare V5, fryst",
+    "planned": "Planlagt",
+    "firstHost": "Første vert",
+    "matrixNote": "CI kjører Core på hver pull request.",
+    "matrixNoteSub": "macOS 15 og Ubuntu 24.04, Node 22.23.3 og 24.21.0.",
+    "recoTitle": "Hvorfor Claude Code først",
+    "recoBody": "Hookene ser hver kommando før den kjører og hvert forsøk på å stoppe. Det er akkurat der Core må sitte.",
+    "recoFoot": "Codex, Gemini CLI og Qwen Code kjørte V5, som er fryst på RC1. De kommer tilbake som adaptere når Core er stabil."
+  },
+  "install": {
+    "idx": "Kom i gang",
+    "en": "GET STARTED",
+    "title": "Tre kommandoer, be så om en endring.",
+    "lead": "Krever Node.js 22.14 eller nyere, Git og Claude Code med plugin-støtte.",
+    "steps": [
+      [
+        "Klon Core",
+        "Én gang per maskin. Hvis du har kjørt V5 her, flytt først <code>~/.better-workflows</code> til <code>~/.better-workflows-V5</code>."
+      ],
+      [
+        "Legg til pluginen",
+        "Installer den per repositorium med <code>--scope local</code>, så ingenting skrives i filer du committer."
+      ],
+      [
+        "Skriv en policy",
+        "<code>bw init</code> skriver <code>.better-workflows/policy.json</code>. Commit den så alle får de samme reglene."
+      ]
+    ],
+    "stepsNote": "Den fullstendige gjennomgangen dekker dine egne sjekker, sideeffekter og ukjente resultater.",
+    "guideLink": "Kom i gang",
+    "tabsLabel": "Installasjonskommandoer",
+    "copyCommand": "Kopier denne kommandoen",
+    "copy": "Kopier",
+    "firstK": "Prøv det så",
+    "firstAsk": "Endre én linje i dette repositoriet, og ikke kjør testene.",
+    "copyRequest": "Kopier denne forespørselen",
+    "firstNote": "Når Claude Code prøver å avslutte, sendes den tilbake og får vite hvilken sjekk som mangler.",
+    "demoNote": "Valgfritt: kjør begge scenarioene uten Claude, på rundt 2 sekunder."
+  },
+  "boundary": {
+    "idx": "Grenser",
+    "en": "LIMITS",
+    "title": "Hva den stopper, og hva den ikke ser.",
+    "lead": "En port er bare nyttig hvis du kjenner kantene dens.",
+    "cols": [
+      [
+        "yes",
+        "check",
+        "Stopper",
+        "Observerbare feil",
+        [
+          "Avslutning på en utdatert, feilet eller delvis testkjøring",
+          "En pipe eller <code>|| true</code> som skjuler en feil",
+          "En gjentatt push, merge, release eller publisering",
+          "Sideeffekter mens en tidligere er ukjent",
+          "At agenten redigerer sin egen policy"
+        ]
+      ],
+      [
+        "no",
+        "x",
+        "Gjør ikke",
+        "Utenfor synsfeltet",
+        [
+          "Se sideeffekter inne i et skript, med mindre policyen navngir det skriptet",
+          "Vurdere om testene dine er gode nok",
+          "Bygge en avhengighetsgraf: en <code>scope</code> må navngi alt en sjekk er avhengig av",
+          "Regne filer som Git ignorerer som en del av beviset"
+        ]
+      ],
+      [
+        "not",
+        "stop",
+        "Overlater til deg",
+        "Beslutninger et menneske tar",
+        [
+          "Avklare en sideeffekt der resultatet ikke kan leses tilbake",
+          "Forlenge en tillatelse forbi <code>expiresAt</code>",
+          "Velge hva en <code>scope</code> dekker",
+          "Avgjøre når en sesjon går i ring"
+        ]
+      ]
+    ],
+    "claim": "Core blokkerer feilene over. Det er ikke målt om den reduserer omarbeid eller feil beslutninger i lange oppgaver; det er det den nåværende perioden med egenbruk er til for.",
+    "rulesLabel": "Designgrenser",
+    "rules": [
+      "Shell-parseren vokser ikke: en kommando den ikke kan lese, teller aldri som bevis, og du blir spurt om den som en handling.",
+      "Core teller bare hvordan en sesjon går. Om den konvergerer, er det agenten eller du som vurderer.",
+      "Pull requests og releaser avstemmes med <code>gh</code>; uten den forblir de ukjente til du avklarer dem."
+    ]
+  },
+  "status": {
+    "idx": "Status",
+    "en": "STATUS",
+    "title": "Hvor prosjektet står.",
+    "lead": "V6 erstatter arbeidsflytmotoren i V5 med en liten kjerne. Datoer kommer når kriteriene er oppfylt.",
+    "road": [
+      [
+        "DONE",
+        "line",
+        "Fryst",
+        "V5.0 RC1",
+        "tag V5.0.rc1",
+        "Arbeidsflytmotor for flere verter. Fryst på grenen <code>frozen/v5</code>; ikke noe nytt arbeid."
+      ],
+      [
+        "NOW",
+        "sig",
+        "Pågår",
+        "V6 Core pre-alpha",
+        "packages/bw-core",
+        "Claude Code-hooks, bevis-scope, egenbruk på to repositorier."
+      ],
+      [
+        "NEXT",
+        "warn",
+        "Etter egenbruk",
+        "V6 Core alpha",
+        "første taggede release",
+        "Publiseres når egenbruksperioden viser reelle fangster og få falske blokkeringer. Flere verter følger som små adaptere."
+      ]
+    ],
+    "statementTitle": "erklæring",
+    "statementK": "PRE-ALPHA",
+    "statement": [
+      "Core kan brukes i dag og kjører på vedlikeholderens egne repositorier. Policy-formatet kan fortsatt endres før alpha.",
+      "Alt her er gratis og åpen kildekode. Det finnes ingen betalt plan, konto eller telemetri."
+    ],
+    "licTitle": "lisenser",
+    "licItem": "Del",
+    "licForm": "Lisens",
+    "licState": "Tilstand",
+    "lic": [
+      [
+        "V6 Core (<code>packages/bw-core</code>)",
+        "Apache-2.0",
+        "",
+        "sig",
+        "aktiv"
+      ],
+      [
+        "Nettstedet og resten av repositoriet",
+        "AGPL-3.0-only",
+        "",
+        "line",
+        "aktiv"
+      ],
+      [
+        "V5-plugin",
+        "AGPL-3.0-only",
+        "på frozen/v5",
+        "warn",
+        "fryst"
+      ]
+    ]
+  },
+  "docs": {
+    "idx": "Dokumentasjon",
+    "en": "DOCS",
+    "title": "Alt ligger i repositoriet.",
+    "lead": "Veiledningene er skrevet på engelsk og tradisjonell kinesisk. Hvert språk på dette nettstedet har en kort README på GitHub."
+  },
+  "docList": [
+    [
+      "guideEn",
+      "Kom i gang",
+      "På engelsk: installasjon, den første blokkeringen, dine egne sjekker og sideeffekter."
+    ],
+    [
+      "guideZh",
+      "快速開始（繁體中文）",
+      "Den samme veiledningen på tradisjonell kinesisk."
+    ],
+    [
+      "policyRef",
+      "Policy-referanse",
+      "Alle feltene i policy.json, med eksempler."
+    ],
+    [
+      "readme",
+      "README på ditt språk",
+      "Hva den stopper og hvordan du installerer den, på 41 språk."
+    ]
+  ],
+  "faq": {
+    "idx": "FAQ",
+    "en": "FAQ",
+    "title": "Vanlige spørsmål, rette svar.",
+    "lead": "Noe annet? Opprett en issue på GitHub.",
+    "items": [
+      [
+        "Gjør den Claude Code tregere?",
+        "Hver hook hasher arbeidstreet med Git, noe som tar millisekunder i et vanlig repositorium. Svært store repositorier betaler mer per kall."
+      ],
+      [
+        "Kan den bli sittende fast og sende agenten tilbake i det uendelige?",
+        "Den sender agenten tilbake med begrunnelsen og hvordan sesjonen har gått så langt: kjøringer, feil på rad, hvor mange ganger den allerede er sendt tilbake. Agenten kan da stoppe og fortelle deg tydelig hvilken sjekk som fortsetter å feile."
+      ],
+      [
+        "Kan agenten slå den av?",
+        "Nei. Den kan ikke redigere policyen eller loggen, og kan ikke kjøre <code>bw init</code> eller selv avklare en ukjent handling. Du kan avinstallere pluginen når som helst."
+      ],
+      [
+        "Sender den noe noe sted?",
+        "Nei. Det finnes ingen server og ingen telemetri. Alt blir i <code>.git</code>-mappen i repositoriet ditt."
+      ],
+      [
+        "Hva med Codex, Gemini CLI eller Qwen Code?",
+        "De kjørte V5, som er fryst. Core er vertsnøytral, og adaptere for dem er planlagt etter alpha."
+      ]
+    ]
+  },
+  "sponsor": {
+    "idx": "Sponse",
+    "en": "SPONSOR",
+    "title": "Støtt Better Workflows.",
+    "cta": "Engangssponsing i USDT (TRC20)",
+    "body": "Sponsing betaler for vedlikehold av åpen kildekode, dokumentasjonen på engelsk og tradisjonell kinesisk, og hosting. Den kjøper ikke medlemskap, prioritet i veikartet eller support.",
+    "qrLabel": "Åpne QR-koden for USDT (TRC20)",
+    "copyAddress": "Kopier adressen"
+  },
+  "cta": {
+    "kicker": "Prøv det på 2 sekunder",
+    "title": "Å kjøre en kommando er ikke bevis. Filene er det.",
+    "body": "Kjør demoen uten Claude, installer den deretter i ett repositorium og be om en endring.",
+    "notes": "Se på GitHub"
+  }
+}

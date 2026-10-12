@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "title": "Better Workflows | Agentul tău de programare încheie pe baza dovezilor actuale",
+    "description": "Un plugin open-source pentru Claude Code: agentul nu poate încheia pe baza unui test verde depășit și nu poate repeta sau suprapune efecte secundare al căror rezultat nu l-a văzut niciodată. Permisiunile vin dintr-un fișier policy, niciodată din prompt.",
+    "imageAlt": "Ilustrația planului de control Better Workflows: registru, sigilii de dovadă și noduri de reconciliere"
+  },
+  "shell": {
+    "skip": "Salt la conținutul principal",
+    "product": "Produs",
+    "principles": "Principii",
+    "workflow": "Cum funcționează",
+    "install": "Primii pași",
+    "docs": "Documentație",
+    "sponsor": "Sponsorizare",
+    "menuOpen": "Deschide meniul",
+    "menuClose": "Închide meniul",
+    "language": "Limbă",
+    "themeToDark": "Comută la tema întunecată",
+    "themeToLight": "Comută la tema luminoasă",
+    "themeToggle": "Schimbă tema de culori",
+    "homeLabel": "Pagina principală Better Workflows",
+    "tagline": "Agentul tău de programare încheie pe baza dovezilor actuale și rulează fiecare efect secundar cel mult o dată.",
+    "chip": "V6 Core · pre-alpha",
+    "installCta": "Instalare",
+    "overview": "Prezentare",
+    "hosts": "Gazde",
+    "boundary": "Limite",
+    "status": "Stadiu",
+    "faq": "Întrebări",
+    "resources": "Resurse",
+    "project": "Open source",
+    "guideEn": "Ghid de început (engleză)",
+    "guideZh": "Ghid de început (繁體中文)",
+    "policyRef": "Referință policy",
+    "v5Archive": "Arhiva V5",
+    "contribute": "Contribuții",
+    "security": "Securitate",
+    "license": "Core Apache-2.0",
+    "alias": "(betterworkflows.org redirecționează aici)"
+  },
+  "hero": {
+    "badge": "pre-alpha",
+    "h1": "Doar dovezi proaspete.",
+    "h1Signal": "Necunoscut? Oprire.",
+    "lead": "Un plugin pentru Claude Code care împiedică un agent AI să încheie pe baza unui test verde depășit și să repete sau să suprapună efecte secundare al căror rezultat nu l-a văzut niciodată. Ce are voie să facă vine dintr-un fișier policy scris de tine, niciodată din prompt.",
+    "taglineLabel": "Ce impune Core",
+    "chips": [
+      "Dovezi actuale",
+      "Cel mult o dată",
+      "Policy, nu prompt",
+      "Fail-closed"
+    ],
+    "ctaInstall": "Instalare pentru Claude Code",
+    "ctaDemo": "Vezi-l oprind",
+    "specTitle": "Core",
+    "status": "Pre-alpha. Rulează zilnic pe două dintre repository-urile autorului.",
+    "host": "Claude Code (plugin de hooks)",
+    "platforms": "macOS · Linux",
+    "license": "Apache-2.0",
+    "notes": "Citește ghidul de început"
+  },
+  "demo": {
+    "title": "un verde depășit, apoi un push reîncercat",
+    "termLabel": "Transcriere scurtată a sesiunii",
+    "prompt": "repară bugul din <code>sum.mjs</code>, nu e nevoie să rulezi din nou testele",
+    "lines": [
+      [
+        "test",
+        "<code>node --test</code> trece pe fișierele <code>a1f3</code>"
+      ],
+      [
+        "edit",
+        "agentul modifică <code>sum.mjs</code>, fișierele sunt acum <code>9c07</code>"
+      ],
+      [
+        "stop",
+        "„Gata. Testele trec.”"
+      ],
+      [
+        "bw",
+        "Trimis înapoi: <code>test</code> a trecut ultima dată pe <code>a1f3</code>; fișierele s-au schimbat între timp."
+      ],
+      [
+        "test",
+        "agentul rulează din nou <code>node --test</code>: 1 eșec, îl repară, trece pe <code>b2e8</code>"
+      ],
+      [
+        "push",
+        "<code>git push</code> expiră după ce push-ul a ajuns deja"
+      ],
+      [
+        "push",
+        "agentul reîncearcă <code>git push</code>"
+      ],
+      [
+        "bw",
+        "Refuzat: <code>git-push</code> a reușit deja la acest commit."
+      ]
+    ],
+    "gatesTitle": "Ce a verificat Core",
+    "gates": [
+      [
+        "Policy",
+        "din .better-workflows/policy.json",
+        "pass"
+      ],
+      [
+        "Dovezi",
+        "test pe fișierele așa cum sunt acum",
+        "blocked"
+      ],
+      [
+        "Rerulare",
+        "testul trece pe b2e8",
+        "pass"
+      ],
+      [
+        "Acțiune",
+        "git-push, prima dată",
+        "pass"
+      ],
+      [
+        "Cel mult o dată",
+        "același push, același commit",
+        "blocked"
+      ]
+    ],
+    "progress": "2 OPRIRI · 0 FINALIZĂRI FALSE",
+    "halt": "De două ori agentul era pe punctul de a raporta ceva neadevărat. De ambele ori a fost trimis înapoi cu motivul.",
+    "note": "Scurtat din demo-ul stale-green din repository; id-urile de tree sunt ilustrative. Rulează singur demo-ul complet în aproximativ 2 secunde, fără Claude."
+  },
+  "strip": {
+    "label": "Core în cifre",
+    "items": [
+      [
+        "linii de cod în kernel",
+        "o limită de 3.000 este impusă la review"
+      ],
+      [
+        "teste",
+        "fiecare poartă numește eșecul pe care îl previne"
+      ],
+      [
+        "dependențe la rulare",
+        "doar Node.js și Git"
+      ],
+      [
+        "hooks Claude Code",
+        "SessionStart, PreToolUse, PostToolUse și Stop; fără server, fără cont"
+      ],
+      [
+        "linii CI",
+        "macOS și Linux × Node 22 și 24"
+      ],
+      [
+        "limbi",
+        "pe acest site și în README"
+      ]
+    ]
+  },
+  "principles": {
+    "idx": "Principii",
+    "en": "PRINCIPLES",
+    "title": "Trei reguli care devin mai utile pe măsură ce modelele devin mai puternice.",
+    "lead": "Un agent mai puternic scrie mai mult cod pe sesiune și rulează mai multe comenzi singur. Aceste reguli nu depind de prudența agentului; ele rămân valabile orice ar spune.",
+    "pillars": [
+      [
+        "lock",
+        "Promptul nu este autoritate",
+        "Dacă agentul poate face push, merge, release sau publish decide un fișier policy pe care nu îl poate modifica. O rugăminte politicoasă în prompt nu schimbă nimic."
+      ],
+      [
+        "doc",
+        "Dovezile sunt legate de fișiere",
+        "Un test trecut contează doar pentru exact fișierele pe care a rulat. Schimbi o linie și acel rezultat nu mai contează."
+      ],
+      [
+        "stop",
+        "Necunoscutul oprește, nu ghicește",
+        "Un efect secundar cu rezultat necunoscut blochează orice alt efect secundar până când este verificat la furnizor sau clarificat de o persoană."
+      ]
+    ],
+    "compareTitle": "aceeași sesiune",
+    "compareAspect": "Situație",
+    "without": "Doar agentul",
+    "with": "Cu Core",
+    "compare": [
+      [
+        "Testele au trecut, apoi un fișier s-a schimbat",
+        "„Testele trec.”",
+        "Trimis înapoi să ruleze din nou pe fișierele actuale."
+      ],
+      [
+        "<code>npm test | tail</code>",
+        "Socotit verde; codul de ieșire îi aparține lui <code>tail</code>.",
+        "Nu contează niciodată; Stop spune de ce."
+      ],
+      [
+        "Un singur fișier spec în loc de suită",
+        "Socotit „testele trec”.",
+        "Cu <code>exact</code>, contează doar comanda completă."
+      ],
+      [
+        "Push-ul expiră după ce a ajuns",
+        "Face push din nou.",
+        "Același push la același commit este refuzat."
+      ],
+      [
+        "Promptul spune „poți publica”",
+        "Publică.",
+        "Decide policy-ul: allow, ask sau deny."
+      ]
+    ],
+    "layersTitle": "de unde vine autoritatea",
+    "layers": [
+      [
+        "policy.json",
+        "Scris și modificat de o persoană. Agentul îl poate citi, niciodată modifica.",
+        "hard",
+        "SURSĂ"
+      ],
+      [
+        "Permisiunile Claude Code",
+        "Rămân valabile. <code>allow</code> din policy nu acordă niciodată mai mult decât ar acorda Claude Code.",
+        "",
+        ""
+      ],
+      [
+        "Hooks Core",
+        "Aplică policy-ul la fiecare comandă, modificare și oprire.",
+        "",
+        ""
+      ],
+      [
+        "Promptul",
+        "Descrie scopul. Nu poartă nicio autoritate.",
+        "soft",
+        "NIMIC"
+      ]
+    ]
+  },
+  "workflow": {
+    "idx": "Cum funcționează",
+    "en": "HOW IT WORKS",
+    "title": "Patru hooks, un registru în .git.",
+    "lead": "Core rulează în hooks-urile proprii ale Claude Code. Nimic de pornit, fără server, fără cont; starea stă în <code>.git/better-workflows/</code> din fiecare repository.",
+    "hooksTitle": "hooks-urile",
+    "hooks": [
+      "<b>SessionStart</b>: încarcă policy-ul și avertizează când lipsește ceva de care are nevoie, cum ar fi <code>gh</code>.",
+      "<b>PreToolUse</b>: permite, întreabă sau refuză fiecare efect secundar și refuză modificările la policy și la registru.",
+      "<b>PostToolUse</b>: înregistrează fiecare verificare cu tree-ul Git pe care a rulat și fiecare efect secundar cu codul său de ieșire.",
+      "<b>Stop</b>: trimite agentul înapoi cât timp o verificare obligatorie lipsește, a eșuat sau este depășită.",
+      "<b>bw status</b>: îți arată ție aceeași stare."
+    ],
+    "completion": {
+      "name": "Încheierea",
+      "sub": "dovezi legate de fișiere",
+      "body": "Un test, lint, typecheck sau build contează doar dacă a trecut, propriul cod de ieșire a decis rezultatul, niciun fișier nu s-a schimbat cât a rulat, iar fișierele sunt încă exact cele pe care a rulat.",
+      "guardsK": "Opțional, per verificare",
+      "guards": [
+        "<code>exact</code>: contează doar comanda completă, din directorul corect.",
+        "<code>scope</code>: o schimbare în afara directoarelor numite lasă rezultatul valabil.",
+        "<code>ignore</code>: ieșirea scrisă de o verificare, cum ar fi coverage, nu este socotită schimbare."
+      ]
+    },
+    "actions": {
+      "name": "Efecte secundare",
+      "sub": "cel mult o dată, necunoscutul oprește",
+      "body": "Push-urile, crearea și merge-ul de PR-uri, release-urile, publicarea de pachete și propriile tale tipuri personalizate au nevoie fiecare de <code>allow</code> din policy. Doar codul de ieșire 0 este un rezultat cunoscut.",
+      "kindsK": "Verificări read-only folosite pentru a clarifica un rezultat necunoscut",
+      "kinds": [
+        "git ls-remote",
+        "gh pr view",
+        "gh release view",
+        "npm view"
+      ]
+    },
+    "rulesTitle": "reguli care se mențin",
+    "rules": [
+      "Un policy invalid refuză orice efect secundar în loc să revină la valori implicite.",
+      "O permisiune expirată revine la ask. Doar o persoană o prelungește, modificând policy-ul.",
+      "Comenzile pe care Core nu le poate citi, cum ar fi <code>eval</code> sau <code>sh -c</code>, sunt tratate ca opace și se cere confirmare.",
+      "Registrul este append-only și înlănțuit prin hash; <code>bw verify</code> detectează modificările și trunchierea."
+    ]
+  },
+  "hosts": {
+    "idx": "Gazde",
+    "en": "HOSTS",
+    "title": "Întâi Claude Code.",
+    "lead": "Core este neutru față de gazdă; fiecare gazdă are nevoie de un mic adaptor. Claude Code este prima și singura suportată astăzi.",
+    "caption": "Suport pentru gazde și sisteme de operare",
+    "hostCol": "Gazdă",
+    "supported": "Suportat, testat în CI",
+    "untested": "Netestat",
+    "v5only": "Doar V5, înghețat",
+    "planned": "Planificat",
+    "firstHost": "Prima gazdă",
+    "matrixNote": "CI rulează Core la fiecare pull request.",
+    "matrixNoteSub": "macOS 15 și Ubuntu 24.04, Node 22.23.3 și 24.21.0.",
+    "recoTitle": "De ce întâi Claude Code",
+    "recoBody": "Hooks-urile sale văd fiecare comandă înainte să ruleze și fiecare încercare de oprire. Exact acolo trebuie să stea Core.",
+    "recoFoot": "Codex, Gemini CLI și Qwen Code au rulat V5, care este înghețat la RC1. Vor reveni ca adaptoare odată ce Core este stabil."
+  },
+  "install": {
+    "idx": "Primii pași",
+    "en": "GET STARTED",
+    "title": "Trei comenzi, apoi cere o modificare.",
+    "lead": "Necesită Node.js 22.14 sau mai nou, Git și Claude Code cu suport pentru pluginuri.",
+    "steps": [
+      [
+        "Clonează Core",
+        "O dată pe mașină. Dacă ai rulat V5 aici, mută mai întâi <code>~/.better-workflows</code> în <code>~/.better-workflows-V5</code>."
+      ],
+      [
+        "Adaugă pluginul",
+        "Instalează-l per repository cu <code>--scope local</code>, ca să nu se scrie nimic în fișierele pe care le faci commit."
+      ],
+      [
+        "Scrie un policy",
+        "<code>bw init</code> scrie <code>.better-workflows/policy.json</code>. Fă-i commit, ca toată lumea să aibă aceleași reguli."
+      ]
+    ],
+    "stepsNote": "Ghidul complet acoperă propriile verificări, efectele secundare și rezultatele necunoscute.",
+    "guideLink": "Ghid de început",
+    "tabsLabel": "Comenzi de instalare",
+    "copyCommand": "Copiază această comandă",
+    "copy": "Copiază",
+    "firstK": "Apoi încearcă",
+    "firstAsk": "Schimbă o linie în acest repository și nu rula testele.",
+    "copyRequest": "Copiază această cerere",
+    "firstNote": "Când Claude Code încearcă să încheie, este trimis înapoi și i se spune ce verificare lipsește.",
+    "demoNote": "Opțional: rulează ambele scenarii fără Claude, în aproximativ 2 secunde."
+  },
+  "boundary": {
+    "idx": "Limite",
+    "en": "LIMITS",
+    "title": "Ce oprește și ce nu poate vedea.",
+    "lead": "O poartă e utilă doar dacă îi cunoști marginile.",
+    "cols": [
+      [
+        "yes",
+        "check",
+        "Oprește",
+        "Greșeli observabile",
+        [
+          "Încheierea pe baza unei rulări de teste depășite, eșuate sau parțiale",
+          "Un pipe sau <code>|| true</code> care ascunde un eșec",
+          "Un push, merge, release sau publish repetat",
+          "Efecte secundare cât timp unul anterior este necunoscut",
+          "Agentul care își modifică propriul policy"
+        ]
+      ],
+      [
+        "no",
+        "x",
+        "Nu",
+        "În afara câmpului său vizual",
+        [
+          "Vede efectele secundare din interiorul unui script, decât dacă policy-ul numește acel script",
+          "Judecă dacă testele tale sunt suficient de bune",
+          "Construiește un graf de dependențe: un <code>scope</code> trebuie să numească tot ce folosește o verificare",
+          "Socotește fișierele ignorate de Git ca parte din dovezi"
+        ]
+      ],
+      [
+        "not",
+        "stop",
+        "Îți lasă ție",
+        "Decizii luate de o persoană",
+        [
+          "Clarificarea unui efect secundar al cărui rezultat nu poate fi citit înapoi",
+          "Prelungirea unei permisiuni dincolo de <code>expiresAt</code>",
+          "Alegerea a ceea ce acoperă un <code>scope</code>",
+          "Hotărârea momentului în care o sesiune se învârte în cerc"
+        ]
+      ]
+    ],
+    "claim": "Core blochează greșelile de mai sus. Nu s-a măsurat dacă reduce munca refăcută sau deciziile greșite în sarcinile lungi; pentru asta este actuala perioadă de utilizare proprie.",
+    "rulesLabel": "Limite de design",
+    "rules": [
+      "Parserul de shell nu crește: o comandă pe care nu o poate citi nu contează niciodată ca dovadă și se cere confirmare pentru ea ca acțiune.",
+      "Core doar numără cum merge o sesiune. Dacă aceasta converge, judecă agentul sau tu.",
+      "Pull request-urile și release-urile sunt reconciliate cu <code>gh</code>; fără el, rămân necunoscute până le clarifici tu."
+    ]
+  },
+  "status": {
+    "idx": "Stadiu",
+    "en": "STATUS",
+    "title": "Unde se află proiectul.",
+    "lead": "V6 înlocuiește motorul de workflow din V5 cu un nucleu mic. Datele vin atunci când condițiile sunt îndeplinite.",
+    "road": [
+      [
+        "DONE",
+        "line",
+        "Înghețat",
+        "V5.0 RC1",
+        "tag V5.0.rc1",
+        "Motor de workflow pentru mai multe gazde. Înghețat pe branch-ul <code>frozen/v5</code>; nicio dezvoltare nouă."
+      ],
+      [
+        "NOW",
+        "sig",
+        "În lucru",
+        "V6 Core pre-alpha",
+        "packages/bw-core",
+        "Hooks Claude Code, scope pentru dovezi, utilizare proprie pe două repository-uri."
+      ],
+      [
+        "NEXT",
+        "warn",
+        "După utilizarea proprie",
+        "V6 Core alpha",
+        "primul release cu tag",
+        "Publicat după ce perioada de utilizare proprie arată opriri reale și puține blocări false. Mai multe gazde urmează ca adaptoare mici."
+      ]
+    ],
+    "statementTitle": "declarație",
+    "statementK": "PRE-ALPHA",
+    "statement": [
+      "Core poate fi folosit astăzi și rulează pe repository-urile autorului. Formatul policy-ului se poate încă schimba înainte de alpha.",
+      "Totul aici este gratuit și open source. Nu există plan plătit, cont sau telemetrie."
+    ],
+    "licTitle": "licențe",
+    "licItem": "Componentă",
+    "licForm": "Licență",
+    "licState": "Stare",
+    "lic": [
+      [
+        "V6 Core (<code>packages/bw-core</code>)",
+        "Apache-2.0",
+        "",
+        "sig",
+        "activ"
+      ],
+      [
+        "Site-ul și restul repository-ului",
+        "AGPL-3.0-only",
+        "",
+        "line",
+        "activ"
+      ],
+      [
+        "Pluginul V5",
+        "AGPL-3.0-only",
+        "pe frozen/v5",
+        "warn",
+        "înghețat"
+      ]
+    ]
+  },
+  "docs": {
+    "idx": "Documentație",
+    "en": "DOCS",
+    "title": "Totul este în repository.",
+    "lead": "Ghidurile sunt scrise în engleză și chineză tradițională. Fiecare limbă de pe acest site are un README scurt pe GitHub."
+  },
+  "docList": [
+    [
+      "guideEn",
+      "Ghid de început",
+      "În engleză: instalarea, prima blocare, propriile verificări și efecte secundare."
+    ],
+    [
+      "guideZh",
+      "快速開始（繁體中文）",
+      "Același ghid în chineză tradițională."
+    ],
+    [
+      "policyRef",
+      "Referință policy",
+      "Fiecare câmp din policy.json, cu exemple."
+    ],
+    [
+      "readme",
+      "README în limba ta",
+      "Ce oprește și cum se instalează, în 41 de limbi."
+    ]
+  ],
+  "faq": {
+    "idx": "Întrebări",
+    "en": "FAQ",
+    "title": "Întrebări frecvente, răspunsuri directe.",
+    "lead": "Altceva? Deschide un issue pe GitHub.",
+    "items": [
+      [
+        "Încetinește Claude Code?",
+        "Fiecare hook calculează hash-ul arborelui de lucru cu Git, ceea ce durează milisecunde într-un repository obișnuit. Repository-urile foarte mari plătesc mai mult la fiecare apel."
+      ],
+      [
+        "Se poate bloca trimițând agentul înapoi la nesfârșit?",
+        "Trimite agentul înapoi cu motivul și cu cum a decurs sesiunea până acum: rulări, eșecuri consecutive, de câte ori a fost deja trimis înapoi. Agentul se poate opri apoi și îți poate spune clar ce verificare tot eșuează."
+      ],
+      [
+        "Îl poate dezactiva agentul?",
+        "Nu. Nu poate modifica policy-ul sau registrul și nu poate rula <code>bw init</code> și nici nu poate clarifica singur o acțiune necunoscută. Tu poți dezinstala pluginul oricând."
+      ],
+      [
+        "Trimite ceva undeva?",
+        "Nu. Nu există server și nici telemetrie. Totul rămâne în folderul <code>.git</code> al repository-ului tău."
+      ],
+      [
+        "Ce se întâmplă cu Codex, Gemini CLI sau Qwen Code?",
+        "Acestea au rulat V5, care este înghețat. Core este neutru față de gazdă, iar adaptoarele pentru ele sunt planificate după alpha."
+      ]
+    ]
+  },
+  "sponsor": {
+    "idx": "Sponsorizare",
+    "en": "SPONSOR",
+    "title": "Susține Better Workflows.",
+    "cta": "Sponsorizare unică în USDT (TRC20)",
+    "body": "Sponsorizarea acoperă întreținerea open-source, documentația în engleză și chineză tradițională și găzduirea. Nu cumpără calitatea de membru, prioritate în roadmap sau suport.",
+    "qrLabel": "Deschide codul QR USDT (TRC20)",
+    "copyAddress": "Copiază adresa"
+  },
+  "cta": {
+    "kicker": "Încearcă în 2 secunde",
+    "title": "Rularea unei comenzi nu e o dovadă. Fișierele sunt.",
+    "body": "Rulează demo-ul fără Claude, apoi instalează-l pe un repository și cere o modificare.",
+    "notes": "Vezi pe GitHub"
+  }
+}

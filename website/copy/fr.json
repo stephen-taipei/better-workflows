@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "title": "Better Workflows | Votre agent de code termine sur des preuves à jour",
+    "description": "Un plugin Claude Code open source : l'agent ne peut pas conclure sur un test vert périmé, ni répéter ou empiler des effets de bord dont il n'a jamais vu le résultat. Les autorisations viennent d'un fichier de policy, jamais du prompt.",
+    "imageAlt": "Illustration du plan de contrôle de Better Workflows : registre, sceaux de preuve et nœuds de réconciliation"
+  },
+  "shell": {
+    "skip": "Aller au contenu principal",
+    "product": "Produit",
+    "principles": "Principes",
+    "workflow": "Fonctionnement",
+    "install": "Démarrer",
+    "docs": "Docs",
+    "sponsor": "Soutenir",
+    "menuOpen": "Ouvrir le menu",
+    "menuClose": "Fermer le menu",
+    "language": "Langue",
+    "themeToDark": "Passer au thème sombre",
+    "themeToLight": "Passer au thème clair",
+    "themeToggle": "Changer le thème de couleur",
+    "homeLabel": "Accueil Better Workflows",
+    "tagline": "Votre agent de code termine sur des preuves à jour, et exécute chaque effet de bord au plus une fois.",
+    "chip": "V6 Core · pre-alpha",
+    "installCta": "Installer",
+    "overview": "Vue d'ensemble",
+    "hosts": "Hôtes",
+    "boundary": "Limites",
+    "status": "État",
+    "faq": "FAQ",
+    "resources": "Ressources",
+    "project": "Open source",
+    "guideEn": "Démarrage (English)",
+    "guideZh": "Démarrage (繁體中文)",
+    "policyRef": "Référence de la policy",
+    "v5Archive": "Archive V5",
+    "contribute": "Contribuer",
+    "security": "Sécurité",
+    "license": "Core Apache-2.0",
+    "alias": "(betterworkflows.org redirige ici)"
+  },
+  "hero": {
+    "badge": "pre-alpha",
+    "h1": "Preuve fraîche exigée.",
+    "h1Signal": "Inconnu ? On s'arrête.",
+    "lead": "Un plugin Claude Code qui empêche un agent IA de conclure sur un test vert périmé, et de répéter ou d'empiler des effets de bord dont il n'a jamais vu le résultat. Ce qu'il a le droit de faire vient d'un fichier de policy que vous écrivez, jamais du prompt.",
+    "taglineLabel": "Ce que Core impose",
+    "chips": [
+      "Preuves à jour",
+      "Au plus une fois",
+      "La policy, pas le prompt",
+      "Blocage par défaut"
+    ],
+    "ctaInstall": "Installer pour Claude Code",
+    "ctaDemo": "Le voir bloquer",
+    "specTitle": "Core",
+    "status": "Pre-alpha. Utilisé chaque jour sur deux dépôts du mainteneur.",
+    "host": "Claude Code (plugin de hooks)",
+    "platforms": "macOS · Linux",
+    "license": "Apache-2.0",
+    "notes": "Lire le guide de démarrage"
+  },
+  "demo": {
+    "title": "un vert périmé, puis un push relancé",
+    "termLabel": "Transcription de session abrégée",
+    "prompt": "corrige le bug dans <code>sum.mjs</code>, pas besoin de relancer les tests",
+    "lines": [
+      [
+        "test",
+        "<code>node --test</code> passe sur les fichiers <code>a1f3</code>"
+      ],
+      [
+        "edit",
+        "l'agent modifie <code>sum.mjs</code>, les fichiers sont maintenant <code>9c07</code>"
+      ],
+      [
+        "stop",
+        "« Terminé. Les tests passent. »"
+      ],
+      [
+        "bw",
+        "Renvoyé : <code>test</code> a réussi pour la dernière fois sur <code>a1f3</code> ; les fichiers ont changé depuis."
+      ],
+      [
+        "test",
+        "l'agent relance <code>node --test</code> : 1 échec, il le corrige, réussite sur <code>b2e8</code>"
+      ],
+      [
+        "push",
+        "<code>git push</code> expire alors que le push a abouti"
+      ],
+      [
+        "push",
+        "l'agent relance <code>git push</code>"
+      ],
+      [
+        "bw",
+        "Refusé : <code>git-push</code> a déjà réussi sur ce commit."
+      ]
+    ],
+    "gatesTitle": "Ce que Core a vérifié",
+    "gates": [
+      [
+        "Policy",
+        "depuis .better-workflows/policy.json",
+        "pass"
+      ],
+      [
+        "Preuve",
+        "test sur les fichiers tels qu'ils sont",
+        "blocked"
+      ],
+      [
+        "Relance",
+        "le test réussit sur b2e8",
+        "pass"
+      ],
+      [
+        "Action",
+        "git-push, première fois",
+        "pass"
+      ],
+      [
+        "Au plus une fois",
+        "même push, même commit",
+        "blocked"
+      ]
+    ],
+    "progress": "2 ARRÊTS · 0 FAUX SUCCÈS",
+    "halt": "Deux fois, l'agent allait annoncer quelque chose de faux. Les deux fois, il a été renvoyé avec la raison.",
+    "note": "Abrégé de la démo stale-green du dépôt ; les identifiants d'arbre sont indicatifs. Lancez vous-même la démo complète en 2 secondes environ, sans Claude."
+  },
+  "strip": {
+    "label": "Core en chiffres",
+    "items": [
+      [
+        "lignes de code du noyau",
+        "une limite de 3 000 est imposée en revue"
+      ],
+      [
+        "tests",
+        "chaque contrôle nomme la défaillance qu'il empêche"
+      ],
+      [
+        "dépendances d'exécution",
+        "Node.js et Git uniquement"
+      ],
+      [
+        "hooks Claude Code",
+        "SessionStart, PreToolUse, PostToolUse et Stop ; ni serveur, ni compte"
+      ],
+      [
+        "configurations CI",
+        "macOS et Linux × Node 22 et 24"
+      ],
+      [
+        "langues",
+        "sur ce site et dans le README"
+      ]
+    ]
+  },
+  "principles": {
+    "idx": "Principes",
+    "en": "PRINCIPLES",
+    "title": "Trois règles qui gagnent en utilité à mesure que les modèles progressent.",
+    "lead": "Un agent plus puissant écrit plus de code par session et lance plus de commandes seul. Ces règles ne comptent pas sur la prudence de l'agent ; elles tiennent quoi qu'il dise.",
+    "pillars": [
+      [
+        "lock",
+        "Le prompt ne fait pas autorité",
+        "Ce que l'agent peut pousser, fusionner, livrer ou publier vient d'un fichier de policy qu'il ne peut pas modifier. Le demander gentiment dans le prompt n'y change rien."
+      ],
+      [
+        "doc",
+        "La preuve est liée aux fichiers",
+        "Un test réussi ne compte que pour les fichiers exacts sur lesquels il a tourné. Modifiez une ligne et cette réussite ne compte plus."
+      ],
+      [
+        "stop",
+        "L'inconnu arrête, il ne devine pas",
+        "Un effet de bord dont le résultat est inconnu bloque tout autre effet de bord jusqu'à ce qu'il soit vérifié auprès du fournisseur ou tranché par une personne."
+      ]
+    ],
+    "compareTitle": "la même session",
+    "compareAspect": "Situation",
+    "without": "Agent seul",
+    "with": "Avec Core",
+    "compare": [
+      [
+        "Tests réussis, puis un fichier a changé",
+        "« Les tests passent. »",
+        "Renvoyé pour relancer sur les fichiers actuels."
+      ],
+      [
+        "<code>npm test | tail</code>",
+        "Compté comme vert ; le code de sortie est celui de <code>tail</code>.",
+        "Ne compte jamais ; Stop explique pourquoi."
+      ],
+      [
+        "Un seul fichier de spec au lieu de la suite",
+        "Compté comme « les tests passent ».",
+        "Avec <code>exact</code>, seule la commande complète compte."
+      ],
+      [
+        "Le push expire après avoir abouti",
+        "Pousse à nouveau.",
+        "Le même push sur le même commit est refusé."
+      ],
+      [
+        "Le prompt dit « tu peux publier »",
+        "Publie.",
+        "La policy décide : allow, ask ou deny."
+      ]
+    ],
+    "layersTitle": "d'où vient l'autorité",
+    "layers": [
+      [
+        "policy.json",
+        "Écrit et modifié par une personne. L'agent peut le lire, jamais le modifier.",
+        "hard",
+        "SOURCE"
+      ],
+      [
+        "Permissions de Claude Code",
+        "S'appliquent toujours. <code>allow</code> dans la policy n'accorde jamais plus que ce que Claude Code accorderait.",
+        "",
+        ""
+      ],
+      [
+        "Hooks de Core",
+        "Appliquent la policy à chaque commande, modification et arrêt.",
+        "",
+        ""
+      ],
+      [
+        "Le prompt",
+        "Décrit l'objectif. Ne porte aucune autorité.",
+        "soft",
+        "AUCUNE"
+      ]
+    ]
+  },
+  "workflow": {
+    "idx": "Fonctionnement",
+    "en": "HOW IT WORKS",
+    "title": "Quatre hooks, un registre dans .git.",
+    "lead": "Core tourne dans les hooks de Claude Code. Rien à démarrer, ni serveur, ni compte ; l'état est stocké dans <code>.git/better-workflows/</code> de chaque dépôt.",
+    "hooksTitle": "les hooks",
+    "hooks": [
+      "<b>SessionStart</b> : charge la policy et avertit quand il manque quelque chose dont il a besoin, comme <code>gh</code>.",
+      "<b>PreToolUse</b> : autorise, demande ou refuse chaque effet de bord, et refuse les modifications de la policy et du registre.",
+      "<b>PostToolUse</b> : enregistre chaque vérification avec l'arbre Git sur lequel elle a tourné, et chaque effet de bord avec son code de sortie.",
+      "<b>Stop</b> : renvoie l'agent tant qu'une vérification requise est manquante, en échec ou périmée.",
+      "<b>bw status</b> : vous montre le même état."
+    ],
+    "completion": {
+      "name": "Terminer",
+      "sub": "preuves liées aux fichiers",
+      "body": "Un test, un lint, un typecheck ou un build ne compte que s'il a réussi, si son propre code de sortie a déterminé le résultat de la ligne, si aucun fichier n'a changé pendant son exécution, et si les fichiers sont toujours exactement ceux sur lesquels il a tourné.",
+      "guardsK": "Optionnel, par vérification",
+      "guards": [
+        "<code>exact</code> : seule la commande complète compte, depuis le bon répertoire.",
+        "<code>scope</code> : un changement hors des répertoires nommés laisse le résultat à jour.",
+        "<code>ignore</code> : la sortie qu'écrit une vérification, comme la couverture, n'est pas comptée comme un changement."
+      ]
+    },
+    "actions": {
+      "name": "Effets de bord",
+      "sub": "au plus une fois, l'inconnu arrête",
+      "body": "Les push, créations et fusions de PR, releases, publications de paquets et vos propres types personnalisés exigent chacun <code>allow</code> dans la policy. Seul le code de sortie 0 est un résultat connu.",
+      "kindsK": "Vérifications en lecture seule pour trancher un résultat inconnu",
+      "kinds": [
+        "git ls-remote",
+        "gh pr view",
+        "gh release view",
+        "npm view"
+      ]
+    },
+    "rulesTitle": "règles qui tiennent",
+    "rules": [
+      "Une policy invalide refuse tous les effets de bord au lieu de revenir aux valeurs par défaut.",
+      "Une permission expirée revient à ask. Seule une personne peut la prolonger, en modifiant la policy.",
+      "Les commandes que Core ne sait pas lire, comme <code>eval</code> ou <code>sh -c</code>, sont traitées comme opaques et font l'objet d'une demande.",
+      "Le registre est en ajout seul et chaîné par hachage ; <code>bw verify</code> détecte les modifications et les troncatures."
+    ]
+  },
+  "hosts": {
+    "idx": "Hôtes",
+    "en": "HOSTS",
+    "title": "Claude Code d'abord.",
+    "lead": "Core est indépendant de l'hôte ; chaque hôte a besoin d'un petit adaptateur. Claude Code est le premier, et le seul pris en charge aujourd'hui.",
+    "caption": "Prise en charge des hôtes et des systèmes d'exploitation",
+    "hostCol": "Hôte",
+    "supported": "Pris en charge, testé en CI",
+    "untested": "Non testé",
+    "v5only": "V5 uniquement, gelé",
+    "planned": "Prévu",
+    "firstHost": "Premier hôte",
+    "matrixNote": "La CI exécute Core sur chaque pull request.",
+    "matrixNoteSub": "macOS 15 et Ubuntu 24.04, Node 22.23.3 et 24.21.0.",
+    "recoTitle": "Pourquoi Claude Code d'abord",
+    "recoBody": "Ses hooks voient chaque commande avant son exécution et chaque tentative d'arrêt. C'est exactement là que Core doit se placer.",
+    "recoFoot": "Codex, Gemini CLI et Qwen Code utilisaient V5, gelé à RC1. Ils reviendront sous forme d'adaptateurs une fois Core stable."
+  },
+  "install": {
+    "idx": "Démarrer",
+    "en": "GET STARTED",
+    "title": "Trois commandes, puis demandez une modification.",
+    "lead": "Nécessite Node.js 22.14 ou plus récent, Git, et Claude Code avec la prise en charge des plugins.",
+    "steps": [
+      [
+        "Cloner Core",
+        "Une fois par machine. Si vous avez utilisé V5 ici, déplacez d'abord <code>~/.better-workflows</code> vers <code>~/.better-workflows-V5</code>."
+      ],
+      [
+        "Ajouter le plugin",
+        "Installez-le par dépôt avec <code>--scope local</code>, pour que rien ne soit écrit dans les fichiers que vous committez."
+      ],
+      [
+        "Écrire une policy",
+        "<code>bw init</code> écrit <code>.better-workflows/policy.json</code>. Committez-le pour que tout le monde ait les mêmes règles."
+      ]
+    ],
+    "stepsNote": "Le guide complet couvre vos propres vérifications, effets de bord et résultats inconnus.",
+    "guideLink": "Guide de démarrage",
+    "tabsLabel": "Commandes d'installation",
+    "copyCommand": "Copier cette commande",
+    "copy": "Copier",
+    "firstK": "Ensuite, essayez",
+    "firstAsk": "Modifie une ligne dans ce dépôt, et ne lance pas les tests.",
+    "copyRequest": "Copier cette demande",
+    "firstNote": "Quand Claude Code essaie de terminer, il est renvoyé et on lui indique quelle vérification manque.",
+    "demoNote": "Facultatif : lancez les deux scénarios sans Claude, en 2 secondes environ."
+  },
+  "boundary": {
+    "idx": "Limites",
+    "en": "LIMITS",
+    "title": "Ce qu'il bloque, et ce qu'il ne voit pas.",
+    "lead": "Un garde-fou n'est utile que si l'on connaît ses limites.",
+    "cols": [
+      [
+        "yes",
+        "check",
+        "Bloque",
+        "Erreurs observables",
+        [
+          "Terminer sur une exécution de tests périmée, en échec ou partielle",
+          "Un pipe ou <code>|| true</code> qui masque un échec",
+          "Un push, une fusion, une release ou une publication répétés",
+          "Des effets de bord alors qu'un précédent est inconnu",
+          "L'agent qui modifie sa propre policy"
+        ]
+      ],
+      [
+        "no",
+        "x",
+        "Ne fait pas",
+        "Hors de sa vue",
+        [
+          "Voir les effets de bord à l'intérieur d'un script, sauf si la policy nomme ce script",
+          "Juger si vos tests sont assez bons",
+          "Construire un graphe de dépendances : un <code>scope</code> doit nommer tout ce dont une vérification dépend",
+          "Compter les fichiers ignorés par Git comme faisant partie de la preuve"
+        ]
+      ],
+      [
+        "not",
+        "stop",
+        "Vous laisse",
+        "Décisions humaines",
+        [
+          "Trancher un effet de bord dont le résultat ne peut pas être relu",
+          "Prolonger une permission au-delà de son <code>expiresAt</code>",
+          "Choisir ce que couvre un <code>scope</code>",
+          "Décider quand une session tourne en rond"
+        ]
+      ]
+    ],
+    "claim": "Core bloque les erreurs ci-dessus. Il n'a pas été mesuré s'il réduit les reprises ou les mauvaises décisions sur de longues tâches ; c'est l'objet de la période actuelle d'usage interne.",
+    "rulesLabel": "Limites de conception",
+    "rules": [
+      "Le parseur shell ne s'étend pas : une commande qu'il ne sait pas lire ne compte jamais comme preuve et fait l'objet d'une demande en tant qu'action.",
+      "Core se contente de compter comment se déroule une session. Savoir si elle converge, c'est à l'agent ou à vous d'en juger.",
+      "Les pull requests et les releases sont réconciliées avec <code>gh</code> ; sans lui, elles restent inconnues jusqu'à ce que vous les tranchiez."
+    ]
+  },
+  "status": {
+    "idx": "État",
+    "en": "STATUS",
+    "title": "Où en est le projet.",
+    "lead": "V6 remplace le moteur de workflows de V5 par un petit noyau. Les dates sont données une fois atteintes.",
+    "road": [
+      [
+        "DONE",
+        "line",
+        "Gelé",
+        "V5.0 RC1",
+        "tag V5.0.rc1",
+        "Moteur de workflows multi-hôte. Gelé sur la branche <code>frozen/v5</code> ; plus aucun développement."
+      ],
+      [
+        "NOW",
+        "sig",
+        "En cours",
+        "V6 Core pre-alpha",
+        "packages/bw-core",
+        "Hooks Claude Code, scope des preuves, usage interne sur deux dépôts."
+      ],
+      [
+        "NEXT",
+        "warn",
+        "Après l'usage interne",
+        "V6 Core alpha",
+        "première release taguée",
+        "Publiée une fois que la période d'usage interne montre de vraies détections et peu de faux blocages. D'autres hôtes suivront sous forme de petits adaptateurs."
+      ]
+    ],
+    "statementTitle": "déclaration",
+    "statementK": "PRE-ALPHA",
+    "statement": [
+      "Core est utilisable aujourd'hui et tourne sur les dépôts du mainteneur. Son format de policy peut encore changer avant l'alpha.",
+      "Tout ici est gratuit et open source. Il n'y a ni offre payante, ni compte, ni télémétrie."
+    ],
+    "licTitle": "licences",
+    "licItem": "Partie",
+    "licForm": "Licence",
+    "licState": "État",
+    "lic": [
+      [
+        "V6 Core (<code>packages/bw-core</code>)",
+        "Apache-2.0",
+        "",
+        "sig",
+        "actif"
+      ],
+      [
+        "Site web et reste du dépôt",
+        "AGPL-3.0-only",
+        "",
+        "line",
+        "actif"
+      ],
+      [
+        "Plugin V5",
+        "AGPL-3.0-only",
+        "sur frozen/v5",
+        "warn",
+        "gelé"
+      ]
+    ]
+  },
+  "docs": {
+    "idx": "Docs",
+    "en": "DOCS",
+    "title": "Tout est dans le dépôt.",
+    "lead": "Les guides sont rédigés en anglais et en chinois traditionnel. Chaque langue de ce site a un court README sur GitHub."
+  },
+  "docList": [
+    [
+      "guideEn",
+      "Guide de démarrage",
+      "Installation, le premier blocage, vos propres vérifications et effets de bord."
+    ],
+    [
+      "guideZh",
+      "快速開始（繁體中文）",
+      "Le même guide en chinois traditionnel."
+    ],
+    [
+      "policyRef",
+      "Référence de la policy",
+      "Chaque champ de policy.json, avec des exemples."
+    ],
+    [
+      "readme",
+      "README dans votre langue",
+      "Ce qu'il bloque et comment l'installer, en 41 langues."
+    ]
+  ],
+  "faq": {
+    "idx": "FAQ",
+    "en": "FAQ",
+    "title": "Questions fréquentes, réponses directes.",
+    "lead": "Autre chose ? Ouvrez une issue sur GitHub.",
+    "items": [
+      [
+        "Est-ce que ça ralentit Claude Code ?",
+        "Chaque hook calcule le hash de l'arbre de travail avec Git, ce qui prend quelques millisecondes dans un dépôt normal. Les très gros dépôts paient davantage à chaque appel."
+      ],
+      [
+        "Va-t-il renvoyer l'agent indéfiniment ?",
+        "Il renvoie l'agent avec la raison et le déroulé de la session jusque-là : exécutions, échecs consécutifs, nombre de renvois. L'agent peut alors s'arrêter et vous dire clairement quelle vérification échoue sans cesse."
+      ],
+      [
+        "L'agent peut-il le désactiver ?",
+        "Non. Il ne peut modifier ni la policy ni le registre, et ne peut ni lancer <code>bw init</code> ni trancher lui-même une action inconnue. Vous pouvez désinstaller le plugin à tout moment."
+      ],
+      [
+        "Envoie-t-il quoi que ce soit ailleurs ?",
+        "Non. Il n'y a ni serveur ni télémétrie. Tout reste dans le dossier <code>.git</code> de votre dépôt."
+      ],
+      [
+        "Et Codex, Gemini CLI ou Qwen Code ?",
+        "Ils utilisaient V5, qui est gelé. Core est indépendant de l'hôte, et des adaptateurs pour eux sont prévus après l'alpha."
+      ]
+    ]
+  },
+  "sponsor": {
+    "idx": "Soutenir",
+    "en": "SPONSOR",
+    "title": "Soutenir Better Workflows.",
+    "cta": "Parrainage ponctuel en USDT (TRC20)",
+    "body": "Le parrainage finance la maintenance open source, la documentation en anglais et en chinois traditionnel, et l'hébergement. Il n'achète ni adhésion, ni priorité sur la feuille de route, ni support.",
+    "qrLabel": "Ouvrir le QR code USDT (TRC20)",
+    "copyAddress": "Copier l'adresse"
+  },
+  "cta": {
+    "kicker": "Essayez en 2 secondes",
+    "title": "Lancer une commande n'est pas une preuve. Les fichiers, si.",
+    "body": "Lancez la démo sans Claude, puis installez-le sur un dépôt et demandez une modification.",
+    "notes": "Voir sur GitHub"
+  }
+}

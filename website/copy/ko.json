@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "title": "Better Workflows | 코딩 에이전트가 현재 증거로만 작업을 끝냅니다",
+    "description": "오픈 소스 Claude Code 플러그인: 에이전트는 오래된 통과 결과로 작업을 끝낼 수 없고, 결과를 확인하지 못한 부작용을 반복하거나 중복해서 실행할 수 없습니다. 권한은 policy 파일에서 나오며, 프롬프트에서는 절대 나오지 않습니다.",
+    "imageAlt": "Better Workflows 컨트롤 플레인 일러스트: 원장, 증거 봉인, 조정 노드"
+  },
+  "shell": {
+    "skip": "본문으로 건너뛰기",
+    "product": "제품",
+    "principles": "원칙",
+    "workflow": "작동 방식",
+    "install": "시작하기",
+    "docs": "문서",
+    "sponsor": "후원",
+    "menuOpen": "메뉴 열기",
+    "menuClose": "메뉴 닫기",
+    "language": "언어",
+    "themeToDark": "어두운 테마로 전환",
+    "themeToLight": "밝은 테마로 전환",
+    "themeToggle": "색상 테마 전환",
+    "homeLabel": "Better Workflows 홈",
+    "tagline": "코딩 에이전트는 현재 증거로만 작업을 끝내고, 각 부작용은 최대 한 번만 실행합니다.",
+    "chip": "V6 Core · pre-alpha",
+    "installCta": "설치",
+    "overview": "개요",
+    "hosts": "호스트",
+    "boundary": "한계",
+    "status": "현황",
+    "faq": "FAQ",
+    "resources": "자료",
+    "project": "오픈 소스",
+    "guideEn": "시작 가이드 (영어)",
+    "guideZh": "시작 가이드 (繁體中文)",
+    "policyRef": "Policy 레퍼런스",
+    "v5Archive": "V5 아카이브",
+    "contribute": "기여하기",
+    "security": "보안",
+    "license": "Core Apache-2.0",
+    "alias": "(betterworkflows.org는 이곳으로 리디렉션됩니다)"
+  },
+  "hero": {
+    "badge": "pre-alpha",
+    "h1": "증거는 최신이어야 한다",
+    "h1Signal": "모르면 멈춘다",
+    "lead": "AI 에이전트가 오래된 통과 결과로 작업을 끝내거나, 결과를 확인하지 못한 부작용을 반복하거나 중복해서 실행하지 못하게 하는 Claude Code 플러그인입니다. 무엇을 할 수 있는지는 직접 작성한 policy 파일이 정하며, 프롬프트가 정하지 않습니다.",
+    "taglineLabel": "Core가 강제하는 것",
+    "chips": [
+      "현재 증거",
+      "최대 한 번",
+      "프롬프트가 아닌 policy",
+      "Fail-closed"
+    ],
+    "ctaInstall": "Claude Code에 설치",
+    "ctaDemo": "멈추는 모습 보기",
+    "specTitle": "Core",
+    "status": "Pre-alpha. 메인테이너의 저장소 두 곳에서 매일 사용 중입니다.",
+    "host": "Claude Code (hooks 플러그인)",
+    "platforms": "macOS · Linux",
+    "license": "Apache-2.0",
+    "notes": "시작 가이드 읽기"
+  },
+  "demo": {
+    "title": "오래된 통과 결과, 그리고 재시도된 push",
+    "termLabel": "요약한 세션 기록",
+    "prompt": "<code>sum.mjs</code>의 버그를 고쳐 줘, 테스트는 다시 안 돌려도 돼",
+    "lines": [
+      [
+        "test",
+        "<code>node --test</code>가 파일 <code>a1f3</code>에서 통과"
+      ],
+      [
+        "edit",
+        "에이전트가 <code>sum.mjs</code>를 수정, 파일은 이제 <code>9c07</code>"
+      ],
+      [
+        "stop",
+        "“완료했습니다. 테스트 통과합니다.”"
+      ],
+      [
+        "bw",
+        "되돌려 보냄: <code>test</code>가 마지막으로 통과한 것은 <code>a1f3</code>이며, 그 뒤로 파일이 바뀌었습니다."
+      ],
+      [
+        "test",
+        "에이전트가 <code>node --test</code>를 다시 실행: 실패 1건, 수정 후 <code>b2e8</code>에서 통과"
+      ],
+      [
+        "push",
+        "push가 반영된 뒤 <code>git push</code>가 타임아웃"
+      ],
+      [
+        "push",
+        "에이전트가 <code>git push</code>를 재시도"
+      ],
+      [
+        "bw",
+        "거부: <code>git-push</code>는 이 커밋에서 이미 성공했습니다."
+      ]
+    ],
+    "gatesTitle": "Core가 확인한 것",
+    "gates": [
+      [
+        "Policy",
+        ".better-workflows/policy.json에서 읽음",
+        "pass"
+      ],
+      [
+        "증거",
+        "현재 파일 기준의 테스트",
+        "blocked"
+      ],
+      [
+        "재실행",
+        "b2e8에서 테스트 통과",
+        "pass"
+      ],
+      [
+        "작업",
+        "git-push, 첫 번째",
+        "pass"
+      ],
+      [
+        "최대 한 번",
+        "같은 push, 같은 커밋",
+        "blocked"
+      ]
+    ],
+    "progress": "차단 2회 · 거짓 완료 0회",
+    "halt": "에이전트는 두 번이나 사실이 아닌 내용을 보고하려 했습니다. 두 번 모두 이유와 함께 되돌려 보내졌습니다.",
+    "note": "저장소의 stale-green 데모를 줄인 것이며, tree ID는 예시입니다. 전체 데모는 Claude 없이 약 2초 만에 직접 실행할 수 있습니다."
+  },
+  "strip": {
+    "label": "숫자로 보는 Core",
+    "items": [
+      [
+        "줄의 커널 코드",
+        "리뷰에서 3,000줄 상한을 강제"
+      ],
+      [
+        "개의 테스트",
+        "각 게이트가 막는 실패를 명시"
+      ],
+      [
+        "개의 런타임 의존성",
+        "Node.js와 Git만 필요"
+      ],
+      [
+        "개의 Claude Code hook",
+        "SessionStart, PreToolUse, PostToolUse, Stop; 서버도 계정도 없음"
+      ],
+      [
+        "개의 CI 레인",
+        "macOS와 Linux × Node 22와 24"
+      ],
+      [
+        "개 언어",
+        "이 사이트와 README에서 지원"
+      ]
+    ]
+  },
+  "principles": {
+    "idx": "원칙",
+    "en": "PRINCIPLES",
+    "title": "모델이 강해질수록 더 쓸모 있어지는 세 가지 규칙.",
+    "lead": "더 강한 에이전트는 세션마다 더 많은 코드를 쓰고 더 많은 명령을 스스로 실행합니다. 이 규칙들은 에이전트가 조심하느냐에 의존하지 않으며, 에이전트가 무슨 말을 하든 그대로 적용됩니다.",
+    "pillars": [
+      [
+        "lock",
+        "프롬프트는 권한이 아니다",
+        "에이전트가 push, merge, release, publish를 할 수 있는지는 에이전트가 수정할 수 없는 policy 파일이 정합니다. 프롬프트에서 정중히 부탁해도 달라지는 것은 없습니다."
+      ],
+      [
+        "doc",
+        "증거는 파일에 묶인다",
+        "통과한 테스트는 실행된 바로 그 파일에 대해서만 인정됩니다. 한 줄만 바꿔도 그 통과는 더 이상 인정되지 않습니다."
+      ],
+      [
+        "stop",
+        "모르면 추측하지 않고 멈춘다",
+        "결과를 모르는 부작용은 provider에 확인하거나 사람이 정리할 때까지 이후의 모든 부작용을 막습니다."
+      ]
+    ],
+    "compareTitle": "같은 세션",
+    "compareAspect": "상황",
+    "without": "에이전트만",
+    "with": "Core 사용",
+    "compare": [
+      [
+        "테스트 통과 후 파일이 바뀜",
+        "“테스트 통과합니다.”",
+        "현재 파일로 다시 실행하도록 되돌려 보냄."
+      ],
+      [
+        "<code>npm test | tail</code>",
+        "통과로 간주; 하지만 exit code는 <code>tail</code>의 것.",
+        "절대 인정 안 됨; Stop이 이유를 알려 줌."
+      ],
+      [
+        "전체 스위트 대신 spec 파일 하나",
+        "“테스트 통과”로 간주.",
+        "<code>exact</code>를 쓰면 전체 명령만 인정."
+      ],
+      [
+        "push가 반영된 뒤 타임아웃",
+        "다시 push.",
+        "같은 커밋의 같은 push는 거부."
+      ],
+      [
+        "프롬프트에 “배포해도 돼”",
+        "배포함.",
+        "policy가 결정: allow, ask 또는 deny."
+      ]
+    ],
+    "layersTitle": "권한은 어디서 오는가",
+    "layers": [
+      [
+        "policy.json",
+        "사람이 작성하고 변경합니다. 에이전트는 읽을 수는 있지만 절대 수정할 수 없습니다.",
+        "hard",
+        "출처"
+      ],
+      [
+        "Claude Code 권한",
+        "그대로 적용됩니다. policy의 <code>allow</code>는 Claude Code가 허용하는 것보다 더 많이 허용하지 않습니다.",
+        "",
+        ""
+      ],
+      [
+        "Core hooks",
+        "모든 명령, 수정, 종료 시점에 policy를 적용합니다.",
+        "",
+        ""
+      ],
+      [
+        "프롬프트",
+        "목표를 설명합니다. 권한은 없습니다.",
+        "soft",
+        "없음"
+      ]
+    ]
+  },
+  "workflow": {
+    "idx": "작동 방식",
+    "en": "HOW IT WORKS",
+    "title": "hook 넷, .git 안의 원장 하나.",
+    "lead": "Core는 Claude Code 자체의 hooks 안에서 실행됩니다. 따로 띄울 것도, 서버도, 계정도 없으며, 상태는 각 저장소의 <code>.git/better-workflows/</code>에 저장됩니다.",
+    "hooksTitle": "hooks",
+    "hooks": [
+      "<b>SessionStart</b>: policy를 불러오고, <code>gh</code>처럼 필요한 것이 없으면 경고합니다.",
+      "<b>PreToolUse</b>: 각 부작용을 허용, 확인 요청 또는 거부하며, policy와 원장에 대한 수정을 거부합니다.",
+      "<b>PostToolUse</b>: 각 검사를 실행된 Git tree와 함께, 각 부작용을 exit code와 함께 기록합니다.",
+      "<b>Stop</b>: 필수 검사가 없거나, 실패했거나, 오래된 동안에는 에이전트를 되돌려 보냅니다.",
+      "<b>bw status</b>: 같은 상태를 사용자에게 보여 줍니다."
+    ],
+    "completion": {
+      "name": "작업 완료",
+      "sub": "파일에 묶인 증거",
+      "body": "테스트, lint, typecheck, build는 통과했고, 그 자체의 exit code가 결과를 정했고, 실행 중 바뀐 파일이 없고, 파일이 실행 당시와 정확히 같을 때만 인정됩니다.",
+      "guardsK": "선택 사항, 검사별",
+      "guards": [
+        "<code>exact</code>: 올바른 디렉터리에서 실행한 전체 명령만 인정합니다.",
+        "<code>scope</code>: 지정한 디렉터리 밖의 변경은 결과를 오래된 것으로 만들지 않습니다.",
+        "<code>ignore</code>: coverage처럼 검사가 쓰는 출력은 변경으로 치지 않습니다."
+      ]
+    },
+    "actions": {
+      "name": "부작용",
+      "sub": "최대 한 번, 모르면 멈춤",
+      "body": "push, PR 생성과 merge, release, 패키지 publish, 직접 정의한 종류는 각각 policy의 <code>allow</code>가 필요합니다. exit code 0만 알려진 결과입니다.",
+      "kindsK": "알 수 없는 결과를 정리하는 데 쓰는 읽기 전용 검사",
+      "kinds": [
+        "git ls-remote",
+        "gh pr view",
+        "gh release view",
+        "npm view"
+      ]
+    },
+    "rulesTitle": "항상 지켜지는 규칙",
+    "rules": [
+      "잘못된 policy는 기본값으로 돌아가지 않고 모든 부작용을 거부합니다.",
+      "만료된 권한은 ask로 돌아갑니다. 연장은 사람만 policy를 수정해서 할 수 있습니다.",
+      "<code>eval</code>이나 <code>sh -c</code>처럼 Core가 읽을 수 없는 명령은 불투명한 것으로 보고 확인을 요청합니다.",
+      "원장은 append-only이며 해시 체인으로 연결되어 있습니다. <code>bw verify</code>가 수정과 잘림을 감지합니다."
+    ]
+  },
+  "hosts": {
+    "idx": "호스트",
+    "en": "HOSTS",
+    "title": "Claude Code부터.",
+    "lead": "Core는 호스트 중립적이며, 호스트마다 작은 어댑터가 필요합니다. 현재 지원되는 호스트는 첫 번째인 Claude Code뿐입니다.",
+    "caption": "호스트 및 운영체제 지원",
+    "hostCol": "호스트",
+    "supported": "지원, CI에서 테스트",
+    "untested": "테스트 안 됨",
+    "v5only": "V5만, 동결",
+    "planned": "계획됨",
+    "firstHost": "첫 번째 호스트",
+    "matrixNote": "CI는 모든 pull request에서 Core를 실행합니다.",
+    "matrixNoteSub": "macOS 15와 Ubuntu 24.04, Node 22.23.3과 24.21.0.",
+    "recoTitle": "왜 Claude Code부터인가",
+    "recoBody": "Claude Code의 hooks는 모든 명령을 실행 전에, 모든 종료 시도를 그 순간에 봅니다. 바로 그곳이 Core가 있어야 할 자리입니다.",
+    "recoFoot": "Codex, Gemini CLI, Qwen Code는 RC1에서 동결된 V5를 사용했습니다. Core가 안정되면 어댑터로 돌아옵니다."
+  },
+  "install": {
+    "idx": "시작하기",
+    "en": "GET STARTED",
+    "title": "명령 세 개, 그다음 변경을 요청하세요.",
+    "lead": "Node.js 22.14 이상, Git, 플러그인을 지원하는 Claude Code가 필요합니다.",
+    "steps": [
+      [
+        "Core 클론",
+        "머신당 한 번. 이 머신에서 V5를 썼다면 먼저 <code>~/.better-workflows</code>를 <code>~/.better-workflows-V5</code>로 옮기세요."
+      ],
+      [
+        "플러그인 추가",
+        "<code>--scope local</code>로 저장소별로 설치하면 커밋하는 파일에 아무것도 기록되지 않습니다."
+      ],
+      [
+        "policy 작성",
+        "<code>bw init</code>가 <code>.better-workflows/policy.json</code>을 만듭니다. 모두가 같은 규칙을 쓰도록 커밋하세요."
+      ]
+    ],
+    "stepsNote": "전체 안내에서 직접 정의한 검사, 부작용, 알 수 없는 결과를 다룹니다.",
+    "guideLink": "시작 가이드",
+    "tabsLabel": "설치 명령",
+    "copyCommand": "이 명령 복사",
+    "copy": "복사",
+    "firstK": "그다음 해 보기",
+    "firstAsk": "이 저장소에서 한 줄만 바꾸고, 테스트는 실행하지 마.",
+    "copyRequest": "이 요청 복사",
+    "firstNote": "Claude Code가 작업을 끝내려 하면 되돌려 보내지고, 어떤 검사가 빠졌는지 안내받습니다.",
+    "demoNote": "선택 사항: Claude 없이 두 시나리오를 약 2초 만에 실행해 보세요."
+  },
+  "boundary": {
+    "idx": "한계",
+    "en": "LIMITS",
+    "title": "무엇을 막고, 무엇을 보지 못하는가.",
+    "lead": "게이트는 그 경계를 알 때만 쓸모가 있습니다.",
+    "cols": [
+      [
+        "yes",
+        "check",
+        "막는 것",
+        "관찰 가능한 실수",
+        [
+          "오래되었거나 실패했거나 일부만 실행된 테스트로 작업 완료",
+          "파이프나 <code>|| true</code>로 실패를 숨기기",
+          "push, merge, release, publish 반복",
+          "이전 부작용의 결과를 모르는 상태에서 다른 부작용 실행",
+          "에이전트가 자기 policy를 수정하기"
+        ]
+      ],
+      [
+        "no",
+        "x",
+        "하지 않는 것",
+        "보이지 않는 영역",
+        [
+          "policy가 해당 스크립트를 지정하지 않는 한, 스크립트 내부의 부작용 감지",
+          "테스트가 충분히 좋은지 판단",
+          "의존성 그래프 구축: <code>scope</code>에는 검사가 의존하는 모든 것을 지정해야 함",
+          "Git이 무시하는 파일을 증거에 포함"
+        ]
+      ],
+      [
+        "not",
+        "stop",
+        "사용자에게 맡기는 것",
+        "사람이 내리는 결정",
+        [
+          "결과를 다시 읽을 수 없는 부작용 정리",
+          "<code>expiresAt</code>를 넘어 권한 연장",
+          "<code>scope</code>가 무엇을 포함할지 선택",
+          "세션이 제자리를 맴도는 시점 판단"
+        ]
+      ]
+    ],
+    "claim": "Core는 위의 실수를 막습니다. 긴 작업에서 재작업이나 잘못된 결정을 줄이는지는 아직 측정되지 않았으며, 지금의 자체 사용 기간이 바로 그것을 위한 것입니다.",
+    "rulesLabel": "설계상 한계",
+    "rules": [
+      "셸 파서는 확장하지 않습니다. 읽을 수 없는 명령은 절대 증거로 인정되지 않으며, 작업으로 보고 확인을 요청합니다.",
+      "Core는 세션 진행 상황을 집계만 합니다. 수렴하고 있는지는 에이전트나 사용자가 판단합니다.",
+      "pull request와 release는 <code>gh</code>로 조정합니다. 없으면 사용자가 정리할 때까지 알 수 없는 상태로 남습니다."
+    ]
+  },
+  "status": {
+    "idx": "현황",
+    "en": "STATUS",
+    "title": "프로젝트의 현재 위치.",
+    "lead": "V6는 V5의 워크플로 엔진을 작은 코어로 대체합니다. 날짜는 조건이 충족될 때 정합니다.",
+    "road": [
+      [
+        "DONE",
+        "line",
+        "동결",
+        "V5.0 RC1",
+        "tag V5.0.rc1",
+        "멀티 호스트 워크플로 엔진. <code>frozen/v5</code> 브랜치에 동결되었으며 새 작업은 없습니다."
+      ],
+      [
+        "NOW",
+        "sig",
+        "진행 중",
+        "V6 Core pre-alpha",
+        "packages/bw-core",
+        "Claude Code hooks, 증거 scope, 저장소 두 곳에서 자체 사용."
+      ],
+      [
+        "NEXT",
+        "warn",
+        "자체 사용 이후",
+        "V6 Core alpha",
+        "첫 태그 릴리스",
+        "자체 사용 기간에 실제로 잡아낸 사례가 있고 잘못된 차단이 적다고 확인되면 공개합니다. 다른 호스트는 작은 어댑터로 뒤따릅니다."
+      ]
+    ],
+    "statementTitle": "안내",
+    "statementK": "PRE-ALPHA",
+    "statement": [
+      "Core는 지금 바로 쓸 수 있으며 메인테이너 자신의 저장소에서 실행되고 있습니다. alpha 전에 policy 형식이 바뀔 수 있습니다.",
+      "여기 있는 모든 것은 무료이며 오픈 소스입니다. 유료 플랜, 계정, 텔레메트리는 없습니다."
+    ],
+    "licTitle": "라이선스",
+    "licItem": "구성 요소",
+    "licForm": "라이선스",
+    "licState": "상태",
+    "lic": [
+      [
+        "V6 Core (<code>packages/bw-core</code>)",
+        "Apache-2.0",
+        "",
+        "sig",
+        "활성"
+      ],
+      [
+        "웹사이트 및 저장소의 나머지 부분",
+        "AGPL-3.0-only",
+        "",
+        "line",
+        "활성"
+      ],
+      [
+        "V5 플러그인",
+        "AGPL-3.0-only",
+        "frozen/v5에 있음",
+        "warn",
+        "동결"
+      ]
+    ]
+  },
+  "docs": {
+    "idx": "문서",
+    "en": "DOCS",
+    "title": "모든 것은 저장소에 있습니다.",
+    "lead": "가이드는 영어와 번체 중국어로 작성되어 있습니다. 이 사이트의 각 언어에는 GitHub에 짧은 README가 있습니다."
+  },
+  "docList": [
+    [
+      "guideEn",
+      "시작 가이드",
+      "영어판: 설치, 첫 번째 차단, 직접 정의한 검사와 부작용."
+    ],
+    [
+      "guideZh",
+      "快速開始（繁體中文）",
+      "같은 가이드의 번체 중국어판."
+    ],
+    [
+      "policyRef",
+      "Policy 레퍼런스",
+      "policy.json의 모든 필드와 예시."
+    ],
+    [
+      "readme",
+      "내 언어로 된 README",
+      "무엇을 막고 어떻게 설치하는지, 41개 언어로."
+    ]
+  ],
+  "faq": {
+    "idx": "FAQ",
+    "en": "FAQ",
+    "title": "자주 묻는 질문, 솔직한 답.",
+    "lead": "다른 질문이 있나요? GitHub에 issue를 열어 주세요.",
+    "items": [
+      [
+        "Claude Code가 느려지나요?",
+        "각 hook은 Git으로 작업 트리를 해시하며, 일반적인 저장소에서는 밀리초 단위가 걸립니다. 아주 큰 저장소는 호출마다 더 많은 시간이 듭니다."
+      ],
+      [
+        "에이전트를 끝없이 되돌려 보내며 멈춰 버리지는 않나요?",
+        "이유와 함께 지금까지의 세션 경과를 알려 주며 되돌려 보냅니다: 실행 횟수, 연속 실패, 이미 되돌려 보낸 횟수. 그러면 에이전트는 멈추고 어떤 검사가 계속 실패하는지 사용자에게 분명히 말할 수 있습니다."
+      ],
+      [
+        "에이전트가 이걸 끌 수 있나요?",
+        "아니요. policy나 원장을 수정할 수 없고, <code>bw init</code>를 실행하거나 알 수 없는 작업을 스스로 정리할 수도 없습니다. 사용자는 언제든 플러그인을 제거할 수 있습니다."
+      ],
+      [
+        "어딘가로 무언가를 보내나요?",
+        "아니요. 서버도 텔레메트리도 없습니다. 모든 것은 저장소의 <code>.git</code> 폴더에 남습니다."
+      ],
+      [
+        "Codex, Gemini CLI, Qwen Code는요?",
+        "이들은 동결된 V5를 사용했습니다. Core는 호스트 중립적이며, 이들을 위한 어댑터는 alpha 이후로 계획되어 있습니다."
+      ]
+    ]
+  },
+  "sponsor": {
+    "idx": "후원",
+    "en": "SPONSOR",
+    "title": "Better Workflows를 후원하세요.",
+    "cta": "USDT (TRC20) 일회성 후원",
+    "body": "후원금은 오픈 소스 유지 관리, 영어와 번체 중국어 문서, 호스팅에 쓰입니다. 후원으로 멤버십, 로드맵 우선순위, 지원을 얻지는 않습니다.",
+    "qrLabel": "USDT (TRC20) QR 코드 열기",
+    "copyAddress": "주소 복사"
+  },
+  "cta": {
+    "kicker": "2초 만에 체험",
+    "title": "명령을 실행했다고 증거가 되지는 않습니다. 증거는 파일입니다.",
+    "body": "Claude 없이 데모를 실행한 다음, 저장소 하나에 설치하고 변경을 요청하세요.",
+    "notes": "GitHub에서 보기"
+  }
+}

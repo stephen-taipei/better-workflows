@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "title": "Better Workflows | Je codeeragent rondt af op actueel bewijs",
+    "description": "Een opensource-plugin voor Claude Code: de agent kan niet afronden op een verouderde groene test, en kan geen neveneffecten herhalen of stapelen waarvan hij het resultaat nooit heeft gezien. Rechten komen uit een policy-bestand, nooit uit de prompt.",
+    "imageAlt": "Illustratie van het control plane van Better Workflows: logboek, bewijszegels en reconciliatieknooppunten"
+  },
+  "shell": {
+    "skip": "Naar hoofdinhoud",
+    "product": "Product",
+    "principles": "Principes",
+    "workflow": "Hoe het werkt",
+    "install": "Aan de slag",
+    "docs": "Documentatie",
+    "sponsor": "Sponsoren",
+    "menuOpen": "Menu openen",
+    "menuClose": "Menu sluiten",
+    "language": "Taal",
+    "themeToDark": "Overschakelen naar donker thema",
+    "themeToLight": "Overschakelen naar licht thema",
+    "themeToggle": "Kleurthema wisselen",
+    "homeLabel": "Better Workflows startpagina",
+    "tagline": "Je codeeragent rondt af op actueel bewijs en voert elk neveneffect hooguit één keer uit.",
+    "chip": "V6 Core · pre-alpha",
+    "installCta": "Installeren",
+    "overview": "Overzicht",
+    "hosts": "Hosts",
+    "boundary": "Grenzen",
+    "status": "Status",
+    "faq": "FAQ",
+    "resources": "Bronnen",
+    "project": "Open source",
+    "guideEn": "Aan de slag (Engels)",
+    "guideZh": "Aan de slag (繁體中文)",
+    "policyRef": "Policy-referentie",
+    "v5Archive": "V5-archief",
+    "contribute": "Bijdragen",
+    "security": "Beveiliging",
+    "license": "Core Apache-2.0",
+    "alias": "(betterworkflows.org verwijst hierheen)"
+  },
+  "hero": {
+    "badge": "pre-alpha",
+    "h1": "Bewijs moet vers zijn.",
+    "h1Signal": "Onbekend? Stop.",
+    "lead": "Een Claude Code-plugin die voorkomt dat een AI-agent afrondt op een verouderde groene test, en dat hij neveneffecten herhaalt of stapelt waarvan hij het resultaat nooit heeft gezien. Wat hij mag, komt uit een policy-bestand dat jij schrijft, nooit uit de prompt.",
+    "taglineLabel": "Wat Core afdwingt",
+    "chips": [
+      "Actueel bewijs",
+      "Hooguit één keer",
+      "Policy, geen prompt",
+      "Fail-closed"
+    ],
+    "ctaInstall": "Installeren voor Claude Code",
+    "ctaDemo": "Zie het stoppen",
+    "specTitle": "Core",
+    "status": "Pre-alpha. Draait dagelijks op twee repositories van de maintainer.",
+    "host": "Claude Code (hooks-plugin)",
+    "platforms": "macOS · Linux",
+    "license": "Apache-2.0",
+    "notes": "Lees de handleiding om te beginnen"
+  },
+  "demo": {
+    "title": "een verouderd groen, daarna een herhaalde push",
+    "termLabel": "Ingekort sessieverslag",
+    "prompt": "los de bug in <code>sum.mjs</code> op, de tests hoeven niet opnieuw",
+    "lines": [
+      [
+        "test",
+        "<code>node --test</code> slaagt op bestanden <code>a1f3</code>"
+      ],
+      [
+        "edit",
+        "de agent bewerkt <code>sum.mjs</code>, de bestanden zijn nu <code>9c07</code>"
+      ],
+      [
+        "stop",
+        "‘Klaar. Tests slagen.’"
+      ],
+      [
+        "bw",
+        "Teruggestuurd: <code>test</code> slaagde voor het laatst op <code>a1f3</code>; de bestanden zijn sindsdien gewijzigd."
+      ],
+      [
+        "test",
+        "de agent draait <code>node --test</code> opnieuw: 1 fout, lost die op, slaagt op <code>b2e8</code>"
+      ],
+      [
+        "push",
+        "<code>git push</code> krijgt een time-out nadat de push al is aangekomen"
+      ],
+      [
+        "push",
+        "de agent probeert <code>git push</code> opnieuw"
+      ],
+      [
+        "bw",
+        "Geweigerd: <code>git-push</code> is al geslaagd op deze commit."
+      ]
+    ],
+    "gatesTitle": "Wat Core controleerde",
+    "gates": [
+      [
+        "Policy",
+        "uit .better-workflows/policy.json",
+        "pass"
+      ],
+      [
+        "Bewijs",
+        "test op de bestanden zoals ze nu zijn",
+        "blocked"
+      ],
+      [
+        "Opnieuw",
+        "test slaagt op b2e8",
+        "pass"
+      ],
+      [
+        "Actie",
+        "git-push, eerste keer",
+        "pass"
+      ],
+      [
+        "Hooguit één keer",
+        "zelfde push, zelfde commit",
+        "blocked"
+      ]
+    ],
+    "progress": "2 STOPS · 0 ONTERECHT KLAAR",
+    "halt": "Twee keer stond de agent op het punt iets te melden dat niet waar was. Beide keren werd hij teruggestuurd met de reden.",
+    "note": "Ingekort uit de stale-green-demo in de repository; de tree-id's zijn illustratief. Draai de volledige demo zelf in ongeveer 2 seconden, zonder Claude."
+  },
+  "strip": {
+    "label": "Core in cijfers",
+    "items": [
+      [
+        "regels kernelcode",
+        "een limiet van 3.000 wordt in review afgedwongen"
+      ],
+      [
+        "tests",
+        "elke poort noemt de fout die hij voorkomt"
+      ],
+      [
+        "runtime-afhankelijkheden",
+        "alleen Node.js en Git"
+      ],
+      [
+        "Claude Code-hooks",
+        "SessionStart, PreToolUse, PostToolUse en Stop; geen server, geen account"
+      ],
+      [
+        "CI-lanes",
+        "macOS en Linux × Node 22 en 24"
+      ],
+      [
+        "talen",
+        "op deze site en in de README"
+      ]
+    ]
+  },
+  "principles": {
+    "idx": "Principes",
+    "en": "PRINCIPLES",
+    "title": "Drie regels die nuttiger worden naarmate modellen sterker worden.",
+    "lead": "Een sterkere agent schrijft meer code per sessie en voert meer commando's zelf uit. Deze regels hangen niet af van hoe voorzichtig de agent is; ze gelden wat hij ook zegt.",
+    "pillars": [
+      [
+        "lock",
+        "De prompt is geen autoriteit",
+        "Of de agent mag pushen, mergen, releasen of publiceren, komt uit een policy-bestand dat hij niet kan bewerken. Vriendelijk vragen in de prompt verandert niets."
+      ],
+      [
+        "doc",
+        "Bewijs hoort bij de bestanden",
+        "Een geslaagde test telt alleen voor precies de bestanden waarop hij draaide. Verander één regel en die geslaagde run telt niet meer."
+      ],
+      [
+        "stop",
+        "Onbekend stopt, het gokt niet",
+        "Een neveneffect met een onbekend resultaat blokkeert elk volgend neveneffect totdat het bij de provider is gecontroleerd of door een mens is afgehandeld."
+      ]
+    ],
+    "compareTitle": "dezelfde sessie",
+    "compareAspect": "Situatie",
+    "without": "Alleen de agent",
+    "with": "Met Core",
+    "compare": [
+      [
+        "Tests geslaagd, daarna een bestand gewijzigd",
+        "‘Tests slagen.’",
+        "Teruggestuurd om opnieuw te draaien op de huidige bestanden."
+      ],
+      [
+        "<code>npm test | tail</code>",
+        "Geteld als groen; de exitcode is van <code>tail</code>.",
+        "Telt nooit; Stop zegt waarom."
+      ],
+      [
+        "Eén spec-bestand in plaats van de suite",
+        "Geteld als ‘tests slagen’.",
+        "Met <code>exact</code> telt alleen het volledige commando."
+      ],
+      [
+        "Push krijgt time-out na aankomst",
+        "Pusht opnieuw.",
+        "Dezelfde push op dezelfde commit wordt geweigerd."
+      ],
+      [
+        "Prompt zegt ‘je mag publiceren’",
+        "Publiceert.",
+        "De policy beslist: allow, ask of deny."
+      ]
+    ],
+    "layersTitle": "waar autoriteit vandaan komt",
+    "layers": [
+      [
+        "policy.json",
+        "Geschreven en gewijzigd door een mens. De agent mag het lezen, nooit bewerken.",
+        "hard",
+        "BRON"
+      ],
+      [
+        "Claude Code-rechten",
+        "Blijven gelden. <code>allow</code> in de policy geeft nooit meer dan Claude Code zou geven.",
+        "",
+        ""
+      ],
+      [
+        "Core-hooks",
+        "Dwingen de policy af bij elk commando, elke bewerking en elke stop.",
+        "",
+        ""
+      ],
+      [
+        "De prompt",
+        "Beschrijft het doel. Heeft geen enkele autoriteit.",
+        "soft",
+        "GEEN"
+      ]
+    ]
+  },
+  "workflow": {
+    "idx": "Hoe het werkt",
+    "en": "HOW IT WORKS",
+    "title": "Vier hooks, één logboek in .git.",
+    "lead": "Core draait binnen de eigen hooks van Claude Code. Niets op te starten, geen server, geen account; de status staat in <code>.git/better-workflows/</code> van elke repository.",
+    "hooksTitle": "de hooks",
+    "hooks": [
+      "<b>SessionStart</b>: laadt de policy en waarschuwt als iets ontbreekt wat het nodig heeft, zoals <code>gh</code>.",
+      "<b>PreToolUse</b>: staat elk neveneffect toe, vraagt erom of weigert het, en weigert bewerkingen van de policy en het logboek.",
+      "<b>PostToolUse</b>: legt elke controle vast met de Git-tree waarop hij draaide, en elk neveneffect met zijn exitcode.",
+      "<b>Stop</b>: stuurt de agent terug zolang een vereiste controle ontbreekt, mislukt is of verouderd is.",
+      "<b>bw status</b>: toont jou dezelfde status."
+    ],
+    "completion": {
+      "name": "Afronden",
+      "sub": "bewijs dat bij de bestanden hoort",
+      "body": "Een test, lint, typecheck of build telt alleen als hij slaagde, zijn eigen exitcode de uitkomst bepaalde, er geen bestand veranderde terwijl hij draaide, en de bestanden nog precies zijn waarop hij draaide.",
+      "guardsK": "Optioneel, per controle",
+      "guards": [
+        "<code>exact</code>: alleen het volledige commando telt, vanuit de juiste map.",
+        "<code>scope</code>: een wijziging buiten de genoemde mappen laat het resultaat actueel.",
+        "<code>ignore</code>: uitvoer die een controle schrijft, zoals coverage, telt niet als wijziging."
+      ]
+    },
+    "actions": {
+      "name": "Neveneffecten",
+      "sub": "hooguit één keer, onbekend stopt",
+      "body": "Pushes, het aanmaken en mergen van PR's, releases, het publiceren van pakketten en je eigen soorten hebben elk <code>allow</code> uit de policy nodig. Alleen exitcode 0 is een bekend resultaat.",
+      "kindsK": "Alleen-lezen-controles om een onbekend resultaat af te handelen",
+      "kinds": [
+        "git ls-remote",
+        "gh pr view",
+        "gh release view",
+        "npm view"
+      ]
+    },
+    "rulesTitle": "regels die standhouden",
+    "rules": [
+      "Een ongeldige policy weigert elk neveneffect in plaats van terug te vallen op standaardwaarden.",
+      "Een verlopen recht valt terug op ask. Alleen een mens verlengt het, door de policy te bewerken.",
+      "Commando's die Core niet kan lezen, zoals <code>eval</code> of <code>sh -c</code>, worden als ondoorzichtig behandeld en er wordt om bevestiging gevraagd.",
+      "Het logboek is append-only en met hashes geketend; <code>bw verify</code> detecteert bewerkingen en afkapping."
+    ]
+  },
+  "hosts": {
+    "idx": "Hosts",
+    "en": "HOSTS",
+    "title": "Eerst Claude Code.",
+    "lead": "Core is host-neutraal; elke host heeft een kleine adapter nodig. Claude Code is de eerste en vandaag de enige ondersteunde.",
+    "caption": "Ondersteuning voor hosts en besturingssystemen",
+    "hostCol": "Host",
+    "supported": "Ondersteund, getest in CI",
+    "untested": "Niet getest",
+    "v5only": "Alleen V5, bevroren",
+    "planned": "Gepland",
+    "firstHost": "Eerste host",
+    "matrixNote": "CI draait Core bij elke pull request.",
+    "matrixNoteSub": "macOS 15 en Ubuntu 24.04, Node 22.23.3 en 24.21.0.",
+    "recoTitle": "Waarom eerst Claude Code",
+    "recoBody": "Zijn hooks zien elk commando voordat het draait en elke poging om te stoppen. Precies daar moet Core zitten.",
+    "recoFoot": "Codex, Gemini CLI en Qwen Code draaiden V5, dat bevroren is op RC1. Ze komen terug als adapters zodra Core stabiel is."
+  },
+  "install": {
+    "idx": "Aan de slag",
+    "en": "GET STARTED",
+    "title": "Drie commando's, vraag dan om een wijziging.",
+    "lead": "Vereist Node.js 22.14 of nieuwer, Git, en Claude Code met pluginondersteuning.",
+    "steps": [
+      [
+        "Clone Core",
+        "Eén keer per machine. Als je hier V5 gebruikte, verplaats dan eerst <code>~/.better-workflows</code> naar <code>~/.better-workflows-V5</code>."
+      ],
+      [
+        "Voeg de plugin toe",
+        "Installeer hem per repository met <code>--scope local</code>, zodat er niets wordt geschreven in bestanden die je commit."
+      ],
+      [
+        "Schrijf een policy",
+        "<code>bw init</code> schrijft <code>.better-workflows/policy.json</code>. Commit het zodat iedereen dezelfde regels krijgt."
+      ]
+    ],
+    "stepsNote": "De volledige handleiding behandelt je eigen controles, neveneffecten en onbekende resultaten.",
+    "guideLink": "Aan de slag",
+    "tabsLabel": "Installatiecommando's",
+    "copyCommand": "Dit commando kopiëren",
+    "copy": "Kopiëren",
+    "firstK": "Probeer het daarna",
+    "firstAsk": "Wijzig één regel in deze repository en draai de tests niet.",
+    "copyRequest": "Dit verzoek kopiëren",
+    "firstNote": "Als Claude Code probeert af te ronden, wordt hij teruggestuurd met de melding welke controle ontbreekt.",
+    "demoNote": "Optioneel: draai beide scenario's zonder Claude, in ongeveer 2 seconden."
+  },
+  "boundary": {
+    "idx": "Grenzen",
+    "en": "LIMITS",
+    "title": "Wat het tegenhoudt, en wat het niet kan zien.",
+    "lead": "Een poort is alleen nuttig als je de randen kent.",
+    "cols": [
+      [
+        "yes",
+        "check",
+        "Houdt tegen",
+        "Waarneembare fouten",
+        [
+          "Afronden op een verouderde, mislukte of gedeeltelijke testrun",
+          "Een pipe of <code>|| true</code> die een fout verbergt",
+          "Een herhaalde push, merge, release of publicatie",
+          "Neveneffecten terwijl een eerder neveneffect onbekend is",
+          "De agent die zijn eigen policy bewerkt"
+        ]
+      ],
+      [
+        "no",
+        "x",
+        "Doet niet",
+        "Buiten zijn zicht",
+        [
+          "Neveneffecten binnen een script zien, tenzij de policy dat script noemt",
+          "Beoordelen of je tests goed genoeg zijn",
+          "Een afhankelijkheidsgraaf bouwen: een <code>scope</code> moet alles noemen waar een controle van afhangt",
+          "Door Git genegeerde bestanden meetellen als bewijs"
+        ]
+      ],
+      [
+        "not",
+        "stop",
+        "Laat aan jou",
+        "Beslissingen van een mens",
+        [
+          "Een neveneffect afhandelen waarvan het resultaat niet terug te lezen is",
+          "Een recht verlengen voorbij de <code>expiresAt</code>",
+          "Kiezen wat een <code>scope</code> omvat",
+          "Bepalen wanneer een sessie in cirkels draait"
+        ]
+      ]
+    ],
+    "claim": "Core blokkeert de fouten hierboven. Het is niet gemeten of het herstelwerk of verkeerde beslissingen bij lange taken vermindert; daar is de huidige periode van eigen gebruik voor.",
+    "rulesLabel": "Ontwerpgrenzen",
+    "rules": [
+      "De shell-parser groeit niet: een commando dat hij niet kan lezen telt nooit als bewijs en wordt als actie voorgelegd.",
+      "Core telt alleen hoe een sessie verloopt. Of die convergeert, beoordeelt de agent of jij.",
+      "Pull requests en releases worden afgestemd met <code>gh</code>; zonder blijven ze onbekend totdat jij ze afhandelt."
+    ]
+  },
+  "status": {
+    "idx": "Status",
+    "en": "STATUS",
+    "title": "Waar het project staat.",
+    "lead": "V6 vervangt de workflow-engine van V5 door een kleine kern. Datums komen zodra de voorwaarden gehaald zijn.",
+    "road": [
+      [
+        "DONE",
+        "line",
+        "Bevroren",
+        "V5.0 RC1",
+        "tag V5.0.rc1",
+        "Workflow-engine voor meerdere hosts. Bevroren op de branch <code>frozen/v5</code>; geen nieuw werk."
+      ],
+      [
+        "NOW",
+        "sig",
+        "Bezig",
+        "V6 Core pre-alpha",
+        "packages/bw-core",
+        "Claude Code-hooks, bewijs-scope, eigen gebruik op twee repositories."
+      ],
+      [
+        "NEXT",
+        "warn",
+        "Na eigen gebruik",
+        "V6 Core alpha",
+        "eerste getagde release",
+        "Gepubliceerd zodra de periode van eigen gebruik echte vangsten en weinig onterechte blokkades laat zien. Meer hosts volgen als kleine adapters."
+      ]
+    ],
+    "statementTitle": "verklaring",
+    "statementK": "PRE-ALPHA",
+    "statement": [
+      "Core is vandaag bruikbaar en draait op de eigen repositories van de maintainer. Het policy-formaat kan vóór alpha nog veranderen.",
+      "Alles hier is gratis en open source. Er is geen betaald abonnement, account of telemetrie."
+    ],
+    "licTitle": "licenties",
+    "licItem": "Onderdeel",
+    "licForm": "Licentie",
+    "licState": "Status",
+    "lic": [
+      [
+        "V6 Core (<code>packages/bw-core</code>)",
+        "Apache-2.0",
+        "",
+        "sig",
+        "actief"
+      ],
+      [
+        "Website en de rest van de repository",
+        "AGPL-3.0-only",
+        "",
+        "line",
+        "actief"
+      ],
+      [
+        "V5-plugin",
+        "AGPL-3.0-only",
+        "op frozen/v5",
+        "warn",
+        "bevroren"
+      ]
+    ]
+  },
+  "docs": {
+    "idx": "Documentatie",
+    "en": "DOCS",
+    "title": "Alles staat in de repository.",
+    "lead": "De handleidingen zijn geschreven in het Engels en Traditioneel Chinees. Elke taal op deze site heeft een korte README op GitHub."
+  },
+  "docList": [
+    [
+      "guideEn",
+      "Aan de slag",
+      "In het Engels: installatie, de eerste blokkade, je eigen controles en neveneffecten."
+    ],
+    [
+      "guideZh",
+      "快速開始（繁體中文）",
+      "Dezelfde handleiding in het Traditioneel Chinees."
+    ],
+    [
+      "policyRef",
+      "Policy-referentie",
+      "Elk veld van policy.json, met voorbeelden."
+    ],
+    [
+      "readme",
+      "README in jouw taal",
+      "Wat het tegenhoudt en hoe je het installeert, in 41 talen."
+    ]
+  ],
+  "faq": {
+    "idx": "FAQ",
+    "en": "FAQ",
+    "title": "Veelgestelde vragen, duidelijke antwoorden.",
+    "lead": "Iets anders? Open een issue op GitHub.",
+    "items": [
+      [
+        "Maakt het Claude Code trager?",
+        "Elke hook hasht de werkboom met Git, wat in een normale repository milliseconden kost. Zeer grote repositories betalen meer per aanroep."
+      ],
+      [
+        "Kan het blijven hangen en de agent eindeloos terugsturen?",
+        "Het stuurt de agent terug met de reden en hoe de sessie tot nu toe verliep: runs, fouten op rij, hoe vaak hij al is teruggestuurd. De agent kan dan stoppen en je duidelijk vertellen welke controle steeds faalt."
+      ],
+      [
+        "Kan de agent het uitschakelen?",
+        "Nee. Hij kan de policy en het logboek niet bewerken, en kan <code>bw init</code> niet uitvoeren of zelf een onbekende actie afhandelen. Jij kunt de plugin op elk moment verwijderen."
+      ],
+      [
+        "Stuurt het ergens iets naartoe?",
+        "Nee. Er is geen server en geen telemetrie. Alles blijft in de <code>.git</code>-map van je repository."
+      ],
+      [
+        "En Codex, Gemini CLI of Qwen Code?",
+        "Die draaiden V5, dat bevroren is. Core is host-neutraal, en adapters voor hen staan gepland na de alpha."
+      ]
+    ]
+  },
+  "sponsor": {
+    "idx": "Sponsoren",
+    "en": "SPONSOR",
+    "title": "Steun Better Workflows.",
+    "cta": "Eenmalige sponsoring in USDT (TRC20)",
+    "body": "Sponsoring betaalt opensource-onderhoud, de documentatie in het Engels en Traditioneel Chinees, en hosting. Het koopt geen lidmaatschap, roadmapprioriteit of support.",
+    "qrLabel": "De USDT (TRC20) QR-code openen",
+    "copyAddress": "Het adres kopiëren"
+  },
+  "cta": {
+    "kicker": "Probeer het in 2 seconden",
+    "title": "Een commando draaien is geen bewijs. De bestanden wel.",
+    "body": "Draai de demo zonder Claude, installeer het daarna op één repository en vraag om een wijziging.",
+    "notes": "Bekijken op GitHub"
+  }
+}
