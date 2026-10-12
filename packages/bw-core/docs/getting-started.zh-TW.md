@@ -14,6 +14,13 @@ Better Workflows Core 讓 Claude Code 的 agent 不能拿「已經對不上目�
 
 ## 1. 不需要 Claude 先看效果（約 2 秒）
 
+如果這台機器跑過 V5，`~/.better-workflows` 裡是 V5 的狀態，clone 會失敗。先把 V5 移開，並告訴 V5 新位置，V5 才不會寫進 Core 的 clone：
+
+```bash
+mv ~/.better-workflows ~/.better-workflows-V5
+echo 'export SBW_STATE_ROOT="$HOME/.better-workflows-V5"' >> ~/.zshrc   # 或 ~/.bashrc
+```
+
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
 node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs

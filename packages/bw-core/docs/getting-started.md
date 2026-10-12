@@ -14,6 +14,13 @@ Status: pre-alpha. Until the alpha release, Core is installed from a Git checkou
 
 ## 1. See it work without Claude (about 2 seconds)
 
+If you ran V5 on this machine, `~/.better-workflows` holds its state and the clone fails. Move V5 aside first and tell V5 where it went, so V5 never writes into the Core clone:
+
+```bash
+mv ~/.better-workflows ~/.better-workflows-V5
+echo 'export SBW_STATE_ROOT="$HOME/.better-workflows-V5"' >> ~/.zshrc   # or ~/.bashrc
+```
+
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
 node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs

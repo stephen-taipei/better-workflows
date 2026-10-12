@@ -27,33 +27,29 @@ Requirements:
 Run the complete local baseline:
 
 ```bash
-npm test --prefix plugins/better-workflows
-node plugins/better-workflows/scripts/sbw.mjs eval
+npm test --prefix packages/bw-core
 git diff --check
 ```
 
+V5 is frozen on the [`frozen/v5`](https://github.com/stephen-taipei/better-workflows/tree/frozen/v5) branch; its baseline (`npm test --prefix plugins/better-workflows`, `sbw eval`) runs there, not on `main`.
+
 ## Change rules
 
-1. Preserve Root-owned mutation and fail-closed side-effect boundaries.
-2. When Auto's public behavior changes, update its template and skill,
-   entrypoint catalog, CLI, tests, and all affected documentation together.
-3. Reject unknown CLI options and unknown schema fields.
-4. Keep private runtime state outside the repository.
-5. Add negative tests for every new safety gate.
-6. Do not mutate an existing immutable plugin-cache version. A changed bundle
-   requires a new build version and exact source/cache digest verification.
-
-For README-only organization, keep the root page scannable and place detailed
-contracts in the matching file under [`docs/guide/`](docs/guide/).
+1. Core stays fail-closed: anything it cannot read is treated as not counting or as needing a person, never as allowed.
+2. Every new gate or check names, in the pull request, the user-visible failure it prevents. If it cannot, it is not added.
+3. Add a negative test for every new safety gate.
+4. Reject unknown policy fields and unknown CLI options.
+5. Keep the kernel under 3,000 lines and no source file over 600 lines.
+6. Do not extend shell parsing to recognise new command forms; a form Core cannot read stays unrecognised.
+7. Keep runtime state in `.git/better-workflows/`, never in the working tree.
 
 ## Pull request checklist
 
 - [ ] Scope and non-goals are explicit.
 - [ ] Behavior and safety boundaries are documented.
 - [ ] Focused tests cover success and failure paths.
-- [ ] The full test suite and `sbw eval` pass.
+- [ ] `npm test --prefix packages/bw-core` passes.
 - [ ] `git diff --check` passes.
-- [ ] Version/cache changes follow immutable publication rules when applicable.
 - [ ] No secrets, private state, or external receipts are included.
 
 Small reviewable commits are preferred. Do not combine unrelated cleanup with a

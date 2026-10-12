@@ -7,19 +7,17 @@
 
 ## Start here
 
-- Installation and first run: [Getting started](docs/guide/getting-started.md)
-- Choosing a route: [Workflows](docs/guide/workflows.md)
-- Command usage: [CLI reference](docs/guide/cli-reference.md)
-- Trust and privacy: [Security guide](docs/guide/security.md)
-- Complete historical detail: [English details](docs/details/en.md)
+- Installation, policies and limits: [Getting started](packages/bw-core/docs/getting-started.md)
+- What Core checks and its commands: [Core README](packages/bw-core/README.md)
+- V5 guides (frozen): the [`frozen/v5`](https://github.com/stephen-taipei/better-workflows/tree/frozen/v5/docs/guide) branch
 
 ## Ask for help
 
 For a usage question or reproducible defect, open a GitHub issue with:
 
-- Better Workflows version and Codex plugin build;
-- Codex surface and Node.js version;
-- command or picker entry used;
+- the Better Workflows commit you installed and the host (Claude Code version);
+- Node.js version and operating system;
+- the command or hook involved, and the output of `bw status`;
 - expected and observed behavior;
 - sanitized output and minimal reproduction.
 
