@@ -63,7 +63,7 @@ Then ask Claude Code for a change and tell it not to run the tests: it is sent b
 | [Deutsch](docs/locales/de.md) | [Dansk](docs/locales/da.md) | [Čeština](docs/locales/cs.md) | [Català](docs/locales/ca.md) |
 | [العربية](docs/locales/ar.md) |  |  |  |
 
-The localized pages are being rewritten for V6; until then some still describe V5.
+Each page is a short V6 introduction generated from one catalog. English and Traditional Chinese (Taiwan) are reviewed by hand; the others are machine-translated, and the English README is authoritative. See the [localization policy](docs/LOCALIZATION.md).
 
 ## Contribute and get help
 

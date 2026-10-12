@@ -37,6 +37,8 @@ jobs:
         run: test "$(node --version)" = "v${EXPECTED_NODE}"
       - name: Test V6 Core
         run: npm test --prefix packages/bw-core
+      - name: Check the localized READMEs match their catalog
+        run: node docs/locales/build.mjs --check
       - name: Validate the Claude Code plugin manifest
         shell: bash
         run: node -e "for (const f of ['.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', 'hooks/hooks.json']) JSON.parse(require('fs').readFileSync('packages/bw-core/' + f, 'utf8'))"

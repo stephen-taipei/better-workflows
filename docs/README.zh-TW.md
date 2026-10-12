@@ -49,7 +49,7 @@ node ~/.better-workflows/packages/bw-core/bin/bw.mjs init                     # 
 
 ## 其他語言
 
-[English](../README.md) 以及其他 40 種語言的介紹頁列在[英文 README](../README.md#other-languages)。各語系頁面正在改寫成 V6 版本，完成前部分頁面仍是 V5 內容。
+[English](../README.md) 以及其他 40 種語言的介紹頁列在[英文 README](../README.md#other-languages)。每頁都是從同一份 catalog 產生的 V6 簡介；英文與繁體中文（台灣）經人工審閱，其他語系為機器翻譯，以英文 README 為準。詳見[在地化政策](LOCALIZATION.md)。
 
 ## 參與貢獻與取得協助
 
