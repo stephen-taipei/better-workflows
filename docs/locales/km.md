@@ -22,7 +22,7 @@ agent ត្រូវផ្អែកលើឯកសារតាមស្ថា�
 
 ## សាកល្បង
 
-មើលសេណារីយ៉ូទាំងពីរដំណើរការក្នុងរយៈពេលប្រហែល 2 វិនាទី ដោយមិនចាំបាច់ប្រើ Claude៖
+មើលសេណារីយ៉ូទាំងពីរដំណើរការក្នុងរយៈពេលពីរបីវិនាទី ដោយមិនចាំបាច់ប្រើ Claude៖
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

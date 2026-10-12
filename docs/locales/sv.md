@@ -22,7 +22,7 @@ Agenten hålls till filerna som de ser ut nu och till vad leverantören faktiskt
 
 ## Prova
 
-Se båda scenarierna köras på cirka 2 sekunder, utan Claude:
+Se båda scenarierna köras på några sekunder, utan Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

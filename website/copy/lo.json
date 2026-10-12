@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "title": "Better Workflows | coding agent ຂອງທ່ານປິດວຽກດ້ວຍຫຼັກຖານປັດຈຸບັນ",
+    "description": "Claude Code plugin ແບບ open source: agent ບໍ່ສາມາດປິດວຽກດ້ວຍຜົນເທສສີຂຽວທີ່ເກົ່າແລ້ວ ແລະ ບໍ່ສາມາດເຮັດ side effect ຊ້ຳ ຫຼື ຊ້ອນກັນ ທີ່ມັນບໍ່ເຄີຍເຫັນຜົນລັບ. ສິດອະນຸຍາດມາຈາກໄຟລ໌ policy ບໍ່ເຄີຍມາຈາກ prompt.",
+    "imageAlt": "ພາບປະກອບ control plane ຂອງ Better Workflows: ledger, ກາປະທັບຫຼັກຖານ ແລະ node ກວດທຽບ"
+  },
+  "shell": {
+    "skip": "ຂ້າມໄປຫາເນື້ອຫາຫຼັກ",
+    "product": "ຜະລິດຕະພັນ",
+    "principles": "ຫຼັກການ",
+    "workflow": "ວິທີເຮັດວຽກ",
+    "install": "ເລີ່ມຕົ້ນ",
+    "docs": "ເອກະສານ",
+    "sponsor": "ສະໜັບສະໜູນ",
+    "menuOpen": "ເປີດເມນູ",
+    "menuClose": "ປິດເມນູ",
+    "language": "ພາສາ",
+    "themeToDark": "ປ່ຽນເປັນ theme ມືດ",
+    "themeToLight": "ປ່ຽນເປັນ theme ແຈ້ງ",
+    "themeToggle": "ສະຫຼັບ theme ສີ",
+    "homeLabel": "ໜ້າຫຼັກ Better Workflows",
+    "tagline": "coding agent ຂອງທ່ານປິດວຽກດ້ວຍຫຼັກຖານປັດຈຸບັນ ແລະ ບໍ່ເຄີຍເຮັດ side effect ທີ່ສຳເລັດແລ້ວໃນ commit ດຽວກັນຊ້ຳອີກ.",
+    "chip": "V6 Core · pre-alpha",
+    "installCta": "ຕິດຕັ້ງ",
+    "overview": "ພາບລວມ",
+    "hosts": "Host",
+    "boundary": "ຂໍ້ຈຳກັດ",
+    "status": "ສະຖານະ",
+    "faq": "FAQ",
+    "resources": "ແຫຼ່ງຂໍ້ມູນ",
+    "project": "Open source",
+    "guideEn": "ຄູ່ມືເລີ່ມຕົ້ນ (ພາສາອັງກິດ)",
+    "guideZh": "ຄູ່ມືເລີ່ມຕົ້ນ (繁體中文)",
+    "policyRef": "ຂໍ້ມູນອ້າງອີງ policy",
+    "v5Archive": "ຄັງເກັບ V5",
+    "contribute": "ການມີສ່ວນຮ່ວມ",
+    "security": "ຄວາມປອດໄພ",
+    "license": "Core Apache-2.0",
+    "alias": "(betterworkflows.org ສົ່ງຕໍ່ມາທີ່ນີ້)"
+  },
+  "hero": {
+    "badge": "pre-alpha",
+    "h1": "ຫຼັກຖານຕ້ອງໃໝ່.",
+    "h1Signal": "ບໍ່ຮູ້ ຕ້ອງຢຸດ.",
+    "lead": "Claude Code plugin ທີ່ກັນບໍ່ໃຫ້ AI agent ປິດວຽກດ້ວຍຜົນເທສສີຂຽວທີ່ເກົ່າແລ້ວ ແລະ ບໍ່ໃຫ້ເຮັດ side effect ຊ້ຳ ຫຼື ຊ້ອນກັນ ທີ່ມັນບໍ່ເຄີຍເຫັນຜົນລັບ. ສິ່ງທີ່ມັນເຮັດໄດ້ມາຈາກໄຟລ໌ policy ທີ່ທ່ານຂຽນ ບໍ່ເຄີຍມາຈາກ prompt.",
+    "taglineLabel": "ສິ່ງທີ່ Core ບັງຄັບໃຊ້",
+    "chips": [
+      "ຫຼັກຖານປັດຈຸບັນ",
+      "ຫຼາຍສຸດຄັ້ງດຽວ",
+      "Policy ບໍ່ແມ່ນ prompt",
+      "Fail-closed"
+    ],
+    "ctaInstall": "ຕິດຕັ້ງສຳລັບ Claude Code",
+    "ctaDemo": "ເບິ່ງມັນຢຸດ",
+    "specTitle": "Core",
+    "status": "Pre-alpha. ຜູ້ດູແລໃຊ້ເອງໃນສອງ repository ຂອງຕົນ ຕັ້ງແຕ່ເດືອນຕຸລາ 2026.",
+    "host": "Claude Code (hooks plugin)",
+    "platforms": "macOS · Linux",
+    "license": "Apache-2.0",
+    "notes": "ອ່ານຄູ່ມືເລີ່ມຕົ້ນ"
+  },
+  "demo": {
+    "title": "ສີຂຽວທີ່ເກົ່າແລ້ວ ຈາກນັ້ນ push ທີ່ລອງໃໝ່",
+    "termLabel": "ບັນທຶກ session ແບບຫຍໍ້",
+    "prompt": "ແກ້ bug ໃນ <code>sum.mjs</code> ໃຫ້ແດ່ ບໍ່ຕ້ອງແລ່ນເທສໃໝ່",
+    "lines": [
+      [
+        "test",
+        "<code>node --test</code> ຜ່ານໃນໄຟລ໌ <code>a1f3</code>"
+      ],
+      [
+        "edit",
+        "agent ແກ້ <code>sum.mjs</code>, ໄຟລ໌ຕອນນີ້ເປັນ <code>9c07</code>"
+      ],
+      [
+        "stop",
+        "“ແລ້ວ. ເທສຜ່ານ.”"
+      ],
+      [
+        "bw",
+        "ສົ່ງກັບ: <code>test</code> ຜ່ານຄັ້ງສຸດທ້າຍໃນ <code>a1f3</code>; ໄຟລ໌ປ່ຽນໄປແລ້ວຫຼັງຈາກນັ້ນ."
+      ],
+      [
+        "test",
+        "agent ແລ່ນ <code>node --test</code> ໃໝ່: ລົ້ມເຫຼວ 1, ແກ້ໄຂ, ຜ່ານໃນ <code>b2e8</code>"
+      ],
+      [
+        "push",
+        "<code>git push</code> ໝົດເວລາ ຫຼັງຈາກ push ໄປເຖິງແລ້ວ"
+      ],
+      [
+        "push",
+        "agent ລອງ <code>git push</code> ໃໝ່"
+      ],
+      [
+        "bw",
+        "ປະຕິເສດ: <code>git-push</code> ສຳເລັດແລ້ວໃນ commit ນີ້."
+      ]
+    ],
+    "gatesTitle": "ສິ່ງທີ່ Core ກວດ",
+    "gates": [
+      [
+        "Policy",
+        "ຈາກ .better-workflows/policy.json",
+        "pass"
+      ],
+      [
+        "ຫຼັກຖານ",
+        "ເທສໃນໄຟລ໌ຕາມສະພາບປັດຈຸບັນ",
+        "blocked"
+      ],
+      [
+        "ແລ່ນໃໝ່",
+        "ເທສຜ່ານໃນ b2e8",
+        "pass"
+      ],
+      [
+        "ການກະທຳ",
+        "git-push, ຄັ້ງທຳອິດ",
+        "pass"
+      ],
+      [
+        "ຫຼາຍສຸດຄັ້ງດຽວ",
+        "push ດຽວກັນ, commit ດຽວກັນ",
+        "blocked"
+      ]
+    ],
+    "progress": "ຢຸດ 2 ຄັ້ງ · ແລ້ວປອມ 0",
+    "halt": "Core ຢຸດ agent ສອງເທື່ອ: ເທື່ອໜຶ່ງຕອນຈະປິດວຽກດ້ວຍຜົນຜ່ານເກົ່າ, ອີກເທື່ອໜຶ່ງຕອນຈະ push ຊ້ຳ. ທັງສອງເທື່ອມັນຖືກສົ່ງກັບພ້ອມເຫດຜົນ.",
+    "note": "ຫຍໍ້ມາຈາກ demo stale-green ໃນ repository; tree id ເປັນພຽງຕົວຢ່າງ. ແລ່ນ demo ເຕັມດ້ວຍຕົນເອງໃນບໍ່ເທົ່າໃດວິນາທີ ໂດຍບໍ່ຕ້ອງໃຊ້ Claude."
+  },
+  "strip": {
+    "label": "Core ເປັນຕົວເລກ",
+    "items": [
+      [
+        "ແຖວໂຄດ kernel",
+        "ຂີດຈຳກັດແມ່ນ 3,000"
+      ],
+      [
+        "ເທສ",
+        "ແຕ່ລະ gate ລະບຸຄວາມລົ້ມເຫຼວທີ່ມັນປ້ອງກັນ"
+      ],
+      [
+        "runtime dependency",
+        "ພຽງ Node.js ແລະ Git"
+      ],
+      [
+        "Claude Code hook",
+        "SessionStart, PreToolUse, PostToolUse(Failure) ແລະ (Subagent)Stop; ບໍ່ມີ server, ບໍ່ມີບັນຊີ"
+      ],
+      [
+        "CI lane",
+        "macOS ແລະ Linux × Node 22 ແລະ 24"
+      ],
+      [
+        "ພາສາ",
+        "ໃນເວັບໄຊນີ້ ແລະ ໃນ README"
+      ]
+    ]
+  },
+  "principles": {
+    "idx": "ຫຼັກການ",
+    "en": "PRINCIPLES",
+    "title": "ສາມກົດທີ່ຍິ່ງມີປະໂຫຍດເມື່ອ model ຍິ່ງເກັ່ງຂຶ້ນ.",
+    "lead": "agent ທີ່ເກັ່ງຂຶ້ນຂຽນໂຄດຫຼາຍຂຶ້ນຕໍ່ session ແລະ ແລ່ນຄຳສັ່ງເອງຫຼາຍຂຶ້ນ. ກົດເຫຼົ່ານີ້ບໍ່ຂຶ້ນກັບວ່າ agent ລະມັດລະວັງຫຼືບໍ່; ມັນໃຊ້ໄດ້ສະເໝີ ບໍ່ວ່າ agent ຈະເວົ້າຫຍັງ.",
+    "pillars": [
+      [
+        "lock",
+        "Prompt ບໍ່ແມ່ນອຳນາດ",
+        "agent ຈະ push, merge, release ຫຼື publish ໄດ້ຫຼືບໍ່ ມາຈາກໄຟລ໌ policy ທີ່ມັນແກ້ໄຂບໍ່ໄດ້. ການຂໍຮ້ອງຢ່າງສຸພາບໃນ prompt ບໍ່ປ່ຽນຫຍັງເລີຍ."
+      ],
+      [
+        "doc",
+        "ຫຼັກຖານຜູກກັບໄຟລ໌",
+        "ເທສທີ່ຜ່ານນັບສະເພາະໄຟລ໌ທີ່ມັນແລ່ນແທ້ໆເທົ່ານັ້ນ. ປ່ຽນແຖວດຽວ ການຜ່ານນັ້ນກໍບໍ່ນັບອີກ."
+      ],
+      [
+        "stop",
+        "ບໍ່ຮູ້ຕ້ອງຢຸດ ບໍ່ເດົາ",
+        "side effect ທີ່ບໍ່ຮູ້ຜົນລັບ ຈະບລັອກທຸກ side effect ຕໍ່ໄປ ຈົນກວ່າຈະກວດກັບ provider ຫຼື ມີຄົນຕັດສິນ."
+      ]
+    ],
+    "compareTitle": "session ດຽວກັນ",
+    "compareAspect": "ສະຖານະການ",
+    "without": "agent ຢ່າງດຽວ",
+    "with": "ມີ Core",
+    "compare": [
+      [
+        "ເທສຜ່ານ ແລ້ວໄຟລ໌ປ່ຽນ",
+        "“ເທສຜ່ານ.”",
+        "ສົ່ງກັບໃຫ້ແລ່ນໃໝ່ໃນໄຟລ໌ປັດຈຸບັນ."
+      ],
+      [
+        "<code>npm test | tail</code>",
+        "ນັບວ່າຂຽວ; exit code ເປັນຂອງ <code>tail</code>.",
+        "ບໍ່ນັບເລີຍ; Stop ບອກເຫດຜົນ."
+      ],
+      [
+        "ໄຟລ໌ spec ດຽວແທນທັງ suite",
+        "ນັບວ່າ “ເທສຜ່ານ”.",
+        "ກັບ <code>exact</code> ນັບສະເພາະຄຳສັ່ງເຕັມ."
+      ],
+      [
+        "push ໝົດເວລາຫຼັງໄປເຖິງແລ້ວ",
+        "push ອີກຄັ້ງ.",
+        "push ດຽວກັນໃນ commit ດຽວກັນຖືກປະຕິເສດ."
+      ],
+      [
+        "Prompt ບອກວ່າ “publish ໄດ້”",
+        "publish ເລີຍ.",
+        "policy ຕັດສິນ: allow, ask ຫຼື deny."
+      ]
+    ],
+    "layersTitle": "ອຳນາດມາຈາກໃສ",
+    "layers": [
+      [
+        "policy.json",
+        "ຄົນເປັນຜູ້ຂຽນ ແລະ ປ່ຽນ. Core ປະຕິເສດເມື່ອ agent ຈະແກ້ໄຂມັນໂດຍກົງ.",
+        "hard",
+        "SOURCE"
+      ],
+      [
+        "ສິດຂອງ Claude Code",
+        "ຍັງໃຊ້ຢູ່. <code>allow</code> ໃນ policy ບໍ່ເຄີຍໃຫ້ສິດຫຼາຍກວ່າທີ່ Claude Code ຈະໃຫ້.",
+        "",
+        ""
+      ],
+      [
+        "Core hooks",
+        "ບັງຄັບໃຊ້ policy ໃນທຸກຄຳສັ່ງ, ການແກ້ໄຂ ແລະ ການຢຸດ.",
+        "",
+        ""
+      ],
+      [
+        "Prompt",
+        "ອະທິບາຍເປົ້າໝາຍ. ບໍ່ມີອຳນາດໃດໆ.",
+        "soft",
+        "NONE"
+      ]
+    ]
+  },
+  "workflow": {
+    "idx": "ວິທີເຮັດວຽກ",
+    "en": "HOW IT WORKS",
+    "title": "ຫົກ hook, ledger ດຽວໃນ .git.",
+    "lead": "Core ແລ່ນຢູ່ໃນ hooks ຂອງ Claude Code ເອງ. ບໍ່ມີຫຍັງຕ້ອງເປີດ, ບໍ່ມີ server, ບໍ່ມີບັນຊີ; ສະຖານະເກັບໄວ້ໃນ <code>.git/better-workflows/</code> ຂອງແຕ່ລະ repository.",
+    "hooksTitle": "hooks",
+    "hooks": [
+      "<b>SessionStart</b>: ບອກ agent ວ່າການກວດໃດຕ້ອງຜ່ານ ແລະ side effect ໃດຍັງບໍ່ໄດ້ສະຫຼຸບຜົນ ແລະ ເຕືອນຖ້າ policy ບໍ່ຖືກຕ້ອງ ຫຼື ຕ້ອງໃຊ້ <code>gh</code> ແຕ່ໃຊ້ບໍ່ໄດ້.",
+      "<b>PreToolUse</b>: ອະນຸຍາດ, ຖາມ ຫຼື ປະຕິເສດແຕ່ລະ side effect ແລະ ປະຕິເສດການແກ້ໄຂ policy ແລະ ledger.",
+      "<b>PostToolUse</b>: ບັນທຶກແຕ່ລະການກວດພ້ອມ Git tree ທີ່ມັນແລ່ນ ແລະ ແຕ່ລະ side effect ພ້ອມ exit code ຂອງມັນ.",
+      "<b>Stop</b>: ຖ້າມີໄຟລ໌ປ່ຽນ ແລະ ການກວດທີ່ຈຳເປັນຍັງຂາດ, ລົ້ມເຫຼວ ຫຼື ເກົ່າແລ້ວ ຈະສົ່ງ agent ກັບໜຶ່ງເທື່ອພ້ອມເຫດຜົນ; ເທື່ອຕໍ່ໄປຈະພຽງແຕ່ເຕືອນ.",
+      "<b>bw status</b> (ເປັນຄຳສັ່ງ ບໍ່ແມ່ນ hook): ສະແດງສະຖານະດຽວກັນໃຫ້ທ່ານເບິ່ງ."
+    ],
+    "completion": {
+      "name": "ການປິດວຽກ",
+      "sub": "ຫຼັກຖານຜູກກັບໄຟລ໌",
+      "body": "ເທສ, lint, typecheck ຫຼື build ຈະນັບກໍຕໍ່ເມື່ອມັນຜ່ານ, exit code ຂອງມັນເອງເປັນຕົວຕັດສິນ, ບໍ່ມີໄຟລ໌ປ່ຽນໃນຂະນະແລ່ນ, ແລະ ໄຟລ໌ຍັງຄືກັບຕອນທີ່ມັນແລ່ນທຸກປະການ.",
+      "guardsK": "ທາງເລືອກ",
+      "guards": [
+        "<code>exact</code>: ນັບສະເພາະຄຳສັ່ງເຕັມ ແລະ <code>cwd</code> ກຳນົດວ່າຕ້ອງແລ່ນຢູ່ໃສ.",
+        "<code>scope</code> (ໃຊ້ຮ່ວມກັບ <code>exact</code>): ການປ່ຽນແປງນອກ directory ທີ່ລະບຸ ບໍ່ເຮັດໃຫ້ຜົນລັບເກົ່າ.",
+        "<code>ignore</code> (ທັງ policy): output ທີ່ການກວດຂຽນ ເຊັ່ນ coverage ບໍ່ນັບເປັນການປ່ຽນແປງ."
+      ]
+    },
+    "actions": {
+      "name": "Side effect",
+      "sub": "ຫຼາຍສຸດຄັ້ງດຽວ, ບໍ່ຮູ້ຕ້ອງຢຸດ",
+      "body": "push, ການສ້າງ ແລະ merge PR, release, publish package ແລະ ປະເພດທີ່ທ່ານກຳນົດເອງ ແຕ່ລະອັນຕ້ອງມີ <code>allow</code> ຈາກ policy. ມີພຽງ exit code 0 ທີ່ເປັນຜົນລັບທີ່ຮູ້.",
+      "kindsK": "ການກວດແບບອ່ານຢ່າງດຽວ ໃຊ້ເພື່ອສະຫຼຸບຜົນລັບທີ່ບໍ່ຮູ້",
+      "kinds": [
+        "git ls-remote",
+        "gh pr list / view",
+        "gh release view",
+        "npm view"
+      ]
+    },
+    "rulesTitle": "ກົດທີ່ໃຊ້ສະເໝີ",
+    "rules": [
+      "policy ທີ່ບໍ່ຖືກຕ້ອງຈະປະຕິເສດທຸກ side effect ແທນທີ່ຈະກັບໄປໃຊ້ຄ່າເລີ່ມຕົ້ນ.",
+      "ສິດທີ່ໝົດອາຍຸຈະກັບໄປເປັນ ask. ມີພຽງຄົນທີ່ຕໍ່ອາຍຸໄດ້ ໂດຍການແກ້ໄຂ policy.",
+      "ຄຳສັ່ງທີ່ Core ອ່ານບໍ່ໄດ້ ເຊັ່ນ <code>eval</code> ຫຼື <code>sh -c</code> ຖືວ່າເປັນ opaque ແລະ ຈະຖາມກ່ອນ.",
+      "ledger ເປັນແບບ append-only ແລະ ຕໍ່ກັນດ້ວຍ hash; <code>bw verify</code> ກວດພົບລາຍການທີ່ຖືກແກ້ໄຂ ຫຼື ຖືກລຶບ ແລະ ແຖວສຸດທ້າຍທີ່ຂຽນບໍ່ແລ້ວ, ແຕ່ກວດບໍ່ພົບລາຍການທັງລາຍການທີ່ຖືກຕັດອອກຈາກທ້າຍ."
+    ]
+  },
+  "hosts": {
+    "idx": "Host",
+    "en": "HOSTS",
+    "title": "Claude Code ກ່ອນ.",
+    "lead": "Core ບໍ່ຜູກກັບ host ໃດ; ແຕ່ລະ host ຕ້ອງມີ adapter ນ້ອຍໆ. Claude Code ເປັນອັນທຳອິດ ແລະ ເປັນອັນດຽວທີ່ຮອງຮັບໃນມື້ນີ້.",
+    "caption": "ການຮອງຮັບ host ແລະ ລະບົບປະຕິບັດການ",
+    "hostCol": "Host",
+    "supported": "ຮອງຮັບ, ທົດສອບໃນ CI",
+    "untested": "ຍັງບໍ່ໄດ້ທົດສອບ",
+    "v5only": "V5 ເທົ່ານັ້ນ, ແຊ່ແຂງ",
+    "planned": "ວາງແຜນໄວ້",
+    "firstHost": "host ທຳອິດ",
+    "matrixNote": "CI ແລ່ນ Core ໃນທຸກ pull request.",
+    "matrixNoteSub": "macOS 15 ແລະ Ubuntu 24.04, Node 22.23.3 ແລະ 24.21.0.",
+    "recoTitle": "ເປັນຫຍັງ Claude Code ກ່ອນ",
+    "recoBody": "hooks ຂອງມັນເຫັນທຸກຄຳສັ່ງກ່ອນແລ່ນ ແລະ ທຸກຄວາມພະຍາຍາມທີ່ຈະຢຸດ. ນັ້ນແມ່ນບ່ອນທີ່ Core ຕ້ອງຢູ່ພໍດີ.",
+    "recoFoot": "Codex, Gemini CLI ແລະ Qwen Code ເຄີຍແລ່ນ V5 ເຊິ່ງຖືກແຊ່ແຂງທີ່ RC1. ພວກມັນຈະກັບມາເປັນ adapter ເມື່ອ Core ໝັ້ນຄົງ."
+  },
+  "install": {
+    "idx": "ເລີ່ມຕົ້ນ",
+    "en": "GET STARTED",
+    "title": "ສາມຄຳສັ່ງ ແລ້ວຂໍໃຫ້ແກ້ໄຂ.",
+    "lead": "ຕ້ອງການ Node.js 22.14 ຂຶ້ນໄປ, Git ແລະ Claude Code ທີ່ຮອງຮັບ plugin.",
+    "steps": [
+      [
+        "Clone Core",
+        "ຄັ້ງດຽວຕໍ່ເຄື່ອງ. ຖ້າທ່ານເຄີຍແລ່ນ V5 ຢູ່ນີ້ ໃຫ້ຍ້າຍ <code>~/.better-workflows</code> ໄປເປັນ <code>~/.better-workflows-V5</code> ກ່ອນ ແລ້ວຕັ້ງ <code>SBW_STATE_ROOT</code> ໃຫ້ຊີ້ໄປທີ່ນັ້ນ."
+      ],
+      [
+        "ເພີ່ມ plugin",
+        "ຕິດຕັ້ງຕໍ່ repository ດ້ວຍ <code>--scope local</code> ເພື່ອບໍ່ໃຫ້ມີຫຍັງຖືກຂຽນລົງໃນໄຟລ໌ທີ່ທ່ານ commit."
+      ],
+      [
+        "ຂຽນ policy",
+        "<code>bw init</code> ຂຽນ <code>.better-workflows/policy.json</code>. commit ມັນເພື່ອໃຫ້ທຸກຄົນໄດ້ກົດດຽວກັນ."
+      ]
+    ],
+    "stepsNote": "ຄູ່ມືເຕັມອະທິບາຍການກວດ, side effect ຂອງທ່ານເອງ ແລະ ຜົນລັບທີ່ບໍ່ຮູ້.",
+    "guideLink": "ຄູ່ມືເລີ່ມຕົ້ນ",
+    "tabsLabel": "ຄຳສັ່ງຕິດຕັ້ງ",
+    "copyCommand": "ສຳເນົາຄຳສັ່ງນີ້",
+    "copy": "ສຳເນົາ",
+    "firstK": "ຈາກນັ້ນລອງເບິ່ງ",
+    "firstAsk": "ປ່ຽນແຖວດຽວໃນ repository ນີ້ ແລະ ບໍ່ຕ້ອງແລ່ນເທສ.",
+    "copyRequest": "ສຳເນົາຄຳຂໍນີ້",
+    "firstNote": "ເມື່ອ Claude Code ພະຍາຍາມປິດວຽກ ມັນຈະຖືກສົ່ງກັບ ແລະ ບອກວ່າຂາດການກວດໃດ.",
+    "demoNote": "ທາງເລືອກ: ແລ່ນທັງສອງສະຖານະການໂດຍບໍ່ຕ້ອງໃຊ້ Claude ໃນບໍ່ເທົ່າໃດວິນາທີ."
+  },
+  "boundary": {
+    "idx": "ຂໍ້ຈຳກັດ",
+    "en": "LIMITS",
+    "title": "ມັນສະກັດຫຍັງ ແລະ ເບິ່ງບໍ່ເຫັນຫຍັງ.",
+    "lead": "gate ມີປະໂຫຍດກໍຕໍ່ເມື່ອທ່ານຮູ້ຂອບເຂດຂອງມັນ.",
+    "cols": [
+      [
+        "yes",
+        "check",
+        "ສະກັດ",
+        "ຄວາມຜິດພາດທີ່ສັງເກດໄດ້",
+        [
+          "ການປິດວຽກດ້ວຍການແລ່ນເທສທີ່ເກົ່າ ຫຼື ລົ້ມເຫຼວ, ຫຼື ທີ່ແລ່ນບໍ່ຄົບ ເມື່ອການກວດຖືກໝາຍເປັນ <code>exact</code>",
+          "pipe ຫຼື <code>|| true</code> ທີ່ເຊື່ອງຄວາມລົ້ມເຫຼວ",
+          "push, merge, release ຫຼື publish ຊ້ຳ",
+          "side effect ໃນຂະນະທີ່ອັນກ່ອນໜ້າຍັງບໍ່ຮູ້ຜົນ",
+          "agent ແກ້ໄຂ policy ຫຼື ledger ຂອງຕົນເອງໂດຍກົງ"
+        ]
+      ],
+      [
+        "no",
+        "x",
+        "ບໍ່ເຮັດ",
+        "ນອກສາຍຕາຂອງມັນ",
+        [
+          "ເຫັນ side effect ພາຍໃນ script ເວັ້ນແຕ່ policy ລະບຸ script ນັ້ນ",
+          "ຕັດສິນວ່າເທສຂອງທ່ານດີພໍຫຼືບໍ່",
+          "ສ້າງ dependency graph: <code>scope</code> ຕ້ອງລະບຸທຸກສິ່ງທີ່ການກວດຂຶ້ນກັບ",
+          "ນັບໄຟລ໌ທີ່ Git ignore ເປັນສ່ວນໜຶ່ງຂອງຫຼັກຖານ"
+        ]
+      ],
+      [
+        "not",
+        "stop",
+        "ປະໃຫ້ທ່ານ",
+        "ການຕັດສິນໃຈຂອງຄົນ",
+        [
+          "ສະຫຼຸບ side effect ທີ່ອ່ານຜົນລັບກັບຄືນບໍ່ໄດ້",
+          "ຕໍ່ສິດເກີນ <code>expiresAt</code> ຂອງມັນ",
+          "ເລືອກວ່າ <code>scope</code> ຄອບຄຸມຫຍັງ",
+          "ຕັດສິນວ່າ session ກຳລັງວົນຢູ່ບ່ອນເກົ່າເມື່ອໃດ"
+        ]
+      ]
+    ],
+    "claim": "Core ສະກັດຄວາມຜິດພາດຂ້າງເທິງ. ຍັງບໍ່ໄດ້ວັດແທກວ່າມັນຫຼຸດວຽກທີ່ຕ້ອງເຮັດຄືນ ຫຼື ການຕັດສິນໃຈຜິດໃນວຽກຍາວໆຫຼືບໍ່; ນັ້ນແມ່ນຈຸດປະສົງຂອງໄລຍະໃຊ້ເອງໃນປັດຈຸບັນ.",
+    "rulesLabel": "ຂໍ້ຈຳກັດດ້ານການອອກແບບ",
+    "rules": [
+      "shell parser ບໍ່ຂະຫຍາຍ: ຄຳສັ່ງທີ່ມັນອ່ານບໍ່ໄດ້ ຈະຖືກຖາມກ່ອນແລ່ນ ແລະ ເທສທີ່ເຊື່ອງຢູ່ໃນ <code>eval</code> ຫຼື <code>sh -c</code> ບໍ່ເຄີຍນັບເປັນຫຼັກຖານ.",
+      "Core ພຽງແຕ່ນັບວ່າ session ດຳເນີນໄປແນວໃດ. ມັນກຳລັງເຂົ້າໃກ້ຄຳຕອບຫຼືບໍ່ ແມ່ນ agent ຫຼື ທ່ານເປັນຜູ້ຕັດສິນ.",
+      "pull request ແລະ release ກວດທຽບດ້ວຍ <code>gh</code>; ຖ້າບໍ່ມີ ພວກມັນຈະຍັງບໍ່ຮູ້ຜົນຈົນກວ່າທ່ານຈະສະຫຼຸບ."
+    ]
+  },
+  "status": {
+    "idx": "ສະຖານະ",
+    "en": "STATUS",
+    "title": "ໂຄງການຢູ່ໃສແລ້ວ.",
+    "lead": "V6 ແທນ workflow engine ຂອງ V5 ດ້ວຍ core ນ້ອຍໆ. ວັນທີຈະມີເມື່ອບັນລຸເງື່ອນໄຂ.",
+    "road": [
+      [
+        "DONE",
+        "line",
+        "ແຊ່ແຂງ",
+        "V5.0 RC1",
+        "tag V5.0.rc1",
+        "workflow engine ຫຼາຍ host. ແຊ່ແຂງໃນ branch <code>frozen/v5</code>; ບໍ່ມີວຽກໃໝ່."
+      ],
+      [
+        "NOW",
+        "sig",
+        "ກຳລັງດຳເນີນ",
+        "V6 Core pre-alpha",
+        "packages/bw-core",
+        "Claude Code hooks, scope ຂອງຫຼັກຖານ, ໃຊ້ເອງໃນສອງ repository."
+      ],
+      [
+        "NEXT",
+        "warn",
+        "ຫຼັງໄລຍະໃຊ້ເອງ",
+        "V6 Core alpha",
+        "release ທຳອິດທີ່ມີ tag",
+        "ຈະເຜີຍແຜ່ເມື່ອໄລຍະໃຊ້ເອງສະແດງວ່າຈັບບັນຫາໄດ້ແທ້ ແລະ ບລັອກຜິດໜ້ອຍ. host ອື່ນຈະຕາມມາເປັນ adapter ນ້ອຍໆ."
+      ]
+    ],
+    "statementTitle": "ຖະແຫຼງການ",
+    "statementK": "PRE-ALPHA",
+    "statement": [
+      "Core ໃຊ້ໄດ້ແລ້ວມື້ນີ້ ແລະ ແລ່ນຢູ່ໃນ repository ຂອງຜູ້ດູແລເອງ. ຮູບແບບ policy ອາດຍັງປ່ຽນກ່ອນ alpha.",
+      "ທຸກຢ່າງຢູ່ນີ້ຟຣີ ແລະ ເປັນ open source. ບໍ່ມີແພັກເກັດເສຍເງິນ, ບັນຊີ ຫຼື telemetry."
+    ],
+    "licTitle": "ລິຂະສິດ",
+    "licItem": "ສ່ວນ",
+    "licForm": "License",
+    "licState": "ສະຖານະ",
+    "lic": [
+      [
+        "V6 Core (<code>packages/bw-core</code>)",
+        "Apache-2.0",
+        "",
+        "sig",
+        "ໃຊ້ງານ"
+      ],
+      [
+        "ເວັບໄຊ ແລະ ສ່ວນທີ່ເຫຼືອຂອງ repository",
+        "AGPL-3.0-only",
+        "",
+        "line",
+        "ໃຊ້ງານ"
+      ],
+      [
+        "V5 plugin",
+        "AGPL-3.0-only",
+        "ຢູ່ frozen/v5",
+        "warn",
+        "ແຊ່ແຂງ"
+      ]
+    ]
+  },
+  "docs": {
+    "idx": "ເອກະສານ",
+    "en": "DOCS",
+    "title": "ທຸກຢ່າງຢູ່ໃນ repository.",
+    "lead": "ຄູ່ມືຂຽນເປັນພາສາອັງກິດ ແລະ ຈີນຕົວເຕັມ. ແຕ່ລະພາສາໃນເວັບໄຊນີ້ມີ README ສັ້ນໆຢູ່ GitHub."
+  },
+  "docList": [
+    [
+      "guideEn",
+      "ຄູ່ມືເລີ່ມຕົ້ນ",
+      "ພາສາອັງກິດ: ການຕິດຕັ້ງ, ການບລັອກຄັ້ງທຳອິດ, ການກວດ ແລະ side effect ຂອງທ່ານເອງ."
+    ],
+    [
+      "guideZh",
+      "快速開始（繁體中文）",
+      "ຄູ່ມືດຽວກັນເປັນພາສາຈີນຕົວເຕັມ."
+    ],
+    [
+      "policyRef",
+      "ຂໍ້ມູນອ້າງອີງ policy",
+      "field ຂອງ policy.json ພ້ອມຕົວຢ່າງ."
+    ],
+    [
+      "readme",
+      "README ໃນພາສາຂອງທ່ານ",
+      "ມັນສະກັດຫຍັງ ແລະ ຕິດຕັ້ງແນວໃດ, ໃນ 41 ພາສາ."
+    ]
+  ],
+  "faq": {
+    "idx": "FAQ",
+    "en": "FAQ",
+    "title": "ຄຳຖາມທີ່ພົບເລື້ອຍ, ຄຳຕອບກົງໆ.",
+    "lead": "ມີຄຳຖາມອື່ນບໍ? ເປີດ issue ຢູ່ GitHub.",
+    "items": [
+      [
+        "ມັນເຮັດໃຫ້ Claude Code ຊ້າລົງບໍ?",
+        "hook ທີ່ຈັດການການກວດ ຫຼື side effect ຈະຄິດໄລ່ hash ຂອງ working tree ດ້ວຍ Git ເຊິ່ງໃຊ້ເວລາພຽງ millisecond ໃນ repository ທົ່ວໄປ. repository ທີ່ໃຫຍ່ຫຼາຍຈະໃຊ້ເວລາຫຼາຍກວ່າໃນແຕ່ລະການເອີ້ນແບບນີ້."
+      ],
+      [
+        "ມັນອາດຕິດຢູ່ ແລະ ສົ່ງ agent ກັບບໍ່ສິ້ນສຸດບໍ?",
+        "ມັນສົ່ງ agent ກັບພ້ອມເຫດຜົນ ແລະ ຄວາມຄືບໜ້າຂອງ session ຈົນເຖິງຕອນນີ້: ຈຳນວນການແລ່ນ, ການລົ້ມເຫຼວຕິດຕໍ່ກັນ, ຈຳນວນຄັ້ງທີ່ຖືກສົ່ງກັບແລ້ວ. ຈາກນັ້ນ agent ສາມາດຢຸດ ແລະ ບອກທ່ານຢ່າງຊັດເຈນວ່າການກວດໃດທີ່ຍັງລົ້ມເຫຼວຢູ່."
+      ],
+      [
+        "agent ປິດມັນໄດ້ບໍ?",
+        "ບໍ່ໄດ້ໂດຍກົງ. Core ປະຕິເສດເມື່ອ agent ຈະແກ້ໄຂ policy ແລະ ledger ແລະ ປະຕິເສດ <code>bw init</code> ກັບການສະຫຼຸບຜົນການກະທຳດ້ວຍມື. ການຖອນ plugin ຫຼື ການປ່ຽນໄຟລ໌ເຫຼົ່ານັ້ນດ້ວຍວິທີອ້ອມ ຢູ່ພາຍໃຕ້ກົດການອະນຸຍາດຂອງ Claude Code ເອງ ດັ່ງນັ້ນໃຫ້ເປີດການຖາມຢືນຢັນເຫຼົ່ານັ້ນໄວ້."
+      ],
+      [
+        "ມັນສົ່ງຫຍັງໄປບ່ອນໃດບໍ?",
+        "ບໍ່ມີ server ແລະ ບໍ່ມີ telemetry. ການເອີ້ນເຄືອຂ່າຍມີພຽງການກວດແບບອ່ານຢ່າງດຽວດ້ວຍ <code>git</code>, <code>gh</code> ແລະ <code>npm</code> ຂອງທ່ານເອງ ເພື່ອຢືນຢັນວ່າ side effect ເກີດຂຶ້ນແລ້ວຫຼືບໍ່. ledger ຢູ່ໃນ <code>.git/better-workflows/</code>."
+      ],
+      [
+        "ແລ້ວ Codex, Gemini CLI ຫຼື Qwen Code ເດ?",
+        "ພວກມັນເຄີຍແລ່ນ V5 ເຊິ່ງຖືກແຊ່ແຂງແລ້ວ. Core ບໍ່ຜູກກັບ host ໃດ ແລະ ມີແຜນສ້າງ adapter ສຳລັບພວກມັນຫຼັງ alpha."
+      ]
+    ]
+  },
+  "sponsor": {
+    "idx": "ສະໜັບສະໜູນ",
+    "en": "SPONSOR",
+    "title": "ສະໜັບສະໜູນ Better Workflows.",
+    "cta": "ສະໜັບສະໜູນຄັ້ງດຽວເປັນ USDT (TRC20)",
+    "body": "ເງິນສະໜັບສະໜູນໃຊ້ສຳລັບການດູແລ open source, ເອກະສານພາສາອັງກິດ ແລະ ຈີນຕົວເຕັມ, ແລະ hosting. ມັນບໍ່ໄດ້ຊື້ສະມາຊິກ, ບູລິມະສິດໃນ roadmap ຫຼື ການຊ່ວຍເຫຼືອ.",
+    "qrLabel": "ເປີດ QR code USDT (TRC20)",
+    "copyAddress": "ສຳເນົາທີ່ຢູ່"
+  },
+  "cta": {
+    "kicker": "ລອງໃນບໍ່ເທົ່າໃດວິນາທີ",
+    "title": "ການແລ່ນຄຳສັ່ງບໍ່ແມ່ນຫຼັກຖານ. ໄຟລ໌ຕ່າງຫາກ.",
+    "body": "ແລ່ນ demo ໂດຍບໍ່ຕ້ອງໃຊ້ Claude ແລ້ວຕິດຕັ້ງໃນ repository ດຽວ ແລະ ຂໍໃຫ້ແກ້ໄຂ.",
+    "notes": "ເບິ່ງໃນ GitHub"
+  }
+}

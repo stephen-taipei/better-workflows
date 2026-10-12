@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "title": "Better Workflows | Váš agent na programovanie končí na aktuálnych dôkazoch",
+    "description": "Plugin pre Claude Code s otvoreným zdrojovým kódom: agent nemôže dokončiť prácu na zastaranom zelenom teste a nemôže opakovať ani vrstviť vedľajšie účinky, ktorých výsledok nikdy nevidel. Oprávnenia pochádzajú zo súboru policy, nikdy z promptu.",
+    "imageAlt": "Ilustrácia riadiacej roviny Better Workflows: denník, pečate dôkazov a uzly zosúladenia"
+  },
+  "shell": {
+    "skip": "Preskočiť na hlavný obsah",
+    "product": "Produkt",
+    "principles": "Princípy",
+    "workflow": "Ako to funguje",
+    "install": "Začíname",
+    "docs": "Dokumentácia",
+    "sponsor": "Podporiť",
+    "menuOpen": "Otvoriť menu",
+    "menuClose": "Zavrieť menu",
+    "language": "Jazyk",
+    "themeToDark": "Prepnúť na tmavú tému",
+    "themeToLight": "Prepnúť na svetlú tému",
+    "themeToggle": "Prepnúť farebnú tému",
+    "homeLabel": "Better Workflows – úvod",
+    "tagline": "Váš agent na programovanie končí na aktuálnych dôkazoch a nikdy nezopakuje vedľajší účinok, ktorý už na tom istom commite uspel.",
+    "chip": "V6 Core · pre-alpha",
+    "installCta": "Inštalovať",
+    "overview": "Prehľad",
+    "hosts": "Hostitelia",
+    "boundary": "Hranice",
+    "status": "Stav",
+    "faq": "Časté otázky",
+    "resources": "Zdroje",
+    "project": "Open source",
+    "guideEn": "Začíname (English)",
+    "guideZh": "Začíname (繁體中文)",
+    "policyRef": "Referencia policy",
+    "v5Archive": "Archív V5",
+    "contribute": "Prispievanie",
+    "security": "Bezpečnosť",
+    "license": "Core Apache-2.0",
+    "alias": "(betterworkflows.org presmerúva sem)"
+  },
+  "hero": {
+    "badge": "pre-alpha",
+    "h1": "Len čerstvé dôkazy.",
+    "h1Signal": "Neznáme znamená stop.",
+    "lead": "Plugin pre Claude Code, ktorý AI agentovi nedovolí dokončiť prácu na zastaranom zelenom teste ani opakovať či vrstviť vedľajšie účinky, ktorých výsledok nikdy nevidel. Čo smie robiť, určuje súbor policy, ktorý napíšete vy, nikdy prompt.",
+    "taglineLabel": "Čo Core vynucuje",
+    "chips": [
+      "Aktuálne dôkazy",
+      "Najviac raz",
+      "Policy, nie prompt",
+      "Fail-closed"
+    ],
+    "ctaInstall": "Inštalovať pre Claude Code",
+    "ctaDemo": "Pozrite, ako zastaví",
+    "specTitle": "Core",
+    "status": "Pre-alpha. Od októbra 2026 ho správca sám používa v dvoch svojich repozitároch.",
+    "host": "Claude Code (plugin s hookmi)",
+    "platforms": "macOS · Linux",
+    "license": "Apache-2.0",
+    "notes": "Prečítajte si úvodnú príručku"
+  },
+  "demo": {
+    "title": "zastaraná zelená, potom zopakovaný push",
+    "termLabel": "Skrátený záznam relácie",
+    "prompt": "oprav chybu v <code>sum.mjs</code>, testy netreba spúšťať znova",
+    "lines": [
+      [
+        "test",
+        "<code>node --test</code> prechádza na súboroch <code>a1f3</code>"
+      ],
+      [
+        "edit",
+        "agent upraví <code>sum.mjs</code>, súbory sú teraz <code>9c07</code>"
+      ],
+      [
+        "stop",
+        "„Hotovo. Testy prechádzajú.“"
+      ],
+      [
+        "bw",
+        "Vrátené: <code>test</code> naposledy prešiel na <code>a1f3</code>; súbory sa odvtedy zmenili."
+      ],
+      [
+        "test",
+        "agent znova spustí <code>node --test</code>: 1 zlyhanie, opraví ho, prechádza na <code>b2e8</code>"
+      ],
+      [
+        "push",
+        "<code>git push</code> vyprší až potom, čo push prebehol"
+      ],
+      [
+        "push",
+        "agent skúsi <code>git push</code> znova"
+      ],
+      [
+        "bw",
+        "Zamietnuté: <code>git-push</code> už na tomto commite uspel."
+      ]
+    ],
+    "gatesTitle": "Čo Core skontroloval",
+    "gates": [
+      [
+        "Policy",
+        "z .better-workflows/policy.json",
+        "pass"
+      ],
+      [
+        "Dôkazy",
+        "test na súboroch v aktuálnom stave",
+        "blocked"
+      ],
+      [
+        "Opakovanie",
+        "test prechádza na b2e8",
+        "pass"
+      ],
+      [
+        "Akcia",
+        "git-push, prvýkrát",
+        "pass"
+      ],
+      [
+        "Najviac raz",
+        "rovnaký push, rovnaký commit",
+        "blocked"
+      ]
+    ],
+    "progress": "2 ZASTAVENIA · 0 FALOŠNÝCH HOTOVO",
+    "halt": "Core agenta dvakrát zastavil: raz pred dokončením na starom úspešnom behu, raz pred opätovným push. Zakaždým bol vrátený aj s dôvodom.",
+    "note": "Skrátené z dema stale-green v repozitári; identifikátory tree sú ilustračné. Celé demo si spustite sami za pár sekúnd, bez Claude."
+  },
+  "strip": {
+    "label": "Core v číslach",
+    "items": [
+      [
+        "riadkov kódu jadra",
+        "limit je 3 000"
+      ],
+      [
+        "testov",
+        "každá brána menuje zlyhanie, ktorému bráni"
+      ],
+      [
+        "závislostí za behu",
+        "iba Node.js a Git"
+      ],
+      [
+        "hooky Claude Code",
+        "SessionStart, PreToolUse, PostToolUse(Failure) a (Subagent)Stop; žiadny server, žiadny účet"
+      ],
+      [
+        "CI konfigurácií",
+        "macOS a Linux × Node 22 a 24"
+      ],
+      [
+        "jazykov",
+        "na tomto webe a v README"
+      ]
+    ]
+  },
+  "principles": {
+    "idx": "Princípy",
+    "en": "PRINCIPLES",
+    "title": "Tri pravidlá, ktoré sú užitočnejšie, čím silnejšie sú modely.",
+    "lead": "Silnejší agent napíše za reláciu viac kódu a sám spustí viac príkazov. Tieto pravidlá nestoja na tom, že agent bude opatrný; platia bez ohľadu na to, čo hovorí.",
+    "pillars": [
+      [
+        "lock",
+        "Prompt nie je oprávnenie",
+        "Čo agent smie pushnúť, mergnúť, vydať alebo publikovať, určuje súbor policy, ktorý nemôže upraviť. Zdvorilá prosba v prompte nič nezmení."
+      ],
+      [
+        "doc",
+        "Dôkazy sú viazané na súbory",
+        "Úspešný test platí iba pre presne tie súbory, na ktorých bežal. Zmeňte jeden riadok a ten výsledok už neplatí."
+      ],
+      [
+        "stop",
+        "Neznáme zastaví, nehádá",
+        "Vedľajší účinok s neznámym výsledkom blokuje všetky ďalšie vedľajšie účinky, kým sa neoverí u poskytovateľa alebo ho neuzavrie človek."
+      ]
+    ],
+    "compareTitle": "tá istá relácia",
+    "compareAspect": "Situácia",
+    "without": "Samotný agent",
+    "with": "S Core",
+    "compare": [
+      [
+        "Testy prešli, potom sa zmenil súbor",
+        "„Testy prechádzajú.“",
+        "Vrátený, aby ich spustil znova na aktuálnych súboroch."
+      ],
+      [
+        "<code>npm test | tail</code>",
+        "Počíta sa ako zelené; exit code patrí <code>tail</code>.",
+        "Nikdy sa nepočíta; Stop povie prečo."
+      ],
+      [
+        "Jeden spec súbor namiesto celej sady",
+        "Počíta sa ako „testy prechádzajú“.",
+        "S <code>exact</code> sa počíta iba celý príkaz."
+      ],
+      [
+        "Push vyprší až po tom, čo prebehol",
+        "Pushne znova.",
+        "Rovnaký push na rovnakom commite je zamietnutý."
+      ],
+      [
+        "Prompt hovorí „môžeš publikovať“",
+        "Publikuje.",
+        "Rozhoduje policy: allow, ask alebo deny."
+      ]
+    ],
+    "layersTitle": "odkiaľ pochádza oprávnenie",
+    "layers": [
+      [
+        "policy.json",
+        "Píše a mení ho človek. Core odmieta jeho priame úpravy agentom.",
+        "hard",
+        "ZDROJ"
+      ],
+      [
+        "Oprávnenia Claude Code",
+        "Naďalej platia. <code>allow</code> v policy nikdy nedá viac, než by dal Claude Code.",
+        "",
+        ""
+      ],
+      [
+        "Hooky Core",
+        "Vynucujú policy pri každom príkaze, úprave a zastavení.",
+        "",
+        ""
+      ],
+      [
+        "Prompt",
+        "Opisuje cieľ. Nenesie žiadne oprávnenie.",
+        "soft",
+        "ŽIADNE"
+      ]
+    ]
+  },
+  "workflow": {
+    "idx": "Ako to funguje",
+    "en": "HOW IT WORKS",
+    "title": "Šesť hookov, jeden denník v .git.",
+    "lead": "Core beží vo vlastných hookoch Claude Code. Nič netreba spúšťať, žiadny server, žiadny účet; stav je uložený v <code>.git/better-workflows/</code> každého repozitára.",
+    "hooksTitle": "hooky",
+    "hooks": [
+      "<b>SessionStart</b>: povie agentovi, ktoré kontroly musia prejsť a ktoré vedľajšie účinky sú neuzavreté, a upozorní, ak je policy neplatná alebo je potrebný <code>gh</code>, ktorý sa nedá použiť.",
+      "<b>PreToolUse</b>: každý vedľajší účinok povolí, opýta sa naň alebo ho zamietne a odmietne úpravy policy aj denníka.",
+      "<b>PostToolUse</b>: zaznamená každú kontrolu s Git tree, na ktorom bežala, a každý vedľajší účinok s jeho exit code.",
+      "<b>Stop</b>: ak sa zmenili súbory a povinná kontrola chýba, zlyhala alebo je zastaraná, raz vráti agenta aj s dôvodom; nabudúce už iba upozorní.",
+      "<b>bw status</b> (príkaz, nie hook): ukáže ten istý stav vám."
+    ],
+    "completion": {
+      "name": "Dokončenie",
+      "sub": "dôkazy viazané na súbory",
+      "body": "Test, lint, typecheck alebo build sa počíta iba vtedy, ak prešiel, o výsledku rozhodol jeho vlastný exit code, počas behu sa nezmenil žiadny súbor a súbory sú stále presne tie, na ktorých bežal.",
+      "guardsK": "Voliteľné",
+      "guards": [
+        "<code>exact</code>: počíta sa iba celý príkaz a <code>cwd</code> určuje, kde sa musí spustiť.",
+        "<code>scope</code> (s <code>exact</code>): zmena mimo uvedených adresárov ponechá výsledok aktuálny.",
+        "<code>ignore</code> (celá policy): výstup, ktorý kontrola zapisuje, napríklad coverage, sa nepočíta ako zmena."
+      ]
+    },
+    "actions": {
+      "name": "Vedľajšie účinky",
+      "sub": "najviac raz, neznáme zastaví",
+      "body": "Pushy, vytváranie a merge PR, vydania, publikovanie balíkov aj vaše vlastné typy potrebujú <code>allow</code> z policy. Známy výsledok je iba exit code 0.",
+      "kindsK": "Kontroly iba na čítanie, ktorými sa uzatvára neznámy výsledok",
+      "kinds": [
+        "git ls-remote",
+        "gh pr list / view",
+        "gh release view",
+        "npm view"
+      ]
+    },
+    "rulesTitle": "pravidlá, ktoré platia vždy",
+    "rules": [
+      "Neplatná policy zamietne všetky vedľajšie účinky namiesto návratu k predvoleným hodnotám.",
+      "Oprávnenie po vypršaní sa vráti na ask. Predĺžiť ho môže iba človek, úpravou policy.",
+      "Príkazy, ktoré Core nedokáže prečítať, napríklad <code>eval</code> alebo <code>sh -c</code>, sa považujú za nepriehľadné a pýta sa na ne.",
+      "Denník je iba na pridávanie a reťazený hashmi; <code>bw verify</code> odhalí upravené alebo odstránené záznamy a napoly zapísaný posledný riadok, ale nie celé záznamy odrezané z konca."
+    ]
+  },
+  "hosts": {
+    "idx": "Hostitelia",
+    "en": "HOSTS",
+    "title": "Najprv Claude Code.",
+    "lead": "Core nie je viazaný na hostiteľa; každý hostiteľ potrebuje malý adaptér. Claude Code je prvý a dnes jediný podporovaný.",
+    "caption": "Podpora hostiteľov a operačných systémov",
+    "hostCol": "Hostiteľ",
+    "supported": "Podporované, testované v CI",
+    "untested": "Netestované",
+    "v5only": "Iba V5, zmrazené",
+    "planned": "Plánované",
+    "firstHost": "Prvý hostiteľ",
+    "matrixNote": "CI spúšťa Core pri každom pull requeste.",
+    "matrixNoteSub": "macOS 15 a Ubuntu 24.04, Node 22.23.3 a 24.21.0.",
+    "recoTitle": "Prečo najprv Claude Code",
+    "recoBody": "Jeho hooky vidia každý príkaz pred spustením a každý pokus o zastavenie. Presne tam musí Core stáť.",
+    "recoFoot": "Codex, Gemini CLI a Qwen Code bežali na V5, ktorá je zmrazená na RC1. Vrátia sa ako adaptéry, keď bude Core stabilný."
+  },
+  "install": {
+    "idx": "Začíname",
+    "en": "GET STARTED",
+    "title": "Tri príkazy, potom požiadajte o zmenu.",
+    "lead": "Vyžaduje Node.js 22.14 alebo novší, Git a Claude Code s podporou pluginov.",
+    "steps": [
+      [
+        "Naklonujte Core",
+        "Raz na počítač. Ak ste tu spúšťali V5, najprv presuňte <code>~/.better-workflows</code> do <code>~/.better-workflows-V5</code> a nasmerujte naň <code>SBW_STATE_ROOT</code>."
+      ],
+      [
+        "Pridajte plugin",
+        "Inštalujte ho pre každý repozitár s <code>--scope local</code>, aby sa nič nezapísalo do súborov, ktoré commitujete."
+      ],
+      [
+        "Napíšte policy",
+        "<code>bw init</code> vytvorí <code>.better-workflows/policy.json</code>. Commitnite ho, aby mali všetci rovnaké pravidlá."
+      ]
+    ],
+    "stepsNote": "Úplný návod pokrýva vlastné kontroly, vedľajšie účinky a neznáme výsledky.",
+    "guideLink": "Začíname",
+    "tabsLabel": "Inštalačné príkazy",
+    "copyCommand": "Skopírovať tento príkaz",
+    "copy": "Kopírovať",
+    "firstK": "Potom to vyskúšajte",
+    "firstAsk": "Zmeň jeden riadok v tomto repozitári a nespúšťaj testy.",
+    "copyRequest": "Skopírovať túto požiadavku",
+    "firstNote": "Keď sa Claude Code pokúsi skončiť, bude vrátený a dozvie sa, ktorá kontrola chýba.",
+    "demoNote": "Voliteľné: spustite oba scenáre bez Claude, za pár sekúnd."
+  },
+  "boundary": {
+    "idx": "Hranice",
+    "en": "LIMITS",
+    "title": "Čo zastaví a čo nevidí.",
+    "lead": "Brána je užitočná, len ak poznáte jej hranice.",
+    "cols": [
+      [
+        "yes",
+        "check",
+        "Zastaví",
+        "Pozorovateľné chyby",
+        [
+          "Dokončenie na zastaranom alebo neúspešnom behu testov, alebo na čiastočnom, keď je kontrola označená ako <code>exact</code>",
+          "Pipe alebo <code>|| true</code>, ktoré skrývajú zlyhanie",
+          "Opakovaný push, merge, vydanie alebo publikovanie",
+          "Vedľajšie účinky, kým je výsledok predchádzajúceho neznámy",
+          "Priamu úpravu vlastnej policy alebo denníka agentom"
+        ]
+      ],
+      [
+        "no",
+        "x",
+        "Nerobí",
+        "Mimo jeho dohľadu",
+        [
+          "Nevidí vedľajšie účinky vo vnútri skriptu, pokiaľ policy ten skript nemenuje",
+          "Neposudzuje, či sú vaše testy dosť dobré",
+          "Nezostavuje graf závislostí: <code>scope</code> musí menovať všetko, od čoho kontrola závisí",
+          "Nepočíta súbory ignorované Gitom ako súčasť dôkazov"
+        ]
+      ],
+      [
+        "not",
+        "stop",
+        "Necháva na vás",
+        "Rozhodnutia človeka",
+        [
+          "Uzavretie vedľajšieho účinku, ktorého výsledok sa nedá spätne prečítať",
+          "Predĺženie oprávnenia po jeho <code>expiresAt</code>",
+          "Výber toho, čo <code>scope</code> pokrýva",
+          "Posúdenie, kedy sa relácia točí v kruhu"
+        ]
+      ]
+    ],
+    "claim": "Core blokuje vyššie uvedené chyby. Či znižuje prerábanie alebo chybné rozhodnutia pri dlhých úlohách, sa zatiaľ nemeralo; práve na to slúži súčasné obdobie vlastného používania.",
+    "rulesLabel": "Hranice návrhu",
+    "rules": [
+      "Parser shellu sa nerozširuje: na príkaz, ktorý nedokáže prečítať, sa pýta pred jeho spustením a test skrytý v <code>eval</code> alebo <code>sh -c</code> sa nikdy nepočíta ako dôkaz.",
+      "Core iba počíta, ako relácia prebieha. Či smeruje k výsledku, posúdi agent alebo vy.",
+      "Pull requesty a vydania sa zosúlaďujú cez <code>gh</code>; bez neho zostanú neznáme, kým ich neuzavriete."
+    ]
+  },
+  "status": {
+    "idx": "Stav",
+    "en": "STATUS",
+    "title": "Kde je projekt.",
+    "lead": "V6 nahrádza workflow engine z V5 malým jadrom. Dátumy prídu, keď sa splnia podmienky.",
+    "road": [
+      [
+        "DONE",
+        "line",
+        "Zmrazené",
+        "V5.0 RC1",
+        "tag V5.0.rc1",
+        "Workflow engine pre viacerých hostiteľov. Zmrazené na vetve <code>frozen/v5</code>; žiadna nová práca."
+      ],
+      [
+        "NOW",
+        "sig",
+        "Prebieha",
+        "V6 Core pre-alpha",
+        "packages/bw-core",
+        "Hooky Claude Code, scope dôkazov, vlastné používanie v dvoch repozitároch."
+      ],
+      [
+        "NEXT",
+        "warn",
+        "Po vlastnom používaní",
+        "V6 Core alpha",
+        "prvé otagované vydanie",
+        "Vyjde, keď obdobie vlastného používania ukáže skutočné zachytenia a málo falošných blokovaní. Ďalší hostitelia pribudnú ako malé adaptéry."
+      ]
+    ],
+    "statementTitle": "vyhlásenie",
+    "statementK": "PRE-ALPHA",
+    "statement": [
+      "Core je použiteľný už dnes a beží v správcových vlastných repozitároch. Formát policy sa pred alpha ešte môže zmeniť.",
+      "Všetko tu je zadarmo a open source. Neexistuje platená úroveň, účet ani telemetria."
+    ],
+    "licTitle": "licencovanie",
+    "licItem": "Časť",
+    "licForm": "Licencia",
+    "licState": "Stav",
+    "lic": [
+      [
+        "V6 Core (<code>packages/bw-core</code>)",
+        "Apache-2.0",
+        "",
+        "sig",
+        "aktívne"
+      ],
+      [
+        "Web a zvyšok repozitára",
+        "AGPL-3.0-only",
+        "",
+        "line",
+        "aktívne"
+      ],
+      [
+        "Plugin V5",
+        "AGPL-3.0-only",
+        "na frozen/v5",
+        "warn",
+        "zmrazené"
+      ]
+    ]
+  },
+  "docs": {
+    "idx": "Dokumentácia",
+    "en": "DOCS",
+    "title": "Všetko je v repozitári.",
+    "lead": "Príručky sú napísané v angličtine a tradičnej čínštine. Každý jazyk na tomto webe má na GitHube krátke README."
+  },
+  "docList": [
+    [
+      "guideEn",
+      "Začíname",
+      "Inštalácia, prvé zablokovanie, vlastné kontroly a vedľajšie účinky (v angličtine)."
+    ],
+    [
+      "guideZh",
+      "快速開始（繁體中文）",
+      "Tá istá príručka v tradičnej čínštine."
+    ],
+    [
+      "policyRef",
+      "Referencia policy",
+      "Polia policy.json s príkladmi."
+    ],
+    [
+      "readme",
+      "README vo vašom jazyku",
+      "Čo zastaví a ako ho nainštalovať, v 41 jazykoch."
+    ]
+  ],
+  "faq": {
+    "idx": "Časté otázky",
+    "en": "FAQ",
+    "title": "Časté otázky, priame odpovede.",
+    "lead": "Niečo iné? Otvorte issue na GitHube.",
+    "items": [
+      [
+        "Spomalí Claude Code?",
+        "Hooky, ktoré spracúvajú kontrolu alebo vedľajší účinok, spočítajú hash pracovného stromu pomocou Gitu, čo v bežnom repozitári trvá milisekundy. Veľmi veľké repozitáre zaplatia pri každom takom volaní viac."
+      ],
+      [
+        "Nezasekne sa a nebude agenta vracať donekonečna?",
+        "Vráti agenta s dôvodom a s tým, ako relácia doteraz prebiehala: počet behov, zlyhania za sebou, koľkokrát už bol vrátený. Agent potom môže zastaviť a priamo vám povedať, ktorá kontrola stále zlyháva."
+      ],
+      [
+        "Môže ho agent vypnúť?",
+        "Priamo nie. Core odmietne úpravy policy a denníka agentom a odmietne aj <code>bw init</code> a ručné uzavretie akcie. Odinštalovanie pluginu alebo zmenu týchto súborov okľukou riadia vlastné pravidlá oprávnení Claude Code, preto tieto výzvy nechajte zapnuté."
+      ],
+      [
+        "Posiela niekam niečo?",
+        "Neexistuje server ani telemetria. Jediné sieťové volania sú kontroly len na čítanie vaším vlastným <code>git</code>, <code>gh</code> a <code>npm</code>, ktoré overujú, či vedľajší účinok nastal. Denník zostáva v <code>.git/better-workflows/</code>."
+      ],
+      [
+        "A čo Codex, Gemini CLI alebo Qwen Code?",
+        "Bežali na V5, ktorá je zmrazená. Core nie je viazaný na hostiteľa a adaptéry pre ne sú plánované po alpha."
+      ]
+    ]
+  },
+  "sponsor": {
+    "idx": "Podporiť",
+    "en": "SPONSOR",
+    "title": "Podporte Better Workflows.",
+    "cta": "Jednorazová podpora v USDT (TRC20)",
+    "body": "Podpora pokrýva údržbu open source, dokumentáciu v angličtine a tradičnej čínštine a hosting. Nekupuje členstvo, prioritu v roadmape ani podporu.",
+    "qrLabel": "Otvoriť QR kód USDT (TRC20)",
+    "copyAddress": "Skopírovať adresu"
+  },
+  "cta": {
+    "kicker": "Vyskúšajte za pár sekúnd",
+    "title": "Spustenie príkazu nie je dôkaz. Dôkazom sú súbory.",
+    "body": "Spustite demo bez Claude, potom ho nainštalujte do jedného repozitára a požiadajte o zmenu.",
+    "notes": "Zobraziť na GitHube"
+  }
+}

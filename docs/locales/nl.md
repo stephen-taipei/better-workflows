@@ -22,7 +22,7 @@ De agent wordt gehouden aan de bestanden zoals ze nu zijn, en aan wat de provide
 
 ## Probeer het
 
-Zie beide scenario's in ongeveer 2 seconden draaien, zonder Claude:
+Zie beide scenario's in een paar seconden draaien, zonder Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

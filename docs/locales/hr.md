@@ -22,7 +22,7 @@ Agent se drži datoteka kakve su sada i onoga što je pružatelj stvarno učinio
 
 ## Isprobajte
 
-Pogledajte kako se oba scenarija izvode za otprilike 2 sekunde, bez Claudea:
+Pogledajte kako se oba scenarija izvode za nekoliko sekundi, bez Claudea:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

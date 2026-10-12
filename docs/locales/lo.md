@@ -22,7 +22,7 @@ agent ຕ້ອງຍຶດຕາມໄຟລ໌ໃນສະພາບປັດ�
 
 ## ລອງໃຊ້
 
-ເບິ່ງທັງສອງສະຖານະການເຮັດວຽກໃນປະມານ 2 ວິນາທີ ໂດຍບໍ່ຕ້ອງໃຊ້ Claude:
+ເບິ່ງທັງສອງສະຖານະການເຮັດວຽກໃນບໍ່ເທົ່າໃດວິນາທີ ໂດຍບໍ່ຕ້ອງໃຊ້ Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

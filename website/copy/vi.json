@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "title": "Better Workflows | Agent lập trình của bạn chỉ kết thúc dựa trên bằng chứng hiện tại",
+    "description": "Một plugin mã nguồn mở cho Claude Code: agent không thể kết thúc dựa trên một kết quả test xanh đã cũ, và không thể lặp lại hay chồng thêm các tác động phụ mà nó chưa từng thấy kết quả. Quyền hạn đến từ một tệp policy, không bao giờ từ prompt.",
+    "imageAlt": "Hình minh họa control plane của Better Workflows: sổ cái, dấu niêm phong bằng chứng và các nút đối soát"
+  },
+  "shell": {
+    "skip": "Chuyển đến nội dung chính",
+    "product": "Sản phẩm",
+    "principles": "Nguyên tắc",
+    "workflow": "Cách hoạt động",
+    "install": "Bắt đầu",
+    "docs": "Tài liệu",
+    "sponsor": "Tài trợ",
+    "menuOpen": "Mở menu",
+    "menuClose": "Đóng menu",
+    "language": "Ngôn ngữ",
+    "themeToDark": "Chuyển sang giao diện tối",
+    "themeToLight": "Chuyển sang giao diện sáng",
+    "themeToggle": "Đổi giao diện màu",
+    "homeLabel": "Trang chủ Better Workflows",
+    "tagline": "Agent lập trình của bạn chỉ kết thúc dựa trên bằng chứng hiện tại, và không bao giờ lặp lại một tác động phụ đã thành công ở cùng một commit.",
+    "chip": "V6 Core · pre-alpha",
+    "installCta": "Cài đặt",
+    "overview": "Tổng quan",
+    "hosts": "Host",
+    "boundary": "Giới hạn",
+    "status": "Trạng thái",
+    "faq": "Câu hỏi thường gặp",
+    "resources": "Tài nguyên",
+    "project": "Mã nguồn mở",
+    "guideEn": "Hướng dẫn bắt đầu (English)",
+    "guideZh": "Hướng dẫn bắt đầu (繁體中文)",
+    "policyRef": "Tham chiếu policy",
+    "v5Archive": "Lưu trữ V5",
+    "contribute": "Đóng góp",
+    "security": "Bảo mật",
+    "license": "Core Apache-2.0",
+    "alias": "(betterworkflows.org chuyển hướng về đây)"
+  },
+  "hero": {
+    "badge": "pre-alpha",
+    "h1": "Chứng cứ phải mới.",
+    "h1Signal": "Chưa rõ thì dừng.",
+    "lead": "Một plugin cho Claude Code giúp AI agent không kết thúc dựa trên một kết quả test xanh đã cũ, và không lặp lại hay chồng thêm các tác động phụ mà nó chưa từng thấy kết quả. Những gì nó được phép làm đến từ tệp policy do bạn viết, không bao giờ từ prompt.",
+    "taglineLabel": "Những gì Core bảo đảm",
+    "chips": [
+      "Bằng chứng hiện tại",
+      "Nhiều nhất một lần",
+      "Policy, không phải prompt",
+      "Lỗi thì đóng"
+    ],
+    "ctaInstall": "Cài cho Claude Code",
+    "ctaDemo": "Xem nó chặn",
+    "specTitle": "Core",
+    "status": "Pre-alpha. Người bảo trì tự dùng trên hai repository của mình từ tháng 10 năm 2026.",
+    "host": "Claude Code (hooks plugin)",
+    "platforms": "macOS · Linux",
+    "license": "Apache-2.0",
+    "notes": "Đọc hướng dẫn bắt đầu"
+  },
+  "demo": {
+    "title": "một kết quả xanh đã cũ, rồi một lần push thử lại",
+    "termLabel": "Bản ghi phiên đã rút gọn",
+    "prompt": "sửa lỗi trong <code>sum.mjs</code>, không cần chạy lại test",
+    "lines": [
+      [
+        "test",
+        "<code>node --test</code> đạt trên các tệp <code>a1f3</code>"
+      ],
+      [
+        "edit",
+        "agent sửa <code>sum.mjs</code>, các tệp giờ là <code>9c07</code>"
+      ],
+      [
+        "stop",
+        "“Xong. Test đều đạt.”"
+      ],
+      [
+        "bw",
+        "Trả lại: <code>test</code> đạt lần cuối trên <code>a1f3</code>; các tệp đã thay đổi từ đó."
+      ],
+      [
+        "test",
+        "agent chạy lại <code>node --test</code>: 1 lỗi, sửa xong, đạt trên <code>b2e8</code>"
+      ],
+      [
+        "push",
+        "<code>git push</code> hết thời gian chờ sau khi push đã thành công"
+      ],
+      [
+        "push",
+        "agent thử lại <code>git push</code>"
+      ],
+      [
+        "bw",
+        "Từ chối: <code>git-push</code> đã thành công ở commit này."
+      ]
+    ],
+    "gatesTitle": "Core đã kiểm tra gì",
+    "gates": [
+      [
+        "Policy",
+        "từ .better-workflows/policy.json",
+        "pass"
+      ],
+      [
+        "Bằng chứng",
+        "test trên các tệp như hiện tại",
+        "blocked"
+      ],
+      [
+        "Chạy lại",
+        "test đạt trên b2e8",
+        "pass"
+      ],
+      [
+        "Hành động",
+        "git-push, lần đầu",
+        "pass"
+      ],
+      [
+        "Nhiều nhất một lần",
+        "cùng push, cùng commit",
+        "blocked"
+      ]
+    ],
+    "progress": "2 LẦN CHẶN · 0 LẦN XONG GIẢ",
+    "halt": "Core đã chặn agent hai lần: một lần khi nó định kết thúc dựa trên một lần pass cũ, một lần khi nó định push lại. Cả hai lần nó đều bị trả lại kèm lý do.",
+    "note": "Rút gọn từ demo stale-green trong repository; các id tree chỉ mang tính minh họa. Tự chạy bản demo đầy đủ trong vài giây, không cần Claude."
+  },
+  "strip": {
+    "label": "Core qua các con số",
+    "items": [
+      [
+        "dòng mã kernel",
+        "giới hạn là 3.000"
+      ],
+      [
+        "test",
+        "mỗi cổng ghi rõ lỗi mà nó ngăn chặn"
+      ],
+      [
+        "dependency khi chạy",
+        "chỉ Node.js và Git"
+      ],
+      [
+        "hook của Claude Code",
+        "SessionStart, PreToolUse, PostToolUse(Failure) và (Subagent)Stop; không server, không tài khoản"
+      ],
+      [
+        "luồng CI",
+        "macOS và Linux × Node 22 và 24"
+      ],
+      [
+        "ngôn ngữ",
+        "trên trang này và trong README"
+      ]
+    ]
+  },
+  "principles": {
+    "idx": "Nguyên tắc",
+    "en": "PRINCIPLES",
+    "title": "Ba quy tắc càng hữu ích khi mô hình càng mạnh.",
+    "lead": "Agent càng mạnh thì mỗi phiên viết càng nhiều mã và tự chạy càng nhiều lệnh. Các quy tắc này không dựa vào việc agent cẩn thận; chúng vẫn đúng dù nó nói gì.",
+    "pillars": [
+      [
+        "lock",
+        "Prompt không phải là thẩm quyền",
+        "Những gì agent được push, merge, release hay publish đến từ một tệp policy mà nó không thể sửa. Nhờ vả khéo léo trong prompt cũng không thay đổi được gì."
+      ],
+      [
+        "doc",
+        "Bằng chứng gắn với tệp",
+        "Một test đạt chỉ có giá trị với đúng các tệp mà nó đã chạy. Đổi một dòng là lần đạt đó không còn được tính."
+      ],
+      [
+        "stop",
+        "Chưa rõ thì dừng, không đoán",
+        "Một tác động phụ chưa rõ kết quả sẽ chặn mọi tác động phụ tiếp theo cho đến khi được đối chiếu với provider hoặc do một người xử lý."
+      ]
+    ],
+    "compareTitle": "cùng một phiên",
+    "compareAspect": "Tình huống",
+    "without": "Chỉ có agent",
+    "with": "Có Core",
+    "compare": [
+      [
+        "Test đạt, rồi một tệp thay đổi",
+        "“Test đều đạt.”",
+        "Bị trả lại để chạy lại trên các tệp hiện tại."
+      ],
+      [
+        "<code>npm test | tail</code>",
+        "Tính là xanh; exit code là của <code>tail</code>.",
+        "Không bao giờ được tính; Stop nêu lý do."
+      ],
+      [
+        "Một tệp spec thay cho cả bộ test",
+        "Tính là “test đều đạt.”",
+        "Với <code>exact</code>, chỉ toàn bộ lệnh mới được tính."
+      ],
+      [
+        "Push hết thời gian chờ sau khi đã thành công",
+        "Push lần nữa.",
+        "Cùng push ở cùng commit bị từ chối."
+      ],
+      [
+        "Prompt nói “bạn có thể publish”",
+        "Publish luôn.",
+        "Policy quyết định: allow, ask hoặc deny."
+      ]
+    ],
+    "layersTitle": "thẩm quyền đến từ đâu",
+    "layers": [
+      [
+        "policy.json",
+        "Do một người viết và thay đổi. Core từ chối các chỉnh sửa trực tiếp của agent đối với nó.",
+        "hard",
+        "NGUỒN"
+      ],
+      [
+        "Quyền của Claude Code",
+        "Vẫn áp dụng. <code>allow</code> trong policy không bao giờ cấp nhiều hơn những gì Claude Code cho phép.",
+        "",
+        ""
+      ],
+      [
+        "Hook của Core",
+        "Thực thi policy trên mọi lệnh, mọi chỉnh sửa và mỗi lần dừng.",
+        "",
+        ""
+      ],
+      [
+        "Prompt",
+        "Mô tả mục tiêu. Không mang thẩm quyền nào.",
+        "soft",
+        "KHÔNG"
+      ]
+    ]
+  },
+  "workflow": {
+    "idx": "Cách hoạt động",
+    "en": "HOW IT WORKS",
+    "title": "Sáu hook, một sổ cái trong .git.",
+    "lead": "Core chạy bên trong chính các hook của Claude Code. Không cần khởi động gì, không server, không tài khoản; trạng thái nằm trong <code>.git/better-workflows/</code> của từng repository.",
+    "hooksTitle": "các hook",
+    "hooks": [
+      "<b>SessionStart</b>: cho agent biết những kiểm tra nào phải đạt và những tác động phụ nào chưa được xử lý, đồng thời cảnh báo nếu policy không hợp lệ hoặc cần <code>gh</code> nhưng không dùng được.",
+      "<b>PreToolUse</b>: cho phép, hỏi hoặc từ chối từng tác động phụ, và chặn việc sửa policy cũng như sổ cái.",
+      "<b>PostToolUse</b>: ghi lại mỗi lần kiểm tra cùng Git tree mà nó chạy trên đó, và mỗi tác động phụ cùng exit code của nó.",
+      "<b>Stop</b>: nếu có tệp thay đổi và một kiểm tra bắt buộc còn thiếu, thất bại hoặc đã cũ, trả agent lại một lần kèm lý do; lần sau chỉ cảnh báo.",
+      "<b>bw status</b> (một lệnh, không phải hook): hiển thị cùng trạng thái đó cho bạn."
+    ],
+    "completion": {
+      "name": "Kết thúc",
+      "sub": "bằng chứng gắn với tệp",
+      "body": "Một lần test, lint, typecheck hoặc build chỉ được tính nếu nó đạt, exit code của chính nó quyết định kết quả, không tệp nào thay đổi trong lúc chạy, và các tệp vẫn y như lúc nó chạy.",
+      "guardsK": "Tùy chọn",
+      "guards": [
+        "<code>exact</code>: chỉ toàn bộ lệnh mới được tính, và <code>cwd</code> xác định nơi lệnh phải chạy.",
+        "<code>scope</code> (cùng với <code>exact</code>): thay đổi bên ngoài các thư mục đã chỉ định không làm kết quả bị cũ.",
+        "<code>ignore</code> (toàn bộ policy): đầu ra do kiểm tra tự ghi, như coverage, không bị tính là thay đổi."
+      ]
+    },
+    "actions": {
+      "name": "Tác động phụ",
+      "sub": "nhiều nhất một lần, chưa rõ thì dừng",
+      "body": "Push, tạo và merge PR, release, publish package và các loại tùy chỉnh của bạn đều cần <code>allow</code> từ policy. Chỉ exit code 0 mới là kết quả đã biết.",
+      "kindsK": "Các kiểm tra chỉ đọc dùng để xác minh kết quả chưa rõ",
+      "kinds": [
+        "git ls-remote",
+        "gh pr list / view",
+        "gh release view",
+        "npm view"
+      ]
+    },
+    "rulesTitle": "các quy tắc luôn đúng",
+    "rules": [
+      "Một policy không hợp lệ sẽ từ chối mọi tác động phụ thay vì quay về mặc định.",
+      "Một quyền đã hết hạn sẽ quay về ask. Chỉ một người mới gia hạn được, bằng cách sửa policy.",
+      "Các lệnh Core không đọc được, như <code>eval</code> hay <code>sh -c</code>, được coi là không minh bạch và sẽ được hỏi.",
+      "Sổ cái chỉ ghi thêm và được nối chuỗi bằng hash; <code>bw verify</code> phát hiện các mục bị sửa hoặc bị xóa và một dòng cuối ghi dở, nhưng không phát hiện các mục bị cắt nguyên vẹn khỏi phần cuối."
+    ]
+  },
+  "hosts": {
+    "idx": "Host",
+    "en": "HOSTS",
+    "title": "Claude Code trước tiên.",
+    "lead": "Core không phụ thuộc host; mỗi host cần một adapter nhỏ. Claude Code là host đầu tiên và là host duy nhất được hỗ trợ hiện nay.",
+    "caption": "Hỗ trợ host và hệ điều hành",
+    "hostCol": "Host",
+    "supported": "Hỗ trợ, kiểm thử trong CI",
+    "untested": "Chưa kiểm thử",
+    "v5only": "Chỉ V5, đã đóng băng",
+    "planned": "Dự kiến",
+    "firstHost": "Host đầu tiên",
+    "matrixNote": "CI chạy Core trên mọi pull request.",
+    "matrixNoteSub": "macOS 15 và Ubuntu 24.04, Node 22.23.3 và 24.21.0.",
+    "recoTitle": "Vì sao Claude Code trước tiên",
+    "recoBody": "Các hook của nó thấy mọi lệnh trước khi chạy và mọi lần cố dừng. Đó chính là nơi Core cần đứng.",
+    "recoFoot": "Codex, Gemini CLI và Qwen Code đã chạy V5, vốn đã đóng băng ở RC1. Chúng sẽ quay lại dưới dạng adapter khi Core ổn định."
+  },
+  "install": {
+    "idx": "Bắt đầu",
+    "en": "GET STARTED",
+    "title": "Ba lệnh, rồi yêu cầu một thay đổi.",
+    "lead": "Cần Node.js 22.14 trở lên, Git, và Claude Code có hỗ trợ plugin.",
+    "steps": [
+      [
+        "Clone Core",
+        "Một lần cho mỗi máy. Nếu từng chạy V5 trên máy này, trước hết hãy chuyển <code>~/.better-workflows</code> thành <code>~/.better-workflows-V5</code> và trỏ <code>SBW_STATE_ROOT</code> tới đó."
+      ],
+      [
+        "Thêm plugin",
+        "Cài cho từng repository với <code>--scope local</code>, để không có gì bị ghi vào các tệp bạn commit."
+      ],
+      [
+        "Viết policy",
+        "<code>bw init</code> tạo <code>.better-workflows/policy.json</code>. Hãy commit nó để mọi người dùng chung một bộ quy tắc."
+      ]
+    ],
+    "stepsNote": "Hướng dẫn đầy đủ trình bày các kiểm tra của riêng bạn, tác động phụ và kết quả chưa rõ.",
+    "guideLink": "Hướng dẫn bắt đầu",
+    "tabsLabel": "Lệnh cài đặt",
+    "copyCommand": "Sao chép lệnh này",
+    "copy": "Sao chép",
+    "firstK": "Rồi thử ngay",
+    "firstAsk": "Sửa một dòng trong repository này, và đừng chạy test.",
+    "copyRequest": "Sao chép yêu cầu này",
+    "firstNote": "Khi Claude Code cố kết thúc, nó sẽ bị trả lại và được cho biết kiểm tra nào còn thiếu.",
+    "demoNote": "Tùy chọn: chạy cả hai tình huống không cần Claude, trong vài giây."
+  },
+  "boundary": {
+    "idx": "Giới hạn",
+    "en": "LIMITS",
+    "title": "Nó chặn được gì, và không thấy được gì.",
+    "lead": "Một cổng kiểm soát chỉ hữu ích khi bạn biết ranh giới của nó.",
+    "cols": [
+      [
+        "yes",
+        "check",
+        "Chặn được",
+        "Lỗi quan sát được",
+        [
+          "Kết thúc dựa trên một lần test đã cũ hoặc thất bại, hoặc chỉ chạy một phần khi kiểm tra được đánh dấu <code>exact</code>",
+          "Một pipe hoặc <code>|| true</code> che giấu lỗi",
+          "Push, merge, release hoặc publish lặp lại",
+          "Tác động phụ khi một tác động trước đó chưa rõ kết quả",
+          "Agent sửa trực tiếp policy hoặc sổ cái của chính nó"
+        ]
+      ],
+      [
+        "no",
+        "x",
+        "Không làm được",
+        "Nằm ngoài tầm nhìn",
+        [
+          "Thấy tác động phụ bên trong một script, trừ khi policy nêu tên script đó",
+          "Đánh giá test của bạn có đủ tốt hay không",
+          "Xây dựng đồ thị phụ thuộc: một <code>scope</code> phải liệt kê mọi thứ mà kiểm tra phụ thuộc vào",
+          "Tính các tệp bị Git bỏ qua vào bằng chứng"
+        ]
+      ],
+      [
+        "not",
+        "stop",
+        "Để bạn quyết",
+        "Quyết định do con người đưa ra",
+        [
+          "Xử lý một tác động phụ mà kết quả không thể đọc lại",
+          "Gia hạn một quyền quá <code>expiresAt</code>",
+          "Chọn phạm vi mà một <code>scope</code> bao phủ",
+          "Quyết định khi nào một phiên đang đi vòng quanh"
+        ]
+      ]
+    ],
+    "claim": "Core chặn được các lỗi nêu trên. Việc nó có giảm làm lại hoặc quyết định sai trong các tác vụ dài hay không thì chưa được đo; giai đoạn tự dùng hiện tại là để làm việc đó.",
+    "rulesLabel": "Giới hạn thiết kế",
+    "rules": [
+      "Bộ phân tích shell không mở rộng thêm: lệnh nó không đọc được sẽ được hỏi trước khi chạy, và một test giấu trong <code>eval</code> hoặc <code>sh -c</code> không bao giờ được tính là bằng chứng.",
+      "Core chỉ đếm diễn tiến của một phiên. Phiên có đang hội tụ hay không là do agent hoặc bạn đánh giá.",
+      "Pull request và release được đối soát bằng <code>gh</code>; nếu không có nó, chúng sẽ ở trạng thái chưa rõ cho đến khi bạn xử lý."
+    ]
+  },
+  "status": {
+    "idx": "Trạng thái",
+    "en": "STATUS",
+    "title": "Dự án đang ở đâu.",
+    "lead": "V6 thay engine workflow của V5 bằng một core nhỏ. Ngày tháng chỉ có khi đạt được điều kiện.",
+    "road": [
+      [
+        "DONE",
+        "line",
+        "Đã đóng băng",
+        "V5.0 RC1",
+        "tag V5.0.rc1",
+        "Engine workflow đa host. Đóng băng trên nhánh <code>frozen/v5</code>; không phát triển thêm."
+      ],
+      [
+        "NOW",
+        "sig",
+        "Đang làm",
+        "V6 Core pre-alpha",
+        "packages/bw-core",
+        "Hook của Claude Code, scope bằng chứng, tự dùng trên hai repository."
+      ],
+      [
+        "NEXT",
+        "warn",
+        "Sau giai đoạn tự dùng",
+        "V6 Core alpha",
+        "bản phát hành có tag đầu tiên",
+        "Phát hành khi giai đoạn tự dùng cho thấy chặn được lỗi thật và ít chặn nhầm. Thêm host sẽ theo sau dưới dạng adapter nhỏ."
+      ]
+    ],
+    "statementTitle": "tuyên bố",
+    "statementK": "PRE-ALPHA",
+    "statement": [
+      "Core dùng được ngay hôm nay và đang chạy trên chính các repository của người bảo trì. Định dạng policy vẫn có thể thay đổi trước alpha.",
+      "Mọi thứ ở đây đều miễn phí và mã nguồn mở. Không có gói trả phí, tài khoản hay telemetry."
+    ],
+    "licTitle": "giấy phép",
+    "licItem": "Phần",
+    "licForm": "Giấy phép",
+    "licState": "Trạng thái",
+    "lic": [
+      [
+        "V6 Core (<code>packages/bw-core</code>)",
+        "Apache-2.0",
+        "",
+        "sig",
+        "đang hoạt động"
+      ],
+      [
+        "Website và phần còn lại của repository",
+        "AGPL-3.0-only",
+        "",
+        "line",
+        "đang hoạt động"
+      ],
+      [
+        "Plugin V5",
+        "AGPL-3.0-only",
+        "trên frozen/v5",
+        "warn",
+        "đã đóng băng"
+      ]
+    ]
+  },
+  "docs": {
+    "idx": "Tài liệu",
+    "en": "DOCS",
+    "title": "Mọi thứ đều nằm trong repository.",
+    "lead": "Các hướng dẫn được viết bằng tiếng Anh và tiếng Trung phồn thể. Mỗi ngôn ngữ trên trang này có một README ngắn trên GitHub."
+  },
+  "docList": [
+    [
+      "guideEn",
+      "Hướng dẫn bắt đầu",
+      "Cài đặt, lần chặn đầu tiên, các kiểm tra và tác động phụ của riêng bạn (tiếng Anh)."
+    ],
+    [
+      "guideZh",
+      "快速開始（繁體中文）",
+      "Cùng hướng dẫn đó bằng tiếng Trung phồn thể."
+    ],
+    [
+      "policyRef",
+      "Tham chiếu policy",
+      "Các trường của policy.json, kèm ví dụ."
+    ],
+    [
+      "readme",
+      "README bằng ngôn ngữ của bạn",
+      "Nó chặn gì và cách cài đặt, bằng 41 ngôn ngữ."
+    ]
+  ],
+  "faq": {
+    "idx": "Câu hỏi thường gặp",
+    "en": "FAQ",
+    "title": "Câu hỏi thường gặp, trả lời thẳng.",
+    "lead": "Còn điều gì khác? Hãy mở một issue trên GitHub.",
+    "items": [
+      [
+        "Nó có làm Claude Code chậm đi không?",
+        "Các hook xử lý một kiểm tra hoặc một tác động phụ sẽ băm cây làm việc bằng Git, mất vài mili giây trong một repository bình thường. Repository rất lớn sẽ tốn thêm thời gian ở mỗi lần gọi như vậy."
+      ],
+      [
+        "Nó có bị kẹt, trả agent lại mãi không?",
+        "Nó trả agent lại kèm lý do và diễn tiến của phiên cho đến lúc đó: số lần chạy, số lần thất bại liên tiếp, số lần đã bị trả lại. Khi đó agent có thể dừng và nói rõ với bạn kiểm tra nào cứ thất bại."
+      ],
+      [
+        "Agent có tắt nó được không?",
+        "Không trực tiếp. Core từ chối các chỉnh sửa của agent đối với policy và sổ cái, đồng thời từ chối <code>bw init</code> và việc xử lý thủ công một hành động. Việc gỡ plugin, hoặc thay đổi các tệp đó bằng cách vòng vo, do chính các quy tắc quyền của Claude Code quản lý, vì vậy hãy giữ các lời nhắc xác nhận đó luôn bật."
+      ],
+      [
+        "Nó có gửi dữ liệu đi đâu không?",
+        "Không có server và không có telemetry. Các lệnh gọi mạng duy nhất là những kiểm tra chỉ đọc bằng <code>git</code>, <code>gh</code> và <code>npm</code> của chính bạn, để xác nhận một tác động phụ đã xảy ra hay chưa. Sổ cái nằm trong <code>.git/better-workflows/</code>."
+      ],
+      [
+        "Còn Codex, Gemini CLI hay Qwen Code thì sao?",
+        "Chúng đã chạy V5, vốn đã đóng băng. Core không phụ thuộc host, và adapter cho chúng được dự kiến sau alpha."
+      ]
+    ]
+  },
+  "sponsor": {
+    "idx": "Tài trợ",
+    "en": "SPONSOR",
+    "title": "Ủng hộ Better Workflows.",
+    "cta": "Tài trợ một lần bằng USDT (TRC20)",
+    "body": "Khoản tài trợ chi trả cho việc bảo trì mã nguồn mở, tài liệu tiếng Anh và tiếng Trung phồn thể, và hosting. Nó không mua tư cách thành viên, quyền ưu tiên trong roadmap hay hỗ trợ.",
+    "qrLabel": "Mở mã QR USDT (TRC20)",
+    "copyAddress": "Sao chép địa chỉ"
+  },
+  "cta": {
+    "kicker": "Thử trong vài giây",
+    "title": "Chạy một lệnh không phải là bằng chứng. Các tệp mới là.",
+    "body": "Chạy demo không cần Claude, rồi cài lên một repository và yêu cầu một thay đổi.",
+    "notes": "Xem trên GitHub"
+  }
+}

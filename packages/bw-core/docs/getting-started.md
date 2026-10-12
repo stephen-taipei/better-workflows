@@ -12,7 +12,7 @@ Status: pre-alpha. Until the alpha release, Core is installed from a Git checkou
 - Git
 - Claude Code with plugin support (`claude plugin --help` works)
 
-## 1. See it work without Claude (about 2 seconds)
+## 1. See it work without Claude (a few seconds)
 
 If you ran V5 on this machine, `~/.better-workflows` holds its state and the clone fails. Move V5 aside first and tell V5 where it went, so V5 never writes into the Core clone:
 

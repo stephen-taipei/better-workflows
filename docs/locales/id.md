@@ -22,7 +22,7 @@ Agen dinilai berdasarkan berkas sebagaimana adanya sekarang, dan berdasarkan apa
 
 ## Coba
 
-Lihat kedua skenario berjalan dalam sekitar 2 detik, tanpa Claude:
+Lihat kedua skenario berjalan dalam beberapa detik, tanpa Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

@@ -12,7 +12,7 @@ Better Workflows Core 讓 Claude Code 的 agent 不能拿「已經對不上目�
 - Git
 - 支援 plugin 的 Claude Code（`claude plugin --help` 可以執行）
 
-## 1. 不需要 Claude 先看效果（約 2 秒）
+## 1. 不需要 Claude 先看效果（幾秒鐘）
 
 如果這台機器跑過 V5，`~/.better-workflows` 裡是 V5 的狀態，clone 會失敗。先把 V5 移開，並告訴 V5 新位置，V5 才不會寫進 Core 的 clone：
 

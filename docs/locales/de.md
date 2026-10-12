@@ -22,7 +22,7 @@ Der Agent wird an den Dateien in ihrem jetzigen Zustand gemessen und daran, was 
 
 ## Ausprobieren
 
-Sehen Sie beide Szenarien in etwa 2 Sekunden laufen, ohne Claude:
+Sehen Sie beide Szenarien in wenigen Sekunden laufen, ohne Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

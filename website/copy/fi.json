@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "title": "Better Workflows | Koodausagenttisi lopettaa ajantasaisen näytön perusteella",
+    "description": "Avoimen lähdekoodin plugin Claude Codeen: agentti ei voi lopettaa vanhentuneen vihreän testin perusteella eikä toistaa tai kasata sivuvaikutuksia, joiden tulosta se ei koskaan nähnyt. Oikeudet tulevat policy-tiedostosta, ei koskaan promptista.",
+    "imageAlt": "Kuvitus Better Workflows -ohjaustasosta: lokikirja, näyttösinetit ja täsmäytyssolmut"
+  },
+  "shell": {
+    "skip": "Siirry pääsisältöön",
+    "product": "Tuote",
+    "principles": "Periaatteet",
+    "workflow": "Miten se toimii",
+    "install": "Aloitus",
+    "docs": "Dokumentaatio",
+    "sponsor": "Sponsoroi",
+    "menuOpen": "Avaa valikko",
+    "menuClose": "Sulje valikko",
+    "language": "Kieli",
+    "themeToDark": "Vaihda tummaan teemaan",
+    "themeToLight": "Vaihda vaaleaan teemaan",
+    "themeToggle": "Vaihda väriteemaa",
+    "homeLabel": "Better Workflows -etusivu",
+    "tagline": "Koodausagenttisi lopettaa ajantasaisen näytön perusteella eikä koskaan toista sivuvaikutusta, joka on jo onnistunut samassa commitissa.",
+    "chip": "V6 Core · pre-alpha",
+    "installCta": "Asenna",
+    "overview": "Yleiskatsaus",
+    "hosts": "Isännät",
+    "boundary": "Rajat",
+    "status": "Tila",
+    "faq": "UKK",
+    "resources": "Resurssit",
+    "project": "Avoin lähdekoodi",
+    "guideEn": "Aloitusopas (English)",
+    "guideZh": "Aloitusopas (繁體中文)",
+    "policyRef": "Policy-viite",
+    "v5Archive": "V5-arkisto",
+    "contribute": "Osallistu",
+    "security": "Tietoturva",
+    "license": "Core Apache-2.0",
+    "alias": "(betterworkflows.org ohjaa tänne)"
+  },
+  "hero": {
+    "badge": "pre-alpha",
+    "h1": "Vain tuore näyttö käy.",
+    "h1Signal": "Tuntematon? Pysähdy.",
+    "lead": "Claude Code -plugin, joka estää AI-agenttia lopettamasta vanhentuneen vihreän testin perusteella ja toistamasta tai kasaamasta sivuvaikutuksia, joiden tulosta se ei koskaan nähnyt. Sen, mitä agentti saa tehdä, määrää kirjoittamasi policy-tiedosto, ei koskaan prompti.",
+    "taglineLabel": "Mitä Core valvoo",
+    "chips": [
+      "Ajantasainen näyttö",
+      "Enintään kerran",
+      "Policy, ei prompti",
+      "Epäselvässä estää"
+    ],
+    "ctaInstall": "Asenna Claude Codeen",
+    "ctaDemo": "Katso, miten se pysäyttää",
+    "specTitle": "Core",
+    "status": "Pre-alpha. Ylläpitäjän omassa käytössä kahdessa hänen repositoriossaan lokakuusta 2026 lähtien.",
+    "host": "Claude Code (hooks-plugin)",
+    "platforms": "macOS · Linux",
+    "license": "Apache-2.0",
+    "notes": "Lue aloitusopas"
+  },
+  "demo": {
+    "title": "vanhentunut vihreä, sitten uudelleenyritetty push",
+    "termLabel": "Lyhennetty istuntotallenne",
+    "prompt": "korjaa bugi tiedostossa <code>sum.mjs</code>, testejä ei tarvitse ajaa uudelleen",
+    "lines": [
+      [
+        "test",
+        "<code>node --test</code> menee läpi tiedostoilla <code>a1f3</code>"
+      ],
+      [
+        "edit",
+        "agentti muokkaa tiedostoa <code>sum.mjs</code>, tiedostot ovat nyt <code>9c07</code>"
+      ],
+      [
+        "stop",
+        "”Valmis. Testit menevät läpi.”"
+      ],
+      [
+        "bw",
+        "Palautettu: <code>test</code> meni viimeksi läpi tiedostoilla <code>a1f3</code>; tiedostot ovat muuttuneet sen jälkeen."
+      ],
+      [
+        "test",
+        "agentti ajaa <code>node --test</code> uudelleen: 1 virhe, korjaa sen, menee läpi tiedostoilla <code>b2e8</code>"
+      ],
+      [
+        "push",
+        "<code>git push</code> aikakatkaistaan, vaikka push on jo mennyt perille"
+      ],
+      [
+        "push",
+        "agentti yrittää <code>git push</code> uudelleen"
+      ],
+      [
+        "bw",
+        "Estetty: <code>git-push</code> onnistui jo tässä commitissa."
+      ]
+    ],
+    "gatesTitle": "Mitä Core tarkisti",
+    "gates": [
+      [
+        "Policy",
+        "tiedostosta .better-workflows/policy.json",
+        "pass"
+      ],
+      [
+        "Näyttö",
+        "testi tiedostojen nykytilalla",
+        "blocked"
+      ],
+      [
+        "Uusi ajo",
+        "testi menee läpi tilalla b2e8",
+        "pass"
+      ],
+      [
+        "Toiminto",
+        "git-push, ensimmäinen kerta",
+        "pass"
+      ],
+      [
+        "Enintään kerran",
+        "sama push, sama commit",
+        "blocked"
+      ]
+    ],
+    "progress": "2 PYSÄYTYSTÄ · 0 VÄÄRÄÄ VALMIS-ILMOITUSTA",
+    "halt": "Core pysäytti agentin kahdesti: kerran lopettamasta vanhan läpimenon perusteella, kerran pushaamasta uudelleen. Molemmilla kerroilla se palautettiin syyn kera.",
+    "note": "Lyhennetty repositorion stale-green-demosta; tree-tunnisteet ovat havainnollistavia. Aja koko demo itse muutamassa sekunnissa ilman Claudea."
+  },
+  "strip": {
+    "label": "Core lukuina",
+    "items": [
+      [
+        "riviä ytimen koodia",
+        "raja on 3 000"
+      ],
+      [
+        "testiä",
+        "jokainen portti nimeää virheen, jonka se estää"
+      ],
+      [
+        "ajonaikaista riippuvuutta",
+        "vain Node.js ja Git"
+      ],
+      [
+        "Claude Code -hookia",
+        "SessionStart, PreToolUse, PostToolUse(Failure) ja (Subagent)Stop; ei palvelinta, ei tiliä"
+      ],
+      [
+        "CI-ajolinjaa",
+        "macOS ja Linux × Node 22 ja 24"
+      ],
+      [
+        "kieltä",
+        "tällä sivustolla ja README-tiedostossa"
+      ]
+    ]
+  },
+  "principles": {
+    "idx": "Periaatteet",
+    "en": "PRINCIPLES",
+    "title": "Kolme sääntöä, jotka hyödyttävät sitä enemmän, mitä vahvempia mallit ovat.",
+    "lead": "Vahvempi agentti kirjoittaa istunnossa enemmän koodia ja ajaa enemmän komentoja omin päin. Nämä säännöt eivät edellytä agentilta huolellisuutta; ne pätevät, sanoi se mitä tahansa.",
+    "pillars": [
+      [
+        "lock",
+        "Prompti ei anna valtuuksia",
+        "Sen, saako agentti pushata, mergetä, tehdä releasen tai julkaista, määrää policy-tiedosto, jota se ei voi muokata. Kohtelias pyyntö promptissa ei muuta mitään."
+      ],
+      [
+        "doc",
+        "Näyttö on sidottu tiedostoihin",
+        "Läpäisty testi pätee vain täsmälleen niihin tiedostoihin, joilla se ajettiin. Muuta yksi rivi, niin läpäisy ei enää kelpaa."
+      ],
+      [
+        "stop",
+        "Tuntematon pysäyttää, se ei arvaa",
+        "Sivuvaikutus, jonka tulosta ei tiedetä, estää kaikki seuraavat sivuvaikutukset, kunnes se on tarkistettu palveluntarjoajalta tai ihminen on ratkaissut sen."
+      ]
+    ],
+    "compareTitle": "sama istunto",
+    "compareAspect": "Tilanne",
+    "without": "Pelkkä agentti",
+    "with": "Corella",
+    "compare": [
+      [
+        "Testit menivät läpi, sitten tiedosto muuttui",
+        "”Testit menevät läpi.”",
+        "Palautetaan ajamaan uudelleen nykyisillä tiedostoilla."
+      ],
+      [
+        "<code>npm test | tail</code>",
+        "Lasketaan vihreäksi; paluukoodi on komennon <code>tail</code>.",
+        "Ei kelpaa koskaan; Stop kertoo syyn."
+      ],
+      [
+        "Yksi spec-tiedosto koko testisarjan sijaan",
+        "Lasketaan, että ”testit menevät läpi”.",
+        "Asetuksella <code>exact</code> vain koko komento kelpaa."
+      ],
+      [
+        "Push aikakatkaistaan perillemenon jälkeen",
+        "Pushaa uudelleen.",
+        "Sama push samassa commitissa torjutaan."
+      ],
+      [
+        "Prompti sanoo ”saat julkaista”",
+        "Julkaisee.",
+        "Policy päättää: allow, ask tai deny."
+      ]
+    ],
+    "layersTitle": "mistä valtuudet tulevat",
+    "layers": [
+      [
+        "policy.json",
+        "Ihmisen kirjoittama ja muuttama. Core torjuu agentin suorat muokkaukset siihen.",
+        "hard",
+        "LÄHDE"
+      ],
+      [
+        "Claude Coden oikeudet",
+        "Ovat yhä voimassa. Policyn <code>allow</code> ei koskaan anna enempää kuin Claude Code antaisi.",
+        "",
+        ""
+      ],
+      [
+        "Coren hookit",
+        "Valvovat policya jokaisessa komennossa, muokkauksessa ja lopetuksessa.",
+        "",
+        ""
+      ],
+      [
+        "Prompti",
+        "Kuvaa tavoitteen. Ei anna valtuuksia.",
+        "soft",
+        "EI MITÄÄN"
+      ]
+    ]
+  },
+  "workflow": {
+    "idx": "Miten se toimii",
+    "en": "HOW IT WORKS",
+    "title": "Kuusi hookia, yksi lokikirja .gitissä.",
+    "lead": "Core toimii Claude Coden omien hookien sisällä. Ei mitään käynnistettävää, ei palvelinta, ei tiliä; tila on kunkin repositorion hakemistossa <code>.git/better-workflows/</code>.",
+    "hooksTitle": "hookit",
+    "hooks": [
+      "<b>SessionStart</b>: kertoo agentille, minkä tarkistusten on mentävä läpi ja mitkä sivuvaikutukset ovat ratkaisematta, ja varoittaa, jos policy on virheellinen tai <code>gh</code> tarvitaan mutta se ei ole käytettävissä.",
+      "<b>PreToolUse</b>: sallii, kysyy tai estää jokaisen sivuvaikutuksen ja torjuu policyn ja lokikirjan muokkaukset.",
+      "<b>PostToolUse</b>: kirjaa jokaisen tarkistuksen sen Git-puun kanssa, jolla se ajettiin, ja jokaisen sivuvaikutuksen paluukoodeineen.",
+      "<b>Stop</b>: jos tiedostot ovat muuttuneet ja vaadittu tarkistus puuttuu, on epäonnistunut tai vanhentunut, palauttaa agentin kerran syyn kera; seuraavalla kerralla se vain varoittaa.",
+      "<b>bw status</b> (komento, ei hook): näyttää saman tilan sinulle."
+    ],
+    "completion": {
+      "name": "Lopettaminen",
+      "sub": "näyttö sidottu tiedostoihin",
+      "body": "Testi, lint, tyyppitarkistus tai build kelpaa vain, jos se meni läpi, sen oma paluukoodi ratkaisi komentorivin tuloksen, mikään tiedosto ei muuttunut ajon aikana ja tiedostot ovat yhä täsmälleen ne, joilla se ajettiin.",
+      "guardsK": "Valinnainen",
+      "guards": [
+        "<code>exact</code>: vain koko komento kelpaa, ja <code>cwd</code> määrää, missä se on ajettava.",
+        "<code>scope</code> (yhdessä <code>exact</code>-asetuksen kanssa): muutos nimettyjen hakemistojen ulkopuolella jättää tuloksen tuoreeksi.",
+        "<code>ignore</code> (koko policy): tarkistuksen kirjoittamaa tulostetta, kuten kattavuusraporttia, ei lasketa muutokseksi."
+      ]
+    },
+    "actions": {
+      "name": "Sivuvaikutukset",
+      "sub": "enintään kerran, tuntematon pysäyttää",
+      "body": "Pushit, PR:ien luonti ja mergeäminen, releaset, pakettien julkaisut ja omat mukautetut tyyppisi tarvitsevat kukin policyltä <code>allow</code>-luvan. Vain paluukoodi 0 on tunnettu tulos.",
+      "kindsK": "Vain luku -tarkistukset, joilla tuntematon tulos ratkaistaan",
+      "kinds": [
+        "git ls-remote",
+        "gh pr list / view",
+        "gh release view",
+        "npm view"
+      ]
+    },
+    "rulesTitle": "säännöt, jotka pätevät",
+    "rules": [
+      "Virheellinen policy estää kaikki sivuvaikutukset sen sijaan, että palaisi oletuksiin.",
+      "Vanhentunut oikeus palaa tilaan ask. Vain ihminen voi jatkaa sitä muokkaamalla policya.",
+      "Komennot, joita Core ei pysty lukemaan, kuten <code>eval</code> tai <code>sh -c</code>, käsitellään läpinäkymättöminä, ja niistä kysytään.",
+      "Lokikirjaan voi vain lisätä, ja se on ketjutettu tiivisteillä; <code>bw verify</code> havaitsee muokatut tai poistetut merkinnät ja puoliksi kirjoitetun viimeisen rivin, mutta ei lopusta kokonaan katkaistuja merkintöjä."
+    ]
+  },
+  "hosts": {
+    "idx": "Isännät",
+    "en": "HOSTS",
+    "title": "Claude Code ensin.",
+    "lead": "Core on isännästä riippumaton; jokainen isäntä tarvitsee pienen adapterin. Claude Code on ensimmäinen ja tällä hetkellä ainoa tuettu.",
+    "caption": "Isäntien ja käyttöjärjestelmien tuki",
+    "hostCol": "Isäntä",
+    "supported": "Tuettu, testattu CI:ssä",
+    "untested": "Ei testattu",
+    "v5only": "Vain V5, jäädytetty",
+    "planned": "Suunnitteilla",
+    "firstHost": "Ensimmäinen isäntä",
+    "matrixNote": "CI ajaa Coren jokaisessa pull requestissa.",
+    "matrixNoteSub": "macOS 15 ja Ubuntu 24.04, Node 22.23.3 ja 24.21.0.",
+    "recoTitle": "Miksi Claude Code ensin",
+    "recoBody": "Sen hookit näkevät jokaisen komennon ennen sen ajoa ja jokaisen yrityksen lopettaa. Juuri siinä Coren pitää olla.",
+    "recoFoot": "Codex, Gemini CLI ja Qwen Code käyttivät V5:tä, joka on jäädytetty versioon RC1. Ne palaavat adaptereina, kun Core on vakaa."
+  },
+  "install": {
+    "idx": "Aloitus",
+    "en": "GET STARTED",
+    "title": "Kolme komentoa, sitten pyydä muutosta.",
+    "lead": "Vaatii Node.js 22.14:n tai uudemman, Gitin ja Claude Coden, jossa on plugin-tuki.",
+    "steps": [
+      [
+        "Kloonaa Core",
+        "Kerran konetta kohden. Jos olet käyttänyt tällä koneella V5:tä, siirrä ensin <code>~/.better-workflows</code> nimelle <code>~/.better-workflows-V5</code> ja osoita <code>SBW_STATE_ROOT</code> siihen."
+      ],
+      [
+        "Lisää plugin",
+        "Asenna se repositoriokohtaisesti valinnalla <code>--scope local</code>, jotta mitään ei kirjoiteta tiedostoihin, jotka committaat."
+      ],
+      [
+        "Kirjoita policy",
+        "<code>bw init</code> kirjoittaa tiedoston <code>.better-workflows/policy.json</code>. Committaa se, jotta kaikilla on samat säännöt."
+      ]
+    ],
+    "stepsNote": "Täysi opas kattaa omat tarkistuksesi, sivuvaikutukset ja tuntemattomat tulokset.",
+    "guideLink": "Aloitusopas",
+    "tabsLabel": "Asennuskomennot",
+    "copyCommand": "Kopioi tämä komento",
+    "copy": "Kopioi",
+    "firstK": "Kokeile sitten",
+    "firstAsk": "Muuta yksi rivi tässä repositoriossa, äläkä aja testejä.",
+    "copyRequest": "Kopioi tämä pyyntö",
+    "firstNote": "Kun Claude Code yrittää lopettaa, se palautetaan ja sille kerrotaan, mikä tarkistus puuttuu.",
+    "demoNote": "Valinnainen: aja molemmat skenaariot ilman Claudea muutamassa sekunnissa."
+  },
+  "boundary": {
+    "idx": "Rajat",
+    "en": "LIMITS",
+    "title": "Mitä se pysäyttää ja mitä se ei näe.",
+    "lead": "Portista on hyötyä vain, jos tunnet sen rajat.",
+    "cols": [
+      [
+        "yes",
+        "check",
+        "Pysäyttää",
+        "Havaittavat virheet",
+        [
+          "Lopettamisen vanhentuneen tai epäonnistuneen testiajon perusteella, tai osittaisen, kun tarkistukselle on asetettu <code>exact</code>",
+          "Putken tai <code>|| true</code> -rakenteen, joka peittää virheen",
+          "Toistetun pushin, mergen, releasen tai julkaisun",
+          "Sivuvaikutukset, kun aiemman tulos on vielä tuntematon",
+          "Agentin oman policyn tai lokikirjan suoran muokkaamisen"
+        ]
+      ],
+      [
+        "no",
+        "x",
+        "Ei tee",
+        "Näkyvyyden ulkopuolella",
+        [
+          "Näe skriptin sisäisiä sivuvaikutuksia, ellei policy nimeä kyseistä skriptiä",
+          "Arvioi, ovatko testisi riittävän hyviä",
+          "Rakenna riippuvuusgraafia: <code>scope</code>-asetuksen on nimettävä kaikki, mistä tarkistus riippuu",
+          "Laske Gitin ohittamia tiedostoja osaksi näyttöä"
+        ]
+      ],
+      [
+        "not",
+        "stop",
+        "Jättää sinulle",
+        "Ihmisen tekemät päätökset",
+        [
+          "Sivuvaikutuksen ratkaiseminen, kun sen tulosta ei voi lukea takaisin",
+          "Oikeuden jatkaminen yli sen <code>expiresAt</code>-ajan",
+          "Sen valitseminen, mitä <code>scope</code> kattaa",
+          "Sen päättäminen, milloin istunto kiertää kehää"
+        ]
+      ]
+    ],
+    "claim": "Core estää yllä mainitut virheet. Sitä ei ole mitattu, vähentääkö se uudelleentyötä tai vääriä päätöksiä pitkissä tehtävissä; sitä varten on nykyinen omakäyttöjakso.",
+    "rulesLabel": "Suunnittelun rajat",
+    "rules": [
+      "Shell-jäsennin ei kasva: komennosta, jota se ei pysty lukemaan, kysytään ennen kuin se ajetaan, eikä <code>eval</code>- tai <code>sh -c</code> -komennon sisään piilotettu testi koskaan kelpaa näytöksi.",
+      "Core vain laskee, miten istunto etenee. Onko se lähestymässä ratkaisua, sen arvioi agentti tai sinä.",
+      "Pull requestit ja releaset täsmäytetään <code>gh</code>-työkalulla; ilman sitä ne jäävät tuntemattomiksi, kunnes ratkaiset ne."
+    ]
+  },
+  "status": {
+    "idx": "Tila",
+    "en": "STATUS",
+    "title": "Missä projekti on.",
+    "lead": "V6 korvaa V5:n työnkulkumoottorin pienellä ytimellä. Päivämäärät kerrotaan, kun ne on saavutettu.",
+    "road": [
+      [
+        "DONE",
+        "line",
+        "Jäädytetty",
+        "V5.0 RC1",
+        "tag V5.0.rc1",
+        "Usean isännän työnkulkumoottori. Jäädytetty haaraan <code>frozen/v5</code>; ei uutta työtä."
+      ],
+      [
+        "NOW",
+        "sig",
+        "Työn alla",
+        "V6 Core pre-alpha",
+        "packages/bw-core",
+        "Claude Code -hookit, näytön scope, omakäyttö kahdessa repositoriossa."
+      ],
+      [
+        "NEXT",
+        "warn",
+        "Omakäytön jälkeen",
+        "V6 Core alpha",
+        "ensimmäinen tagattu release",
+        "Julkaistaan, kun omakäyttöjakso osoittaa todellisia osumia ja vähän vääriä estoja. Lisää isäntiä tulee pieninä adaptereina."
+      ]
+    ],
+    "statementTitle": "tiedote",
+    "statementK": "PRE-ALPHA",
+    "statement": [
+      "Core on käyttökelpoinen jo nyt ja toimii ylläpitäjän omissa repositorioissa. Policy-muoto voi vielä muuttua ennen alphaa.",
+      "Kaikki täällä on ilmaista ja avointa lähdekoodia. Maksullista tasoa, tiliä tai telemetriaa ei ole."
+    ],
+    "licTitle": "lisensointi",
+    "licItem": "Osa",
+    "licForm": "Lisenssi",
+    "licState": "Tila",
+    "lic": [
+      [
+        "V6 Core (<code>packages/bw-core</code>)",
+        "Apache-2.0",
+        "",
+        "sig",
+        "aktiivinen"
+      ],
+      [
+        "Sivusto ja muu repositorio",
+        "AGPL-3.0-only",
+        "",
+        "line",
+        "aktiivinen"
+      ],
+      [
+        "V5-plugin",
+        "AGPL-3.0-only",
+        "haarassa frozen/v5",
+        "warn",
+        "jäädytetty"
+      ]
+    ]
+  },
+  "docs": {
+    "idx": "Dokumentaatio",
+    "en": "DOCS",
+    "title": "Kaikki on repositoriossa.",
+    "lead": "Oppaat on kirjoitettu englanniksi ja perinteisellä kiinalla. Jokaisella tämän sivuston kielellä on lyhyt README GitHubissa."
+  },
+  "docList": [
+    [
+      "guideEn",
+      "Aloitusopas",
+      "Asennus, ensimmäinen esto, omat tarkistukset ja sivuvaikutukset."
+    ],
+    [
+      "guideZh",
+      "快速開始（繁體中文）",
+      "Sama opas perinteisellä kiinalla."
+    ],
+    [
+      "policyRef",
+      "Policy-viite",
+      "policy.json-kentät esimerkkeineen."
+    ],
+    [
+      "readme",
+      "README omalla kielelläsi",
+      "Mitä se pysäyttää ja miten se asennetaan, 41 kielellä."
+    ]
+  ],
+  "faq": {
+    "idx": "UKK",
+    "en": "FAQ",
+    "title": "Yleisiä kysymyksiä, suoria vastauksia.",
+    "lead": "Jotain muuta? Avaa issue GitHubissa.",
+    "items": [
+      [
+        "Hidastaako se Claude Codea?",
+        "Tarkistuksia tai sivuvaikutuksia käsittelevät hookit laskevat työpuun tiivisteen Gitillä, mikä vie tavallisessa repositoriossa millisekunteja. Hyvin suurissa repositorioissa jokainen tällainen kutsu maksaa enemmän."
+      ],
+      [
+        "Jääkö se jumiin palauttamaan agenttia loputtomasti?",
+        "Se palauttaa agentin syyn kera ja kertoo, miten istunto on tähän mennessä edennyt: ajot, peräkkäiset epäonnistumiset, aiemmat palautukset. Agentti voi silloin lopettaa ja kertoa sinulle suoraan, mikä tarkistus epäonnistuu yhä uudelleen."
+      ],
+      [
+        "Voiko agentti kytkeä sen pois?",
+        "Ei suoraan. Core torjuu agentin muokkaukset policyyn ja lokikirjaan sekä torjuu komennon <code>bw init</code> ja toiminnon ratkaisemisen käsin. Pluginin poistamista tai noiden tiedostojen muuttamista kiertoteitse säätelevät Claude Coden omat käyttöoikeussäännöt, joten pidä niiden vahvistuskyselyt päällä."
+      ],
+      [
+        "Lähettääkö se mitään minnekään?",
+        "Palvelinta tai telemetriaa ei ole. Sen ainoat verkkokutsut ovat vain lukevia kyselyitä omilla <code>git</code>-, <code>gh</code>- ja <code>npm</code>-työkaluillasi, joilla varmistetaan, tapahtuiko sivuvaikutus. Lokikirja pysyy hakemistossa <code>.git/better-workflows/</code>."
+      ],
+      [
+        "Entä Codex, Gemini CLI tai Qwen Code?",
+        "Ne käyttivät V5:tä, joka on jäädytetty. Core on isännästä riippumaton, ja niille on suunniteltu adapterit alphan jälkeen."
+      ]
+    ]
+  },
+  "sponsor": {
+    "idx": "Sponsoroi",
+    "en": "SPONSOR",
+    "title": "Tue Better Workflowsia.",
+    "cta": "Kertasponsorointi USDT:nä (TRC20)",
+    "body": "Sponsorointi kattaa avoimen lähdekoodin ylläpidon, englannin- ja perinteisen kiinan kieliset dokumentit sekä hostingin. Sillä ei saa jäsenyyttä, etusijaa tiekartalla eikä tukea.",
+    "qrLabel": "Avaa USDT (TRC20) -QR-koodi",
+    "copyAddress": "Kopioi osoite"
+  },
+  "cta": {
+    "kicker": "Kokeile muutamassa sekunnissa",
+    "title": "Komennon ajaminen ei todista mitään. Tiedostot todistavat.",
+    "body": "Aja demo ilman Claudea, asenna se sitten yhteen repositorioon ja pyydä muutosta.",
+    "notes": "Näytä GitHubissa"
+  }
+}

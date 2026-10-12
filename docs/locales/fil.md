@@ -22,7 +22,7 @@ Sinusukat ang agent batay sa mga file kung ano ang mga ito ngayon, at sa talagan
 
 ## Subukan
 
-Panoorin ang dalawang sitwasyon na tumakbo sa loob ng mga 2 segundo, nang walang Claude:
+Panoorin ang dalawang sitwasyon na tumakbo sa loob ng ilang segundo, nang walang Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

@@ -22,7 +22,7 @@ El agente responde ante los archivos tal como están ahora y ante lo que el prov
 
 ## Pruébalo
 
-Mira los dos escenarios ejecutarse en unos 2 segundos, sin Claude:
+Mira los dos escenarios ejecutarse en unos segundos, sin Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

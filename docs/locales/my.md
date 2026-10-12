@@ -22,7 +22,7 @@ agent ကို လက်ရှိ ဖိုင်များ၏ အခြေ�
 
 ## စမ်းကြည့်ပါ
 
-Claude မလိုဘဲ ဖြစ်ရပ်နှစ်ခုလုံး စက္ကန့် 2 ခန့်အတွင်း လည်ပတ်သည်ကို ကြည့်ပါ:
+Claude မလိုဘဲ ဖြစ်ရပ်နှစ်ခုလုံး စက္ကန့်အနည်းငယ်အတွင်း လည်ပတ်သည်ကို ကြည့်ပါ:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

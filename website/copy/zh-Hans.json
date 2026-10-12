@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "title": "Better Workflows｜让编程 agent 以当前的文件为准才算完成",
+    "description": "开源的 Claude Code 插件：agent 不能拿过期的绿灯宣称完成，也不能重复或叠加它从未看到结果的副作用。权限来自 policy 文件，绝不来自 prompt。",
+    "imageAlt": "Better Workflows 控制面插图：账本、证据印记与对账节点"
+  },
+  "shell": {
+    "skip": "跳到主要内容",
+    "product": "产品",
+    "principles": "原则",
+    "workflow": "工作原理",
+    "install": "开始使用",
+    "docs": "文档",
+    "sponsor": "赞助",
+    "menuOpen": "打开菜单",
+    "menuClose": "关闭菜单",
+    "language": "语言",
+    "themeToDark": "切换到深色主题",
+    "themeToLight": "切换到浅色主题",
+    "themeToggle": "切换颜色主题",
+    "homeLabel": "Better Workflows 首页",
+    "tagline": "编程 agent 以当前的文件为准才算完成，同一个 commit 上已经成功的副作用绝不重复执行。",
+    "chip": "V6 Core · pre-alpha",
+    "installCta": "安装",
+    "overview": "概览",
+    "hosts": "支持范围",
+    "boundary": "限制",
+    "status": "项目状态",
+    "faq": "常见问题",
+    "resources": "资源",
+    "project": "开源项目",
+    "guideEn": "快速入门（English）",
+    "guideZh": "快速入门（繁體中文）",
+    "policyRef": "Policy 参考",
+    "v5Archive": "V5 归档",
+    "contribute": "参与贡献",
+    "security": "安全策略",
+    "license": "Core Apache-2.0",
+    "alias": "（betterworkflows.org 会重定向到这里）"
+  },
+  "hero": {
+    "badge": "pre-alpha",
+    "h1": "证据要新，才算完成。",
+    "h1Signal": "结果不明，就先停下。",
+    "lead": "一个 Claude Code 插件：不让 AI agent 拿过期的绿灯收工，也不让它重复或叠加从未看到结果的副作用。它能做什么，由你写的 policy 文件决定，绝不由 prompt 决定。",
+    "taglineLabel": "Core 守住的事",
+    "chips": [
+      "证据对应当前文件",
+      "副作用最多一次",
+      "Policy，而非 prompt",
+      "不明即停"
+    ],
+    "ctaInstall": "安装到 Claude Code",
+    "ctaDemo": "看它如何拦下",
+    "specTitle": "Core",
+    "status": "Pre-alpha。自 2026 年 10 月起在维护者的两个仓库上自用。",
+    "host": "Claude Code（hooks 插件）",
+    "platforms": "macOS · Linux",
+    "license": "Apache-2.0",
+    "notes": "阅读快速入门"
+  },
+  "demo": {
+    "title": "过期的绿灯，接着一次重试的 push",
+    "termLabel": "节选的会话记录",
+    "prompt": "修复 <code>sum.mjs</code> 里的 bug，不用重跑测试",
+    "lines": [
+      [
+        "test",
+        "<code>node --test</code> 在文件 <code>a1f3</code> 上通过"
+      ],
+      [
+        "edit",
+        "agent 修改 <code>sum.mjs</code>，文件变为 <code>9c07</code>"
+      ],
+      [
+        "stop",
+        "“完成了，测试都通过。”"
+      ],
+      [
+        "bw",
+        "退回：<code>test</code> 上次通过是在 <code>a1f3</code>，之后文件已经改动。"
+      ],
+      [
+        "test",
+        "agent 重跑 <code>node --test</code>：1 个失败，修复后在 <code>b2e8</code> 上通过"
+      ],
+      [
+        "push",
+        "<code>git push</code> 在推送成功之后超时"
+      ],
+      [
+        "push",
+        "agent 重试 <code>git push</code>"
+      ],
+      [
+        "bw",
+        "拒绝：<code>git-push</code> 在这个 commit 上已经成功过。"
+      ]
+    ],
+    "gatesTitle": "Core 检查了什么",
+    "gates": [
+      [
+        "Policy",
+        "来自 .better-workflows/policy.json",
+        "pass"
+      ],
+      [
+        "证据",
+        "test 对应当前的文件",
+        "blocked"
+      ],
+      [
+        "重跑",
+        "test 在 b2e8 上通过",
+        "pass"
+      ],
+      [
+        "副作用",
+        "git-push，第一次",
+        "pass"
+      ],
+      [
+        "最多一次",
+        "同一个 push、同一个 commit",
+        "blocked"
+      ]
+    ],
+    "progress": "拦下 2 次 · 0 次假完成",
+    "halt": "Core 两次拦下 agent：一次是拿旧的通过结果收工，一次是再次 push。两次都附上原因退回。",
+    "note": "节选自仓库中的 stale-green 演示，tree 编号仅为示意。无需 Claude，几秒即可自己运行完整版。"
+  },
+  "strip": {
+    "label": "Core 的数字",
+    "items": [
+      [
+        "行内核代码",
+        "上限 3,000 行"
+      ],
+      [
+        "项测试",
+        "每道关卡都写明它防止的失败"
+      ],
+      [
+        "个运行时依赖",
+        "只需要 Node.js 和 Git"
+      ],
+      [
+        "个 Claude Code hook",
+        "SessionStart、PreToolUse、PostToolUse(Failure) 和 (Subagent)Stop；无需服务器或账号"
+      ],
+      [
+        "条 CI 流水线",
+        "macOS 和 Linux × Node 22、24"
+      ],
+      [
+        "种语言",
+        "本网站和 README 均支持"
+      ]
+    ]
+  },
+  "principles": {
+    "idx": "原则",
+    "en": "PRINCIPLES",
+    "title": "三条规则，模型越强越有用。",
+    "lead": "模型越强，一次会话写的代码越多，自己运行的命令也越多。这三条规则不依赖 agent 小心谨慎，无论它说什么都成立。",
+    "pillars": [
+      [
+        "lock",
+        "Prompt 不是授权",
+        "agent 能否 push、merge、release、publish，由它无法修改的 policy 文件决定。在 prompt 里怎么请求都没用。"
+      ],
+      [
+        "doc",
+        "证据绑定文件",
+        "测试通过只对它运行时的那一份文件有效。改一行，那次通过就不算了。"
+      ],
+      [
+        "stop",
+        "不明就停，不猜",
+        "结果不明的副作用会拦下之后所有副作用，直到向 provider 核实，或由人结案。"
+      ]
+    ],
+    "compareTitle": "同一个会话",
+    "compareAspect": "场景",
+    "without": "只有 agent",
+    "with": "加上 Core",
+    "compare": [
+      [
+        "测试通过后又改了文件",
+        "“测试都通过。”",
+        "退回，在当前文件上重跑。"
+      ],
+      [
+        "<code>npm test | tail</code>",
+        "算作绿灯；但 exit code 属于 <code>tail</code>。",
+        "永远不算；收工时会说明原因。"
+      ],
+      [
+        "只跑一个 spec 文件代替整套",
+        "算作“测试通过”。",
+        "设置 <code>exact</code> 后只认完整命令。"
+      ],
+      [
+        "push 成功后才超时",
+        "再 push 一次。",
+        "同一个 commit 的同一个 push 会被拒绝。"
+      ],
+      [
+        "Prompt 写着“你可以发布”",
+        "直接发布。",
+        "由 policy 决定：allow、ask 或 deny。"
+      ]
+    ],
+    "layersTitle": "授权从哪里来",
+    "layers": [
+      [
+        "policy.json",
+        "由人编写和修改。Core 会拒绝 agent 直接修改它。",
+        "hard",
+        "来源"
+      ],
+      [
+        "Claude Code 权限",
+        "依然有效。policy 中的 <code>allow</code> 绝不会给出比 Claude Code 更多的权限。",
+        "",
+        ""
+      ],
+      [
+        "Core hooks",
+        "在每条命令、每次修改、每次收工时执行 policy。",
+        "",
+        ""
+      ],
+      [
+        "Prompt",
+        "描述目标，不带任何授权。",
+        "soft",
+        "无"
+      ]
+    ]
+  },
+  "workflow": {
+    "idx": "工作原理",
+    "en": "HOW IT WORKS",
+    "title": "六个 hook，一本账存在 .git 里。",
+    "lead": "Core 运行在 Claude Code 自带的 hooks 里。无需启动服务、没有服务器、无需账号；状态存放在每个仓库的 <code>.git/better-workflows/</code> 中。",
+    "hooksTitle": "hooks",
+    "hooks": [
+      "<b>SessionStart</b>：告诉 agent 哪些检查必须通过、哪些副作用尚未结案；policy 无效，或需要 <code>gh</code> 却无法使用时发出警告。",
+      "<b>PreToolUse</b>：对每个副作用决定 allow、ask 或 deny，并拒绝修改 policy 和账本。",
+      "<b>PostToolUse</b>：记录每次检查运行在哪个 Git tree 上，以及每个副作用的 exit code。",
+      "<b>Stop</b>：文件有改动，且必要的检查缺失、失败或已过期时，附上原因把 agent 退回一次；下一次只警告。",
+      "<b>bw status</b>（是命令，不是 hook）：把同样的状态展示给你。"
+    ],
+    "completion": {
+      "name": "收工",
+      "sub": "证据绑定文件",
+      "body": "test、lint、typecheck 或 build 必须同时满足：通过、由它自己的 exit code 决定结果、运行期间没有文件变动、文件仍是它运行时的那一份，才算数。",
+      "guardsK": "可选",
+      "guards": [
+        "<code>exact</code>：只认完整命令，<code>cwd</code> 指定它必须在哪里运行。",
+        "<code>scope</code>（配合 <code>exact</code>）：指定目录以外的改动不会让结果过期。",
+        "<code>ignore</code>（整个 policy）：检查自己产生的输出（例如 coverage）不算改动。"
+      ]
+    },
+    "actions": {
+      "name": "副作用",
+      "sub": "最多一次，不明就停",
+      "body": "push、创建和合并 PR、release、发布软件包，以及你自定义的类型，都需要 policy 给出 <code>allow</code>。只有 exit code 0 才算确定的结果。",
+      "kindsK": "用于核实不明结果的只读查询",
+      "kinds": [
+        "git ls-remote",
+        "gh pr list / view",
+        "gh release view",
+        "npm view"
+      ]
+    },
+    "rulesTitle": "始终成立的规则",
+    "rules": [
+      "policy 无效时，拒绝所有副作用，而不是回退到默认值。",
+      "权限过期后回退为 ask。只有人能通过修改 policy 来延长。",
+      "Core 读不懂的命令（例如 <code>eval</code>、<code>sh -c</code>）一律视为 opaque，交由你决定。",
+      "账本只能追加、以哈希链接；<code>bw verify</code> 能检测被修改或删除的条目以及写了一半的最后一行，但检测不到从末尾整条截掉的条目。"
+    ]
+  },
+  "hosts": {
+    "idx": "支持范围",
+    "en": "HOSTS",
+    "title": "先支持 Claude Code。",
+    "lead": "Core 本身与 host 无关，每个 host 只需要一层小的适配器。Claude Code 是第一个，也是目前唯一支持的。",
+    "caption": "支持的 host 与操作系统",
+    "hostCol": "Host",
+    "supported": "支持，CI 测试",
+    "untested": "未测试",
+    "v5only": "仅 V5，已冻结",
+    "planned": "计划中",
+    "firstHost": "第一个 host",
+    "matrixNote": "每个 pull request 都会运行 Core 的 CI。",
+    "matrixNoteSub": "macOS 15 和 Ubuntu 24.04，Node 22.23.3 和 24.21.0。",
+    "recoTitle": "为什么先做 Claude Code",
+    "recoBody": "它的 hooks 能在每条命令执行前、每次试图收工时介入，正是 Core 需要守住的位置。",
+    "recoFoot": "Codex、Gemini CLI 和 Qwen Code 运行的是 V5，已冻结在 RC1。等 Core 稳定后，它们会以适配器的形式回归。"
+  },
+  "install": {
+    "idx": "开始使用",
+    "en": "GET STARTED",
+    "title": "三条命令，然后让它改点东西。",
+    "lead": "需要 Node.js 22.14 或更高版本、Git，以及支持插件的 Claude Code。",
+    "steps": [
+      [
+        "Clone Core",
+        "每台机器一次。如果这台机器运行过 V5，先把 <code>~/.better-workflows</code> 重命名为 <code>~/.better-workflows-V5</code>，并让 <code>SBW_STATE_ROOT</code> 指向它。"
+      ],
+      [
+        "添加插件",
+        "在每个仓库中用 <code>--scope local</code> 安装，不会写入你要提交的文件。"
+      ],
+      [
+        "编写 policy",
+        "<code>bw init</code> 会生成 <code>.better-workflows/policy.json</code>。提交它，大家就使用同一套规则。"
+      ]
+    ],
+    "stepsNote": "完整教程涵盖自定义检查、副作用以及结果不明的处理。",
+    "guideLink": "快速入门",
+    "tabsLabel": "安装命令",
+    "copyCommand": "复制这条命令",
+    "copy": "复制",
+    "firstK": "然后试一试",
+    "firstAsk": "帮我改这个仓库里的一行代码，不要跑测试。",
+    "copyRequest": "复制这段请求",
+    "firstNote": "Claude Code 试图收工时会被退回，并被告知缺少哪一项检查。",
+    "demoNote": "可选：无需 Claude，几秒跑完两个场景。"
+  },
+  "boundary": {
+    "idx": "限制",
+    "en": "LIMITS",
+    "title": "它拦得住什么，看不到什么。",
+    "lead": "知道边界在哪里，这道关卡才有用。",
+    "cols": [
+      [
+        "yes",
+        "check",
+        "拦得住",
+        "可观察的错误",
+        [
+          "拿过期或失败的测试收工；检查标为 <code>exact</code> 时，只跑了一部分也会拦下",
+          "用管道或 <code>|| true</code> 掩盖失败",
+          "重复 push、merge、release 或 publish",
+          "前一个副作用结果不明时又执行新的副作用",
+          "agent 直接修改自己的 policy 或账本"
+        ]
+      ],
+      [
+        "no",
+        "x",
+        "做不到",
+        "视野之外",
+        [
+          "看到脚本内部的副作用，除非 policy 点名了那个脚本",
+          "判断你的测试是否足够好",
+          "构建依赖图：<code>scope</code> 必须列出检查依赖的所有内容",
+          "把被 Git 忽略的文件算进证据"
+        ]
+      ],
+      [
+        "not",
+        "stop",
+        "交给你",
+        "由人做的决定",
+        [
+          "为一个无法读回结果的副作用结案",
+          "让权限在 <code>expiresAt</code> 之后继续有效",
+          "决定 <code>scope</code> 覆盖哪些内容",
+          "判断会话是否在原地打转"
+        ]
+      ]
+    ],
+    "claim": "Core 能拦下上面列出的错误。它能否在长任务中减少返工或错误决策，尚未经过测量；当前的自用期正是为此。",
+    "rulesLabel": "设计上的限制",
+    "rules": [
+      "shell 解析器不再扩充：读不懂的命令在运行前一律询问，藏在 <code>eval</code> 或 <code>sh -c</code> 里的测试永远不算证据。",
+      "Core 只统计会话的进展。是否在收敛，由 agent 或你来判断。",
+      "PR 和 release 依靠 <code>gh</code> 对账；没有它，结果会一直不明，直到你手动结案。"
+    ]
+  },
+  "status": {
+    "idx": "项目状态",
+    "en": "STATUS",
+    "title": "项目进展到哪里了。",
+    "lead": "V6 用一个小巧的 Core 取代 V5 的工作流引擎。条件达成时才定日期。",
+    "road": [
+      [
+        "DONE",
+        "line",
+        "已冻结",
+        "V5.0 RC1",
+        "tag V5.0.rc1",
+        "多 host 工作流引擎。冻结在 <code>frozen/v5</code> 分支，不再开发。"
+      ],
+      [
+        "NOW",
+        "sig",
+        "进行中",
+        "V6 Core pre-alpha",
+        "packages/bw-core",
+        "Claude Code hooks、证据 scope，在两个仓库上自用。"
+      ],
+      [
+        "NEXT",
+        "warn",
+        "自用期之后",
+        "V6 Core alpha",
+        "第一个打 tag 的版本",
+        "等自用期证明确实能拦下问题、且误拦很少，才会发布。之后以小型适配器支持更多 host。"
+      ]
+    ],
+    "statementTitle": "声明",
+    "statementK": "PRE-ALPHA",
+    "statement": [
+      "Core 现在就能用，并运行在维护者自己的仓库上。alpha 之前 policy 格式仍可能变化。",
+      "这里的一切都免费、开源。没有付费版、账号或遥测。"
+    ],
+    "licTitle": "许可证",
+    "licItem": "部分",
+    "licForm": "许可证",
+    "licState": "状态",
+    "lic": [
+      [
+        "V6 Core（<code>packages/bw-core</code>）",
+        "Apache-2.0",
+        "",
+        "sig",
+        "活跃"
+      ],
+      [
+        "网站及仓库其余部分",
+        "AGPL-3.0-only",
+        "",
+        "line",
+        "活跃"
+      ],
+      [
+        "V5 插件",
+        "AGPL-3.0-only",
+        "在 frozen/v5",
+        "warn",
+        "已冻结"
+      ]
+    ]
+  },
+  "docs": {
+    "idx": "文档",
+    "en": "DOCS",
+    "title": "所有内容都在仓库里。",
+    "lead": "指南有英文和繁体中文两个版本。本站的每种语言在 GitHub 上都有一份简短的 README。"
+  },
+  "docList": [
+    [
+      "guideEn",
+      "快速入门",
+      "安装、第一次被拦、自定义检查与副作用（英文）。"
+    ],
+    [
+      "guideZh",
+      "快速開始（繁體中文）",
+      "同一份指南的繁体中文版。"
+    ],
+    [
+      "policyRef",
+      "Policy 参考",
+      "policy.json 的字段说明和示例。"
+    ],
+    [
+      "readme",
+      "你的语言的 README",
+      "它拦下什么、如何安装，共 41 种语言。"
+    ]
+  ],
+  "faq": {
+    "idx": "常见问题",
+    "en": "FAQ",
+    "title": "常见问题，直接回答。",
+    "lead": "还有其他问题？在 GitHub 上提 issue。",
+    "items": [
+      [
+        "会让 Claude Code 变慢吗？",
+        "处理检查或副作用的 hook 会用 Git 计算一次工作区的哈希，普通大小的仓库只需几毫秒。超大仓库每次这类调用会多花一些时间。"
+      ],
+      [
+        "会不会一直把 agent 退回，卡住出不来？",
+        "退回时会附上原因，以及这次会话到目前的情况：运行次数、连续失败次数、已被退回的次数。agent 可以据此停下来，直接告诉你哪一项检查一直失败。"
+      ],
+      [
+        "agent 能把它关掉吗？",
+        "不能直接关闭。Core 会拒绝 agent 修改 policy 和账本，也会拒绝 <code>bw init</code> 和手动结案。卸载插件，或以迂回方式修改这些文件，则由 Claude Code 自身的权限规则把关，所以请保持这些确认提示开启。"
+      ],
+      [
+        "会把数据发送到别处吗？",
+        "没有服务器，也没有遥测。唯一的网络调用，是用你自己的 <code>git</code>、<code>gh</code> 和 <code>npm</code> 做只读查询，确认副作用是否发生。账本保存在 <code>.git/better-workflows/</code>。"
+      ],
+      [
+        "Codex、Gemini CLI 或 Qwen Code 呢？",
+        "它们运行的是已冻结的 V5。Core 与 host 无关，alpha 之后计划为它们开发适配器。"
+      ]
+    ]
+  },
+  "sponsor": {
+    "idx": "赞助",
+    "en": "SPONSOR",
+    "title": "支持 Better Workflows。",
+    "cta": "以 USDT（TRC20）一次性赞助",
+    "body": "赞助用于开源维护、英文与繁体中文文档以及网站托管。它不提供会员资格，也不换取路线图优先级或技术支持。",
+    "qrLabel": "打开 USDT（TRC20）二维码",
+    "copyAddress": "复制地址"
+  },
+  "cta": {
+    "kicker": "几秒即可试用",
+    "title": "运行过命令不是证明，文件才是。",
+    "body": "先在没有 Claude 的情况下运行演示，再安装到一个仓库，让它改点东西。",
+    "notes": "在 GitHub 上查看"
+  }
+}

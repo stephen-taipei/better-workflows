@@ -22,7 +22,7 @@ Agenttia arvioidaan tiedostojen nykyisen tilan ja sen mukaan, mitä palveluntarj
 
 ## Kokeile
 
-Katso molemmat skenaariot noin 2 sekunnissa ilman Claudea:
+Katso molemmat skenaariot muutamassa sekunnissa ilman Claudea:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "title": "Better Workflows | Agen pemrograman Anda selesai berdasarkan bukti terkini",
+    "description": "Plugin Claude Code open source: agen tidak bisa menyelesaikan pekerjaan berdasarkan tes hijau yang sudah usang, dan tidak bisa mengulang atau menumpuk efek samping yang hasilnya belum pernah ia lihat. Izin berasal dari berkas policy, tidak pernah dari prompt.",
+    "imageAlt": "Ilustrasi control plane Better Workflows: buku besar, segel bukti, dan node rekonsiliasi"
+  },
+  "shell": {
+    "skip": "Langsung ke konten utama",
+    "product": "Produk",
+    "principles": "Prinsip",
+    "workflow": "Cara kerja",
+    "install": "Mulai",
+    "docs": "Dokumentasi",
+    "sponsor": "Sponsor",
+    "menuOpen": "Buka menu",
+    "menuClose": "Tutup menu",
+    "language": "Bahasa",
+    "themeToDark": "Beralih ke tema gelap",
+    "themeToLight": "Beralih ke tema terang",
+    "themeToggle": "Ganti tema warna",
+    "homeLabel": "Beranda Better Workflows",
+    "tagline": "Agen pemrograman Anda selesai berdasarkan bukti terkini, dan tidak pernah mengulang efek samping yang sudah berhasil pada commit yang sama.",
+    "chip": "V6 Core · pre-alpha",
+    "installCta": "Pasang",
+    "overview": "Ikhtisar",
+    "hosts": "Host",
+    "boundary": "Batasan",
+    "status": "Status",
+    "faq": "FAQ",
+    "resources": "Sumber daya",
+    "project": "Open source",
+    "guideEn": "Panduan memulai (English)",
+    "guideZh": "Panduan memulai (繁體中文)",
+    "policyRef": "Referensi policy",
+    "v5Archive": "Arsip V5",
+    "contribute": "Berkontribusi",
+    "security": "Keamanan",
+    "license": "Core Apache-2.0",
+    "alias": "(betterworkflows.org dialihkan ke sini)"
+  },
+  "hero": {
+    "badge": "pre-alpha",
+    "h1": "Bukti harus segar.",
+    "h1Signal": "Tak pasti? Berhenti.",
+    "lead": "Plugin Claude Code yang mencegah agen AI menyelesaikan pekerjaan berdasarkan tes hijau yang sudah usang, serta mengulang atau menumpuk efek samping yang hasilnya belum pernah ia lihat. Apa yang boleh ia lakukan ditentukan oleh berkas policy yang Anda tulis, tidak pernah oleh prompt.",
+    "taglineLabel": "Yang ditegakkan Core",
+    "chips": [
+      "Bukti terkini",
+      "Paling banyak sekali",
+      "Policy, bukan prompt",
+      "Fail-closed"
+    ],
+    "ctaInstall": "Pasang untuk Claude Code",
+    "ctaDemo": "Lihat saat agen dihentikan",
+    "specTitle": "Core",
+    "status": "Pre-alpha. Dipakai sendiri oleh maintainer di dua repositorinya sejak Oktober 2026.",
+    "host": "Claude Code (plugin hooks)",
+    "platforms": "macOS · Linux",
+    "license": "Apache-2.0",
+    "notes": "Baca panduan memulai"
+  },
+  "demo": {
+    "title": "hijau yang usang, lalu push yang diulang",
+    "termLabel": "Transkrip sesi yang dipersingkat",
+    "prompt": "perbaiki bug di <code>sum.mjs</code>, tidak perlu menjalankan ulang tes",
+    "lines": [
+      [
+        "test",
+        "<code>node --test</code> lulus pada berkas <code>a1f3</code>"
+      ],
+      [
+        "edit",
+        "agen mengedit <code>sum.mjs</code>, berkas kini <code>9c07</code>"
+      ],
+      [
+        "stop",
+        "“Selesai. Tes lulus.”"
+      ],
+      [
+        "bw",
+        "Dikembalikan: <code>test</code> terakhir lulus pada <code>a1f3</code>; berkas sudah berubah sejak itu."
+      ],
+      [
+        "test",
+        "agen menjalankan ulang <code>node --test</code>: 1 gagal, memperbaikinya, lulus pada <code>b2e8</code>"
+      ],
+      [
+        "push",
+        "<code>git push</code> timeout padahal push sudah masuk"
+      ],
+      [
+        "push",
+        "agen mencoba ulang <code>git push</code>"
+      ],
+      [
+        "bw",
+        "Ditolak: <code>git-push</code> sudah berhasil pada commit ini."
+      ]
+    ],
+    "gatesTitle": "Yang diperiksa Core",
+    "gates": [
+      [
+        "Policy",
+        "dari .better-workflows/policy.json",
+        "pass"
+      ],
+      [
+        "Bukti",
+        "tes pada berkas sebagaimana adanya sekarang",
+        "blocked"
+      ],
+      [
+        "Jalankan ulang",
+        "tes lulus pada b2e8",
+        "pass"
+      ],
+      [
+        "Aksi",
+        "git-push, pertama kali",
+        "pass"
+      ],
+      [
+        "Paling banyak sekali",
+        "push sama, commit sama",
+        "blocked"
+      ]
+    ],
+    "progress": "2 KALI DIHENTIKAN · 0 SELESAI PALSU",
+    "halt": "Core menghentikan agen dua kali: sekali saat hendak selesai berdasarkan hasil lulus yang lama, sekali saat hendak push lagi. Keduanya dikembalikan dengan alasannya.",
+    "note": "Dipersingkat dari demo stale-green di repositori; id tree hanya ilustrasi. Jalankan sendiri demo lengkapnya dalam beberapa detik, tanpa Claude."
+  },
+  "strip": {
+    "label": "Core dalam angka",
+    "items": [
+      [
+        "baris kode kernel",
+        "batasnya 3.000"
+      ],
+      [
+        "tes",
+        "setiap gate menyebutkan kegagalan yang dicegahnya"
+      ],
+      [
+        "dependensi runtime",
+        "hanya Node.js dan Git"
+      ],
+      [
+        "hook Claude Code",
+        "SessionStart, PreToolUse, PostToolUse(Failure), dan (Subagent)Stop; tanpa server, tanpa akun"
+      ],
+      [
+        "jalur CI",
+        "macOS dan Linux × Node 22 dan 24"
+      ],
+      [
+        "bahasa",
+        "di situs ini dan di README"
+      ]
+    ]
+  },
+  "principles": {
+    "idx": "Prinsip",
+    "en": "PRINCIPLES",
+    "title": "Tiga aturan yang makin berguna saat model makin kuat.",
+    "lead": "Agen yang lebih kuat menulis lebih banyak kode per sesi dan menjalankan lebih banyak perintah sendiri. Aturan ini tidak bergantung pada kehati-hatian agen; aturan ini tetap berlaku apa pun yang ia katakan.",
+    "pillars": [
+      [
+        "lock",
+        "Prompt bukan otoritas",
+        "Apa yang boleh di-push, di-merge, dirilis, atau dipublikasikan agen berasal dari berkas policy yang tidak bisa ia ubah. Meminta baik-baik di prompt tidak mengubah apa pun."
+      ],
+      [
+        "doc",
+        "Bukti terikat pada berkas",
+        "Tes yang lulus hanya berlaku untuk berkas persis tempat tes itu dijalankan. Ubah satu baris dan kelulusan itu tidak lagi dihitung."
+      ],
+      [
+        "stop",
+        "Tidak diketahui berarti berhenti, bukan menebak",
+        "Efek samping yang hasilnya tidak diketahui memblokir semua efek samping berikutnya sampai diperiksa ke provider atau diputuskan oleh manusia."
+      ]
+    ],
+    "compareTitle": "sesi yang sama",
+    "compareAspect": "Situasi",
+    "without": "Agen saja",
+    "with": "Dengan Core",
+    "compare": [
+      [
+        "Tes lulus, lalu ada berkas yang berubah",
+        "“Tes lulus.”",
+        "Dikembalikan untuk menjalankan ulang pada berkas terkini."
+      ],
+      [
+        "<code>npm test | tail</code>",
+        "Dihitung hijau; exit code-nya milik <code>tail</code>.",
+        "Tidak pernah dihitung; Stop menjelaskan alasannya."
+      ],
+      [
+        "Satu berkas spec, bukan seluruh suite",
+        "Dihitung sebagai “tes lulus”.",
+        "Dengan <code>exact</code>, hanya perintah lengkap yang dihitung."
+      ],
+      [
+        "Push timeout setelah masuk",
+        "Push lagi.",
+        "Push yang sama pada commit yang sama ditolak."
+      ],
+      [
+        "Prompt bilang “kamu boleh publikasikan”",
+        "Mempublikasikan.",
+        "Policy yang memutuskan: allow, ask, atau deny."
+      ]
+    ],
+    "layersTitle": "asal otoritas",
+    "layers": [
+      [
+        "policy.json",
+        "Ditulis dan diubah oleh manusia. Core menolak edit langsung dari agen.",
+        "hard",
+        "SUMBER"
+      ],
+      [
+        "Izin Claude Code",
+        "Tetap berlaku. <code>allow</code> di policy tidak pernah memberi lebih dari yang diberikan Claude Code.",
+        "",
+        ""
+      ],
+      [
+        "Hook Core",
+        "Menegakkan policy pada setiap perintah, edit, dan berhenti.",
+        "",
+        ""
+      ],
+      [
+        "Prompt",
+        "Menjelaskan tujuan. Tidak membawa otoritas.",
+        "soft",
+        "TIDAK ADA"
+      ]
+    ]
+  },
+  "workflow": {
+    "idx": "Cara kerja",
+    "en": "HOW IT WORKS",
+    "title": "Enam hook, satu buku besar di .git.",
+    "lead": "Core berjalan di dalam hook milik Claude Code sendiri. Tidak ada yang perlu dijalankan, tanpa server, tanpa akun; status disimpan di <code>.git/better-workflows/</code> pada setiap repositori.",
+    "hooksTitle": "hook-nya",
+    "hooks": [
+      "<b>SessionStart</b>: memberi tahu agen pemeriksaan mana yang harus lulus dan efek samping mana yang belum tuntas, serta memberi peringatan jika policy tidak valid atau <code>gh</code> dibutuhkan tetapi tidak bisa dipakai.",
+      "<b>PreToolUse</b>: mengizinkan, menanyakan, atau menolak setiap efek samping, dan menolak edit pada policy dan buku besar.",
+      "<b>PostToolUse</b>: mencatat setiap pemeriksaan beserta tree Git tempat ia dijalankan, dan setiap efek samping beserta exit code-nya.",
+      "<b>Stop</b>: jika ada file yang berubah dan pemeriksaan wajib belum ada, gagal, atau usang, mengembalikan agen sekali dengan alasannya; berikutnya hanya memberi peringatan.",
+      "<b>bw status</b> (sebuah perintah, bukan hook): menampilkan status yang sama kepada Anda."
+    ],
+    "completion": {
+      "name": "Menyelesaikan",
+      "sub": "bukti terikat pada berkas",
+      "body": "Tes, lint, typecheck, atau build hanya dihitung jika lulus, exit code-nya sendiri yang menentukan hasil baris itu, tidak ada berkas yang berubah selama ia berjalan, dan berkas masih persis sama dengan saat ia dijalankan.",
+      "guardsK": "Opsional",
+      "guards": [
+        "<code>exact</code>: hanya perintah lengkap yang dihitung, dan <code>cwd</code> menentukan di mana perintah itu harus dijalankan.",
+        "<code>scope</code> (dengan <code>exact</code>): perubahan di luar direktori yang disebutkan membuat hasil tetap segar.",
+        "<code>ignore</code> (seluruh policy): keluaran yang ditulis pemeriksaan, seperti coverage, tidak dihitung sebagai perubahan."
+      ]
+    },
+    "actions": {
+      "name": "Efek samping",
+      "sub": "paling banyak sekali, tidak diketahui berarti berhenti",
+      "body": "Push, pembuatan dan merge PR, rilis, publikasi paket, serta jenis kustom Anda sendiri masing-masing membutuhkan <code>allow</code> dari policy. Hanya exit code 0 yang merupakan hasil yang diketahui.",
+      "kindsK": "Pemeriksaan read-only untuk menyelesaikan hasil yang tidak diketahui",
+      "kinds": [
+        "git ls-remote",
+        "gh pr list / view",
+        "gh release view",
+        "npm view"
+      ]
+    },
+    "rulesTitle": "aturan yang selalu berlaku",
+    "rules": [
+      "Policy yang tidak valid menolak setiap efek samping alih-alih kembali ke bawaan.",
+      "Izin yang kedaluwarsa kembali ke ask. Hanya manusia yang bisa memperpanjangnya, dengan mengedit policy.",
+      "Perintah yang tidak bisa dibaca Core, seperti <code>eval</code> atau <code>sh -c</code>, diperlakukan sebagai buram dan ditanyakan.",
+      "Buku besar bersifat append-only dan berantai hash; <code>bw verify</code> mendeteksi entri yang diedit atau dihapus dan baris terakhir yang setengah tertulis, tetapi tidak mendeteksi entri utuh yang dipotong dari bagian akhir."
+    ]
+  },
+  "hosts": {
+    "idx": "Host",
+    "en": "HOSTS",
+    "title": "Claude Code lebih dulu.",
+    "lead": "Core netral terhadap host; setiap host butuh adapter kecil. Claude Code adalah yang pertama dan satu-satunya yang didukung saat ini.",
+    "caption": "Dukungan host dan sistem operasi",
+    "hostCol": "Host",
+    "supported": "Didukung, diuji di CI",
+    "untested": "Belum diuji",
+    "v5only": "Hanya V5, dibekukan",
+    "planned": "Direncanakan",
+    "firstHost": "Host pertama",
+    "matrixNote": "CI menjalankan Core pada setiap pull request.",
+    "matrixNoteSub": "macOS 15 dan Ubuntu 24.04, Node 22.23.3 dan 24.21.0.",
+    "recoTitle": "Mengapa Claude Code lebih dulu",
+    "recoBody": "Hook-nya melihat setiap perintah sebelum dijalankan dan setiap upaya untuk berhenti. Di situlah Core harus berada.",
+    "recoFoot": "Codex, Gemini CLI, dan Qwen Code menjalankan V5, yang dibekukan di RC1. Mereka akan kembali sebagai adapter setelah Core stabil."
+  },
+  "install": {
+    "idx": "Mulai",
+    "en": "GET STARTED",
+    "title": "Tiga perintah, lalu minta perubahan.",
+    "lead": "Membutuhkan Node.js 22.14 atau lebih baru, Git, dan Claude Code dengan dukungan plugin.",
+    "steps": [
+      [
+        "Clone Core",
+        "Sekali per mesin. Jika Anda pernah menjalankan V5 di sini, pindahkan dulu <code>~/.better-workflows</code> ke <code>~/.better-workflows-V5</code> dan arahkan <code>SBW_STATE_ROOT</code> ke sana."
+      ],
+      [
+        "Tambahkan plugin",
+        "Pasang per repositori dengan <code>--scope local</code>, agar tidak ada yang ditulis ke berkas yang Anda commit."
+      ],
+      [
+        "Tulis policy",
+        "<code>bw init</code> menulis <code>.better-workflows/policy.json</code>. Commit berkas itu agar semua orang mendapat aturan yang sama."
+      ]
+    ],
+    "stepsNote": "Panduan lengkap membahas pemeriksaan Anda sendiri, efek samping, dan hasil yang tidak diketahui.",
+    "guideLink": "Panduan memulai",
+    "tabsLabel": "Perintah instalasi",
+    "copyCommand": "Salin perintah ini",
+    "copy": "Salin",
+    "firstK": "Lalu coba",
+    "firstAsk": "Ubah satu baris di repositori ini, dan jangan jalankan tesnya.",
+    "copyRequest": "Salin permintaan ini",
+    "firstNote": "Saat Claude Code mencoba menyelesaikan, ia dikembalikan dan diberi tahu pemeriksaan mana yang belum ada.",
+    "demoNote": "Opsional: jalankan kedua skenario tanpa Claude, dalam beberapa detik."
+  },
+  "boundary": {
+    "idx": "Batasan",
+    "en": "LIMITS",
+    "title": "Apa yang dihentikannya, dan apa yang tak terlihat olehnya.",
+    "lead": "Sebuah gate hanya berguna jika Anda tahu batasnya.",
+    "cols": [
+      [
+        "yes",
+        "check",
+        "Menghentikan",
+        "Kesalahan yang teramati",
+        [
+          "Selesai berdasarkan run tes yang usang atau gagal, atau run parsial jika pemeriksaan ditandai <code>exact</code>",
+          "Pipe atau <code>|| true</code> yang menyembunyikan kegagalan",
+          "Push, merge, rilis, atau publikasi yang diulang",
+          "Efek samping saat efek samping sebelumnya belum diketahui hasilnya",
+          "Agen yang mengedit policy atau buku besarnya secara langsung"
+        ]
+      ],
+      [
+        "no",
+        "x",
+        "Tidak",
+        "Di luar pandangannya",
+        [
+          "Melihat efek samping di dalam skrip, kecuali policy menyebutkan skrip itu",
+          "Menilai apakah tes Anda sudah cukup baik",
+          "Membangun graf dependensi: <code>scope</code> harus menyebutkan semua hal yang menjadi dependensi sebuah pemeriksaan",
+          "Menghitung berkas yang diabaikan Git sebagai bagian dari bukti"
+        ]
+      ],
+      [
+        "not",
+        "stop",
+        "Diserahkan kepada Anda",
+        "Keputusan manusia",
+        [
+          "Menyelesaikan efek samping yang hasilnya tidak bisa dibaca kembali",
+          "Memperpanjang izin melewati <code>expiresAt</code>-nya",
+          "Memilih apa yang dicakup sebuah <code>scope</code>",
+          "Memutuskan kapan sebuah sesi berputar-putar"
+        ]
+      ]
+    ],
+    "claim": "Core memblokir kesalahan di atas. Belum diukur apakah ia mengurangi pengerjaan ulang atau keputusan yang salah pada tugas panjang; itulah tujuan periode pemakaian sendiri saat ini.",
+    "rulesLabel": "Batasan desain",
+    "rules": [
+      "Parser shell tidak diperluas: perintah yang tidak bisa dibacanya ditanyakan sebelum dijalankan, dan tes yang tersembunyi di dalam <code>eval</code> atau <code>sh -c</code> tidak pernah dihitung sebagai bukti.",
+      "Core hanya menghitung jalannya sebuah sesi. Apakah sesi itu konvergen, agen atau Anda yang menilai.",
+      "Pull request dan rilis direkonsiliasi dengan <code>gh</code>; tanpanya, keduanya tetap tidak diketahui sampai Anda menyelesaikannya."
+    ]
+  },
+  "status": {
+    "idx": "Status",
+    "en": "STATUS",
+    "title": "Posisi proyek saat ini.",
+    "lead": "V6 mengganti mesin workflow V5 dengan core yang kecil. Tanggal diumumkan setelah tercapai.",
+    "road": [
+      [
+        "DONE",
+        "line",
+        "Dibekukan",
+        "V5.0 RC1",
+        "tag V5.0.rc1",
+        "Mesin workflow multi-host. Dibekukan di branch <code>frozen/v5</code>; tidak ada pengembangan baru."
+      ],
+      [
+        "NOW",
+        "sig",
+        "Sedang berjalan",
+        "V6 Core pre-alpha",
+        "packages/bw-core",
+        "Hook Claude Code, scope bukti, pemakaian sendiri di dua repositori."
+      ],
+      [
+        "NEXT",
+        "warn",
+        "Setelah pemakaian sendiri",
+        "V6 Core alpha",
+        "rilis bertag pertama",
+        "Dirilis setelah periode pemakaian sendiri menunjukkan tangkapan nyata dan sedikit blokir palsu. Host lain menyusul sebagai adapter kecil."
+      ]
+    ],
+    "statementTitle": "pernyataan",
+    "statementK": "PRE-ALPHA",
+    "statement": [
+      "Core sudah bisa dipakai hari ini dan berjalan di repositori milik maintainer sendiri. Format policy-nya masih bisa berubah sebelum alpha.",
+      "Semua di sini gratis dan open source. Tidak ada paket berbayar, akun, maupun telemetri."
+    ],
+    "licTitle": "lisensi",
+    "licItem": "Bagian",
+    "licForm": "Lisensi",
+    "licState": "Status",
+    "lic": [
+      [
+        "V6 Core (<code>packages/bw-core</code>)",
+        "Apache-2.0",
+        "",
+        "sig",
+        "aktif"
+      ],
+      [
+        "Situs web dan bagian lain repositori",
+        "AGPL-3.0-only",
+        "",
+        "line",
+        "aktif"
+      ],
+      [
+        "Plugin V5",
+        "AGPL-3.0-only",
+        "di frozen/v5",
+        "warn",
+        "dibekukan"
+      ]
+    ]
+  },
+  "docs": {
+    "idx": "Dokumentasi",
+    "en": "DOCS",
+    "title": "Semuanya ada di repositori.",
+    "lead": "Panduan ditulis dalam bahasa Inggris dan Tionghoa Tradisional. Setiap bahasa di situs ini memiliki README singkat di GitHub."
+  },
+  "docList": [
+    [
+      "guideEn",
+      "Panduan memulai",
+      "Instalasi, blokir pertama, pemeriksaan dan efek samping Anda sendiri."
+    ],
+    [
+      "guideZh",
+      "快速開始（繁體中文）",
+      "Panduan yang sama dalam bahasa Tionghoa Tradisional."
+    ],
+    [
+      "policyRef",
+      "Referensi policy",
+      "Field-field di policy.json, dengan contoh."
+    ],
+    [
+      "readme",
+      "README dalam bahasa Anda",
+      "Apa yang dihentikannya dan cara memasangnya, dalam 41 bahasa."
+    ]
+  ],
+  "faq": {
+    "idx": "FAQ",
+    "en": "FAQ",
+    "title": "Pertanyaan umum, jawaban lugas.",
+    "lead": "Ada hal lain? Buka issue di GitHub.",
+    "items": [
+      [
+        "Apakah ini memperlambat Claude Code?",
+        "Hook yang menangani pemeriksaan atau efek samping menghitung hash working tree dengan Git, yang hanya butuh beberapa milidetik di repositori biasa. Repositori yang sangat besar membayar lebih banyak di setiap panggilan semacam itu."
+      ],
+      [
+        "Apakah ia bisa terjebak mengembalikan agen selamanya?",
+        "Ia mengembalikan agen dengan alasannya dan jalannya sesi sejauh ini: jumlah run, kegagalan berturut-turut, berapa kali sudah dikembalikan. Agen lalu bisa berhenti dan memberi tahu Anda dengan jelas pemeriksaan mana yang terus gagal."
+      ],
+      [
+        "Bisakah agen mematikannya?",
+        "Tidak secara langsung. Core menolak edit agen pada policy dan buku besar, serta menolak <code>bw init</code> dan penyelesaian aksi secara manual. Menghapus plugin, atau mengubah file-file itu lewat jalan memutar, diatur oleh aturan izin Claude Code sendiri, jadi biarkan prompt konfirmasi itu tetap aktif."
+      ],
+      [
+        "Apakah ia mengirim sesuatu ke mana pun?",
+        "Tidak ada server dan tidak ada telemetri. Satu-satunya panggilan jaringannya adalah pengecekan read-only dengan <code>git</code>, <code>gh</code>, dan <code>npm</code> milik Anda sendiri, untuk memastikan apakah sebuah efek samping sudah terjadi. Buku besar tetap di <code>.git/better-workflows/</code>."
+      ],
+      [
+        "Bagaimana dengan Codex, Gemini CLI, atau Qwen Code?",
+        "Mereka menjalankan V5, yang sudah dibekukan. Core netral terhadap host, dan adapter untuk mereka direncanakan setelah alpha."
+      ]
+    ]
+  },
+  "sponsor": {
+    "idx": "Sponsor",
+    "en": "SPONSOR",
+    "title": "Dukung Better Workflows.",
+    "cta": "Sponsor satu kali dalam USDT (TRC20)",
+    "body": "Sponsor membiayai pemeliharaan open source, dokumentasi bahasa Inggris dan Tionghoa Tradisional, serta hosting. Sponsor tidak membeli keanggotaan, prioritas roadmap, atau dukungan.",
+    "qrLabel": "Buka kode QR USDT (TRC20)",
+    "copyAddress": "Salin alamat"
+  },
+  "cta": {
+    "kicker": "Coba dalam beberapa detik",
+    "title": "Menjalankan perintah bukan bukti. Berkasnya yang jadi bukti.",
+    "body": "Jalankan demo tanpa Claude, lalu pasang di satu repositori dan minta perubahan.",
+    "notes": "Lihat di GitHub"
+  }
+}

@@ -22,7 +22,7 @@ Ajan, dosyaların şu anki hâline ve sağlayıcının gerçekte ne yaptığına
 
 ## Deneyin
 
-Claude olmadan, iki senaryonun yaklaşık 2 saniyede çalıştığını görün:
+Claude olmadan, iki senaryonun birkaç saniyede çalıştığını görün:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

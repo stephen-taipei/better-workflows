@@ -24,7 +24,7 @@ bw     ✗ Denied. git-push: the same action already succeeded at this commit.
 
 ## جرّبه
 
-شاهد السيناريوهين يعملان في نحو ثانيتين، دون Claude:
+شاهد السيناريوهين يعملان في بضع ثوانٍ، دون Claude:
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

@@ -15,7 +15,7 @@ Status: pre-alpha, part of the [V6 roadmap](../../ROADMAP.md). Claude Code is th
 | Action gate | Pushes, PR merges and creates, releases, package publishes, `gh api` writes, HTTP writes and any custom kinds are side effects. Each needs `allow` from the policy file; the default is `ask`. Commands whose effects cannot be read (command substitution, `eval`, `sh -c`) are treated as `opaque`, default `ask`. |
 | At most once | The same side effect at the same commit is refused after it has succeeded. |
 | Reconciliation | Only exit code 0 is a known result. Anything else leaves the action `unknown`, and every further side effect is refused until `bw reconcile` settles it with a read-only check against the provider (`git ls-remote`, `gh pr view`, `gh release view`, `npm view`), or a person settles it with a note. |
-| Ledger | Every record goes to an append-only, hash-chained ledger in `.git/better-workflows/`. `bw verify` detects edits and truncation. |
+| Ledger | Every record goes to an append-only, hash-chained ledger in `.git/better-workflows/`. `bw verify` detects edited or removed entries and a half-written last line; it cannot tell that whole entries were cut from the end. |
 
 ## Commands
 
