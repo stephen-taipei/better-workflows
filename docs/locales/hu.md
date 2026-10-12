@@ -25,16 +25,16 @@ Az ügynököt a fájlok jelenlegi állapotához és ahhoz mérik, amit a szolg�
 Nézd meg mindkét forgatókönyvet körülbelül 2 másodperc alatt, Claude nélkül:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
-node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## Telepítés Claude Code-hoz
 
 ```bash
-claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
+claude plugin marketplace add ~/.better-workflows/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
 ```
 
 Ezután kérj egy módosítást a Claude Code-tól, és mondd neki, hogy ne futtassa a teszteket: amikor be akarja fejezni, visszaküldi a rendszer.

@@ -25,16 +25,16 @@ agent ကို လက်ရှိ ဖိုင်များ၏ အခြေ�
 Claude မလိုဘဲ ဖြစ်ရပ်နှစ်ခုလုံး စက္ကန့် 2 ခန့်အတွင်း လည်ပတ်သည်ကို ကြည့်ပါ:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
-node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## Claude Code အတွက် ထည့်သွင်းခြင်း
 
 ```bash
-claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
+claude plugin marketplace add ~/.better-workflows/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
 ```
 
 ထို့နောက် Claude Code ကို ပြောင်းလဲမှုတစ်ခု တောင်းဆိုပြီး test မ run ရန် ပြောပါ။ အလုပ်ပြီးအောင် လုပ်ရန် ကြိုးစားသောအခါ ပြန်ပို့ခံရမည်။

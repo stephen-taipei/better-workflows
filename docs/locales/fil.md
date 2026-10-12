@@ -25,16 +25,16 @@ Sinusukat ang agent batay sa mga file kung ano ang mga ito ngayon, at sa talagan
 Panoorin ang dalawang sitwasyon na tumakbo sa loob ng mga 2 segundo, nang walang Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
-node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## I-install para sa Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
+claude plugin marketplace add ~/.better-workflows/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
 ```
 
 Pagkatapos, humiling ng pagbabago sa Claude Code at sabihing huwag patakbuhin ang mga test: ibabalik ito kapag sinubukan nitong tapusin.

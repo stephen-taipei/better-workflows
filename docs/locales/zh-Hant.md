@@ -25,16 +25,16 @@ agent 必須以檔案現在的內容為準，以 provider 實際做了什麼為�
 不需要 Claude，大約 2 秒就能看到兩個情境實際跑一次：
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
-node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## 安裝到 Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
+claude plugin marketplace add ~/.better-workflows/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
 ```
 
 接著請 Claude Code 改點東西，並叫它不要跑測試：它想收工時會被退回。

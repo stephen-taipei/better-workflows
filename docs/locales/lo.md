@@ -25,16 +25,16 @@ agent ຕ້ອງຍຶດຕາມໄຟລ໌ໃນສະພາບປັດ�
 ເບິ່ງທັງສອງສະຖານະການເຮັດວຽກໃນປະມານ 2 ວິນາທີ ໂດຍບໍ່ຕ້ອງໃຊ້ Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
-node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## ຕິດຕັ້ງສຳລັບ Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
+claude plugin marketplace add ~/.better-workflows/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
 ```
 
 ຈາກນັ້ນຂໍໃຫ້ Claude Code ແກ້ໄຂບາງຢ່າງ ແລະ ບອກວ່າບໍ່ຕ້ອງແລ່ນເທສ: ເມື່ອມັນພະຍາຍາມປິດວຽກ ມັນຈະຖືກສົ່ງກັບ.

@@ -25,16 +25,16 @@ agent ត្រូវផ្អែកលើឯកសារតាមស្ថា�
 មើលសេណារីយ៉ូទាំងពីរដំណើរការក្នុងរយៈពេលប្រហែល 2 វិនាទី ដោយមិនចាំបាច់ប្រើ Claude៖
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
-node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## ដំឡើងសម្រាប់ Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
+claude plugin marketplace add ~/.better-workflows/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
 ```
 
 បន្ទាប់មកសុំឱ្យ Claude Code ធ្វើការផ្លាស់ប្តូរ ហើយប្រាប់វាកុំឱ្យដំណើរការតេស្ត៖ នៅពេលវាព្យាយាមបញ្ចប់ វានឹងត្រូវបានបញ្ជូនត្រឡប់មកវិញ។

@@ -32,16 +32,16 @@ The agent is held to the files as they are now, and to what the provider actuall
 See both stories run in about 2 seconds, without Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
-node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## Install for Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows-core/packages/bw-core          # once per machine
+claude plugin marketplace add ~/.better-workflows/packages/bw-core               # once per machine
 claude plugin install better-workflows-core@better-workflows --scope local    # in your repository
-node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init                # writes .better-workflows/policy.json
+node ~/.better-workflows/packages/bw-core/bin/bw.mjs init                     # writes .better-workflows/policy.json
 ```
 
 Then ask Claude Code for a change and tell it not to run the tests: it is sent back when it tries to finish. [Getting started](packages/bw-core/docs/getting-started.md) covers policies, unknown results and limits. Core is pre-alpha, Apache-2.0, and has no runtime dependencies. Direction and milestones are in the [roadmap](ROADMAP.md).

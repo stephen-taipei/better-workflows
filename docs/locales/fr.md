@@ -25,16 +25,16 @@ L'agent est tenu aux fichiers tels qu'ils sont maintenant, et à ce que le fourn
 Voyez les deux scénarios s'exécuter en 2 secondes environ, sans Claude :
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
-node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## Installer pour Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
+claude plugin marketplace add ~/.better-workflows/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
 ```
 
 Demandez ensuite une modification à Claude Code en lui disant de ne pas lancer les tests : il est renvoyé au travail quand il essaie de terminer.

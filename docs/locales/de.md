@@ -25,16 +25,16 @@ Der Agent wird an den Dateien in ihrem jetzigen Zustand gemessen und daran, was 
 Sehen Sie beide Szenarien in etwa 2 Sekunden laufen, ohne Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
-node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## Installation für Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
+claude plugin marketplace add ~/.better-workflows/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
 ```
 
 Bitten Sie Claude Code dann um eine Änderung und sagen Sie ihm, dass es die Tests nicht ausführen soll: Beim Versuch abzuschließen wird es zurückgeschickt.

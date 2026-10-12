@@ -25,16 +25,16 @@ Agent bị ràng buộc với các tệp đúng như hiện tại và với nh�
 Xem cả hai tình huống chạy trong khoảng 2 giây, không cần Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows-core
-node ~/.better-workflows-core/packages/bw-core/examples/stale-green/demo.mjs
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
 ```
 
 ## Cài đặt cho Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows-core/packages/bw-core
+claude plugin marketplace add ~/.better-workflows/packages/bw-core
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows-core/packages/bw-core/bin/bw.mjs init
+node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
 ```
 
 Sau đó hãy nhờ Claude Code thực hiện một thay đổi và bảo nó đừng chạy test: nó sẽ bị trả lại khi cố kết thúc.
