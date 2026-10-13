@@ -110,9 +110,11 @@ hook 把 agent 退回時，也會附上這個 session 的狀況（跑了幾次�
 讀不回結果的動作（例如自訂的部署）需要由人確認：
 
 ```bash
-bw status                      # 列出未結案動作與它的 id
+bw status
 bw reconcile act_… --outcome success --note "已檢查部署紀錄"
 ```
+
+`bw status` 會列出未結案動作與它的 id。
 
 agent 不能執行 `bw reconcile <id>` 或 `bw init`，也不能修改 `.better-workflows/` 或 `.git/`。
 
@@ -122,9 +124,11 @@ plugin 與 `bw` 指令來自同一個套件，請一起更新：
 
 ```bash
 claude plugin marketplace update better-workflows
-claude plugin update better-workflows-core@better-workflows --scope local   # 每個 repository 各做一次
+claude plugin update better-workflows-core@better-workflows --scope local
 npm install -g @better-workflows/core@alpha
 ```
+
+`claude plugin update` 要在每個裝了 plugin 的 repository 各執行一次。
 
 ## 從 checkout 安裝
 
@@ -132,8 +136,10 @@ npm install -g @better-workflows/core@alpha
 
 ```bash
 mv ~/.better-workflows ~/.better-workflows-V5
-echo 'export SBW_STATE_ROOT="$HOME/.better-workflows-V5"' >> ~/.zshrc   # 或 ~/.bashrc
+echo 'export SBW_STATE_ROOT="$HOME/.better-workflows-V5"' >> ~/.zshrc
 ```
+
+如果你的 shell 是 bash，請改寫到 `~/.bashrc`。
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

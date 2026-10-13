@@ -110,9 +110,11 @@ Only exit code 0 counts as success. A timeout, an interrupt or any other exit le
 Anything it cannot read back, such as a custom deploy, needs a person:
 
 ```bash
-bw status                      # lists the open action and its id
+bw status
 bw reconcile act_… --outcome success --note "checked the deploy log"
 ```
+
+`bw status` lists the open action and its id.
 
 The agent cannot run `bw reconcile <id>` or `bw init`, and cannot edit `.better-workflows/` or `.git/`.
 
@@ -122,9 +124,11 @@ The plugin and the `bw` command come from the same package; update them together
 
 ```bash
 claude plugin marketplace update better-workflows
-claude plugin update better-workflows-core@better-workflows --scope local   # in each repository
+claude plugin update better-workflows-core@better-workflows --scope local
 npm install -g @better-workflows/core@alpha
 ```
+
+Run `claude plugin update` in each repository where the plugin is installed.
 
 ## Installing from a checkout
 
@@ -132,8 +136,10 @@ To run unreleased changes, use a clone instead of the marketplace and npm. If yo
 
 ```bash
 mv ~/.better-workflows ~/.better-workflows-V5
-echo 'export SBW_STATE_ROOT="$HOME/.better-workflows-V5"' >> ~/.zshrc   # or ~/.bashrc
+echo 'export SBW_STATE_ROOT="$HOME/.better-workflows-V5"' >> ~/.zshrc
 ```
+
+If your shell is bash, write to `~/.bashrc` instead of `~/.zshrc`.
 
 ```bash
 git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows

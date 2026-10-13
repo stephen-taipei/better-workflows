@@ -19,15 +19,15 @@
 
 ## 指令
 
-```bash
-bw init                                  # 建立 .better-workflows/policy.json
-bw run --kind test -- npm test           # 執行並記錄證據
-bw check-completion                      # 必要證據有效回傳 0，否則 2
-bw check-command "git push origin main"  # 0 允許、2 拒絕、3 詢問
-bw reconcile                             # 向 provider 查詢以結案 unknown 動作
-bw reconcile <id> --outcome success --note "已確認部署儀表板"
-bw status | bw verify | bw log
-```
+| 指令 | 作用 |
+| --- | --- |
+| `bw init` | 建立 `.better-workflows/policy.json`。 |
+| `bw run --kind test -- npm test` | 執行指令並記錄證據。 |
+| `bw check-completion` | 必要證據有效回傳 0，否則 2。 |
+| `bw check-command "git push origin main"` | 0 允許、2 拒絕、3 詢問。 |
+| `bw reconcile` | 向 provider 查詢以結案 unknown 動作。 |
+| `bw reconcile <id> --outcome success --note "已確認部署儀表板"` | 由人手動結案。 |
+| `bw status`、`bw verify`、`bw log` | 顯示未結案動作與證據、檢查帳本、列出帳本紀錄。 |
 
 Policy 格式見[英文版](README.md#policy)。證據的 `argv` 是指令前綴，會加進該種類的內建清單；在證據項目加上 `"exact": true` 則取代該種類的內建清單，且只認在 repo 根目錄執行的完整指令，`pnpm test -- one.spec.ts` 或在單一 workspace package 裡跑的 `pnpm test` 都不會被當成整套測試。`"cwd": "plugins/x"` 可指定其他目錄；同一行的 `cd` 會被追蹤，hook 讀不懂的 `cd`（例如 `cd $DIR`）不算。policy 檔無效時，所有副作用都會被拒絕，不會退回預設值；過期的規則退回 `ask`。
 
@@ -43,11 +43,13 @@ exact 種類還可以宣告 `"scope": ["plugins/x", "shared"]`，也就是這個
 從本 repository 的 marketplace 與 npm 安裝（細節見[快速開始](docs/getting-started.zh-TW.md)）：
 
 ```bash
-npm install -g @better-workflows/core@alpha                      # bw 指令
-claude plugin marketplace add stephen-taipei/better-workflows     # 每台機器一次
+npm install -g @better-workflows/core@alpha
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
 bw init
 ```
+
+第一行安裝 `bw` 指令，第二行加入 marketplace，兩者都是每台機器做一次。
 
 | Hook | 行為 |
 | --- | --- |

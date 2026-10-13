@@ -39,10 +39,12 @@ node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ## 安裝到 Claude Code
 
 ```bash
-claude plugin marketplace add stephen-taipei/better-workflows                 # 每台機器一次
-claude plugin install better-workflows-core@better-workflows --scope local    # 在你的 repository 裡
-bw init                                                                       # 寫出 .better-workflows/policy.json
+claude plugin marketplace add stephen-taipei/better-workflows
+claude plugin install better-workflows-core@better-workflows --scope local
+bw init
 ```
+
+marketplace 每台機器加一次；後兩行在你的 repository 裡執行。`bw init` 會寫出 `.better-workflows/policy.json`。
 
 接著請 Claude Code 做一個改動，並告訴它不要跑測試：它要結束時會被退回。policy 設定、結果不明時的處理與限制，請見[快速開始](../packages/bw-core/docs/getting-started.zh-TW.md)。Core 目前是 alpha（`6.0.0-alpha.1`）、Apache-2.0、沒有 runtime 相依套件。方向與里程碑見[路線圖](ROADMAP.zh-TW.md)。
 

@@ -19,26 +19,28 @@ Status: alpha (`6.0.0-alpha.1`), part of the [V6 roadmap](../../ROADMAP.md). Cla
 
 ## Commands
 
-```bash
-bw init                                  # write .better-workflows/policy.json
-bw run --kind test -- npm test           # run and record evidence
-bw check-completion                      # 0 when required evidence is fresh, 2 otherwise
-bw check-command "git push origin main"  # 0 allow, 2 deny, 3 ask
-bw reconcile                             # settle unknown actions by probing the provider
-bw reconcile <id> --outcome success --note "checked the deploy dashboard"
-bw status | bw verify | bw log
-```
+| Command | What it does |
+| --- | --- |
+| `bw init` | Writes `.better-workflows/policy.json`. |
+| `bw run --kind test -- npm test` | Runs the command and records evidence. |
+| `bw check-completion` | Exits 0 when the required evidence is fresh, 2 otherwise. |
+| `bw check-command "git push origin main"` | Exits 0 for allow, 2 for deny, 3 for ask. |
+| `bw reconcile` | Settles unknown actions by probing the provider. |
+| `bw reconcile <id> --outcome success --note "checked the deploy dashboard"` | A person settles an action by hand. |
+| `bw status`, `bw verify`, `bw log` | Show open actions and evidence, check the ledger, list its entries. |
 
 ## Claude Code
 
 Install it from this repository's marketplace and npm (details in [Getting started](docs/getting-started.md)):
 
 ```bash
-npm install -g @better-workflows/core@alpha                      # the bw command
-claude plugin marketplace add stephen-taipei/better-workflows     # once per machine
+npm install -g @better-workflows/core@alpha
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
 bw init
 ```
+
+The first line installs the `bw` command and the second adds the marketplace, both once per machine.
 
 | Hook | What it does |
 | --- | --- |

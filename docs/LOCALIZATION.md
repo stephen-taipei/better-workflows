@@ -7,9 +7,11 @@
 Each of the 41 locales has one short README in `docs/locales/<code>.md`: what Core stops, how to try it, and how to install it for Claude Code. All 41 pages and the [language index](LANGUAGES.md) are generated from one catalog, `docs/locales/catalog.json`, by `docs/locales/build.mjs`. Edit the catalog, never a generated page.
 
 ```sh
-node docs/locales/build.mjs          # rewrite the pages from the catalog
-node docs/locales/build.mjs --check  # CI: fail if a page differs from the catalog
+node docs/locales/build.mjs
+node docs/locales/build.mjs --check
 ```
+
+The first command rewrites the pages from the catalog. The second is what CI runs: it fails if a page differs from the catalog.
 
 The Core guides are written in English and Traditional Chinese (Taiwan) only, and every locale page links to those two.
 
