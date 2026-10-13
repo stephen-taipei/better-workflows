@@ -89,6 +89,30 @@ test("the agent cannot edit the policy, the ledger or settle actions by hand", a
   assert.equal(decision(await bash(root, "bw reconcile").pre()), "defer");
 });
 
+test("the agent cannot record evidence through bw run", async (t) => {
+  const { root } = await fixtureRepo(t);
+  await writePolicy(root, { completion: { require: ["test"] } });
+  for (const command of [
+    "bw run --kind test -- true",
+    "npx bw run --kind test -- true",
+    "node packages/bw-core/bin/bw.mjs run --kind test -- true",
+    "cd packages/bw-core && node bin/bw.mjs run --kind test -- true",
+    "npx @better-workflows/core@alpha run --kind test -- true",
+  ]) assert.match((await bash(root, command).pre()).output.hookSpecificOutput.permissionDecisionReason, /only a person records evidence/, command);
+  assert.equal(decision(await bash(root, "bw status").pre()), "defer");
+  assert.equal(decision(await bash(root, "npm run build").pre()), "defer");
+});
+
+test("two sessions racing to the same push let only one through", async (t) => {
+  const { root } = await fixtureRepo(t);
+  await writePolicy(root, { actions: { rules: { "git-push": "allow" } } });
+  const results = await Promise.all([bash(root, "git push origin main").pre(), bash(root, "git push origin main").pre()]);
+  assert.deepEqual(results.map(decision).sort(), ["defer", "deny"]);
+  assert.match(results.find((r) => decision(r) === "deny").output.hookSpecificOutput.permissionDecisionReason, /unfinished result/);
+  const { actions } = await loadState(await openRepo(root));
+  assert.equal(actions.size, 1, "only the push let through is recorded");
+});
+
 test("outside a Git repository the hooks stay out of the way", async (t) => {
   const { base } = await fixtureRepo(t);
   const result = await handleClaudeCodeHook({ hook_event_name: "PreToolUse", cwd: base, tool_name: "Bash", tool_input: { command: "git push" } });

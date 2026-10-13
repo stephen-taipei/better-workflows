@@ -4,7 +4,7 @@
 
 防止 AI coding agent 拿過期的證據宣稱「完成」、在結果不明的副作用之後繼續疊加動作，以及從 prompt 文字取得權限。
 
-狀態：alpha（`6.0.0-alpha.1`），屬於 [V6 路線圖](../../docs/ROADMAP.zh-TW.md)。第一個 host 是 Claude Code，透過本套件內的 hooks plugin 接入。請從[快速開始](docs/getting-started.zh-TW.md)入手，或執行 [stale-green demo](examples/stale-green/demo.mjs)（`node examples/stale-green/demo.mjs`，約 2 秒，不需要 Claude）。
+狀態：alpha（`6.0.0-alpha.2`），屬於 [V6 路線圖](../../docs/ROADMAP.zh-TW.md)。第一個 host 是 Claude Code，透過本套件內的 hooks plugin 接入。請從[快速開始](docs/getting-started.zh-TW.md)入手，或執行 [stale-green demo](examples/stale-green/demo.mjs)（`node examples/stale-green/demo.mjs`，約 2 秒，不需要 Claude）。
 
 ## 檢查什麼
 
@@ -22,7 +22,7 @@
 | 指令 | 作用 |
 | --- | --- |
 | `bw init` | 建立 `.better-workflows/policy.json`。 |
-| `bw run --kind test -- npm test` | 執行指令並記錄證據。 |
+| `bw run --kind test -- npm test` | 由人執行指令並記錄證據（agent 執行會被拒絕）。 |
 | `bw check-completion` | 必要證據有效回傳 0，否則 2。 |
 | `bw check-command "git push origin main"` | 0 允許、2 拒絕、3 詢問。 |
 | `bw reconcile` | 向 provider 查詢以結案 unknown 動作。 |

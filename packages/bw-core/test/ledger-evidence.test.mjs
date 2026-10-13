@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile, writeFile, appendFile, mkdir, rm } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { readFile, writeFile, appendFile, mkdir, rm, stat, utimes } from "node:fs/promises";
+import { hostname } from "node:os";
+import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
 import { appendEvent, ledgerPath, readLedger, verifyLedger } from "../src/ledger.mjs";
 import { subtreeDigests, worktreeTree, treeState } from "../src/repo.mjs";
@@ -16,6 +19,29 @@ test("ledger appends a hash chain that survives concurrent writers", async (t) =
   assert.equal(entries.length, 20);
   assert.deepEqual(entries.map((e) => e.seq), Array.from({ length: 20 }, (_, i) => i + 1));
   assert.equal((await verifyLedger(repo)).ok, true);
+});
+
+test("a lock left by a process that is gone is taken back; an old lock held by a live one is not", async (t) => {
+  const { repo } = await fixtureRepo(t);
+  const lock = path.join(repo.stateDir, "ledger.lock");
+  const holdLock = async (pid) => {
+    await mkdir(lock);
+    await writeFile(path.join(lock, "owner.json"), JSON.stringify({ pid, host: hostname(), token: `t${pid}` }));
+    const hourAgo = new Date(Date.now() - 3_600_000);
+    await utimes(lock, hourAgo, hourAgo);
+  };
+
+  await holdLock(spawnSync(process.execPath, ["-e", ""]).pid);
+  await appendEvent(repo, "note", { after: "dead owner" });
+  await assert.rejects(stat(lock), { code: "ENOENT" });
+
+  await holdLock(process.pid);
+  const waiting = appendEvent(repo, "note", { after: "live owner" });
+  await sleep(300);
+  assert.equal(JSON.parse(await readFile(path.join(lock, "owner.json"), "utf8")).pid, process.pid, "a live owner keeps its lock however old");
+  await rm(lock, { recursive: true });
+  await waiting;
+  assert.equal((await readLedger(repo)).length, 2);
 });
 
 test("ledger rejects edited and truncated entries", async (t) => {

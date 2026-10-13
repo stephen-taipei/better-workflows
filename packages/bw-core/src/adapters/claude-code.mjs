@@ -2,7 +2,7 @@ import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beginActions, endActions, evaluateCommand, markNotRun } from "../actions.mjs";
 import { completionStatus, describeEvidence, describeSession, recordEvidence, scopeDigests, scopeFor, sessionSummary, snapshot } from "../evidence.mjs";
-import { appendEvent } from "../ledger.mjs";
+import { appendEvent, withLedgerLock } from "../ledger.mjs";
 import { defaultPolicy, loadPolicy } from "../policy.mjs";
 import { classifyCommand } from "../classify.mjs";
 import { ghFailure, reconcileOpen } from "../reconcile.mjs";
@@ -64,9 +64,12 @@ function protectedBash(command) {
     return "the agent may read but not change .better-workflows/ or the Better Workflows ledger";
   }
   for (const argv of commands) {
-    const bw = argv[0] === "bw" || argv.some((arg) => arg.endsWith("/bin/bw.mjs"));
+    const bw = argv.some((arg) => /(^|[/\\])bw(\.mjs)?$/.test(arg) || /^@better-workflows\/core(@|$)/.test(arg));
     if (!bw) continue;
     if (argv.includes("init")) return "only a person creates the policy file";
+    // `bw run` records whatever exit code its command returns under any kind
+    // it is given, so from the agent it would turn `true` into a passing test.
+    if (argv.includes("run")) return "only a person records evidence through `bw run`; run the check itself (for example `npm test`) and the hooks record its result";
     const i = argv.indexOf("reconcile");
     if (i >= 0 && argv[i + 1] && !argv[i + 1].startsWith("-")) return "only a person settles an action by hand; run `bw reconcile` without an id to let the read-only checks settle it";
   }
@@ -153,7 +156,16 @@ async function preToolUse(input, repo) {
   const { ignore } = policyInfo.policy.evidence;
   const tree = evaluation.actions.length || evaluation.evidence.length ? await worktreeTree(repo, { ignore }) : null;
   if (evaluation.actions.length) {
-    await beginActions(repo, evaluation, { command, tree, policyDigest: policyInfo.digest, host: HOST, toolUseId: input.tool_use_id ?? null });
+    // Decide again and record under the ledger lock, so two sessions cannot
+    // both be let through for the same push before either has recorded it.
+    evaluation = await withLedgerLock(repo, async () => {
+      const latest = evaluateCommand({ command, policyInfo, state: await loadState(repo), head: await headCommit(repo) });
+      if (latest.decision !== "deny") {
+        await beginActions(repo, latest, { command, tree, policyDigest: policyInfo.digest, host: HOST, toolUseId: input.tool_use_id ?? null });
+      }
+      return latest;
+    });
+    if (evaluation.decision === "deny") return preDecision("deny", evaluation.reasons.join("; "));
   }
   if (evaluation.evidence.length && input.tool_use_id) {
     const file = pendingFile(repo, input.tool_use_id);

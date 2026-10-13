@@ -2,7 +2,7 @@ export { canonicalJson, digest, sha256 } from "./canonical.mjs";
 export { splitCommand } from "./command.mjs";
 export { classifyCommand, BUILTIN_ACTION_KINDS } from "./classify.mjs";
 export { defaultPolicy, loadPolicy, normalizePolicy, ruleFor, POLICY_PATH } from "./policy.mjs";
-export { appendEvent, readLedger, verifyLedger, ledgerPath } from "./ledger.mjs";
+export { appendEvent, readLedger, verifyLedger, ledgerPath, withLedgerLock } from "./ledger.mjs";
 export { openRepo, headCommit, currentBranch, worktreeTree, subtreeDigests, treeState } from "./repo.mjs";
 export { loadState, reduceEntries, openActions, latestSession } from "./state.mjs";
 export { recordEvidence, evidenceStatus, completionStatus, describeEvidence, snapshot, scopeFor, scopeDigests, sessionSummary, describeSession } from "./evidence.mjs";

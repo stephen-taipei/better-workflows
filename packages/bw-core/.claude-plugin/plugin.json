@@ -1,6 +1,6 @@
 {
   "name": "better-workflows-core",
-  "version": "6.0.0-alpha.1",
+  "version": "6.0.0-alpha.2",
   "description": "Blocks completion claims on stale test evidence, gates side effects through a policy file, and reconciles unknown results before anything else runs.",
   "author": { "name": "Better Workflows contributors" },
   "homepage": "https://github.com/stephen-taipei/better-workflows/tree/main/packages/bw-core",
