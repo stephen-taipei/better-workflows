@@ -53,18 +53,43 @@ jobs:
           if (read(core + '.claude-plugin/plugin.json').version !== version) throw new Error('package.json and plugin.json versions differ');
           if (read('.claude-plugin/marketplace.json').plugins[0].source !== './packages/bw-core') throw new Error('the root marketplace must point at packages/bw-core');
           "
+  attribution:
+    name: No commit credits an AI assistant
+    # Only the commits a pull request adds; main already has older ones.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.21.0'
+      - name: Test the check
+        run: node --test scripts/check-attribution.test.mjs
+      - name: Check the pull request's commits
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/check-attribution.mjs "${BASE_SHA}..${HEAD_SHA}"
   test:
     name: test
-    needs: [core]
+    needs: [core, attribution]
     if: always()
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
-      - name: Require every Core lane
+      - name: Require every Core lane and the attribution check
         shell: bash
         env:
           CORE_RESULT: ${{ needs.core.result }}
+          ATTRIBUTION_RESULT: ${{ needs.attribution.result }}
         run: |
           set -euo pipefail
           test "${CORE_RESULT}" = success
+          case "${ATTRIBUTION_RESULT}" in success|skipped) ;; *) exit 1 ;; esac
