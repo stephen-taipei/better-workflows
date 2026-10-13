@@ -31,7 +31,12 @@ Claude Code is the first supported host. Its hooks let Core block an action dete
 4. **Demo and docs** (done): a few-second scenario where a stale green test is rejected and a push with an unknown result must be reconciled. Guides in English and Traditional Chinese (Taiwan); the README and website in 41 languages, 39 of them machine-translated.
 5. **Alpha release** (now): `6.0.0-alpha.1`, from the plugin marketplace and npm.
 6. **Beta**: the policy format is frozen once self-use shows real catches and few false blocks.
-7. **More hosts**: Codex and others as small adapters, as far as their extension points allow.
+7. **Stable `6.0.0`**: released only when all of these hold:
+   - No known bug lets an agent count evidence it should not, or repeat or stack a side effect.
+   - Beta has run for at least four weeks on the maintainer's repositories with no false-block bug left open.
+   - At least one person other than the maintainer has run the full flow on a real repository.
+   - The policy format has not changed since beta.
+8. **More hosts**: Codex and others as small adapters, as far as their extension points allow. Not required for stable.
 
 ## How we decide whether to continue
 
