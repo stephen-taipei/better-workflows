@@ -231,3 +231,27 @@ test("SessionStart warns when the policy needs gh but gh cannot be used", async 
   const context = (await hook(root, "SessionStart", { source: "startup" })).output.hookSpecificOutput.additionalContext;
   assert.match(context, /Warning: gh is not logged in/);
 });
+
+test("a subagent stopping is not the session finishing; its own refusals settle from its transcript", async (t) => {
+  // SubagentStop carries the parent's session_id, so judging completion there
+  // sent a read-only subagent back for the parent's edits and logged a block.
+  const { root } = await fixtureRepo(t);
+  await writePolicy(root, { completion: { require: ["test"] }, actions: { custom: [{ kind: "deploy", argv: [["./deploy.sh"]] }], rules: { deploy: "ask" } } });
+  sh(root, "add", "-A");
+  sh(root, "commit", "-q", "-m", "policy");
+  await hook(root, "SessionStart", { source: "startup" });
+  await writeFile(path.join(root, "app.txt"), "edited by the parent\n");
+
+  const refused = bash(root, "./deploy.sh prod");
+  assert.equal(decision(await refused.pre()), "ask");
+  const agentTranscript = path.join(root, "..", `agent-${next}.jsonl`);
+  await writeFile(agentTranscript, `${JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: "The user doesn't want to proceed with this tool use. The tool use was rejected.", is_error: true, tool_use_id: `toolu_${next}` }] } })}\n`);
+
+  const sub = await hook(root, "SubagentStop", { stop_hook_active: false, agent_id: "a1", agent_type: "Explore", agent_transcript_path: agentTranscript });
+  assert.equal(sub.output, null, "the subagent is not sent back for the parent's edits");
+  const state = await loadState(await openRepo(root));
+  assert.equal(state.sessions.get("s1")?.blocks ?? 0, 0, "no block is logged");
+  assert.equal([...state.actions.values()].find((a) => a.toolUseId === `toolu_${next}`).status, "failed", "the refused deploy never ran");
+
+  assert.equal((await hook(root, "Stop", { stop_hook_active: false })).output.decision, "block", "the session itself is still held to the evidence");
+});

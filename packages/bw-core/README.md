@@ -44,7 +44,8 @@ node path/to/better-workflows/packages/bw-core/bin/bw.mjs init
 | `SessionStart` | Records the starting tree and tells the agent which evidence completion needs and which side effects are still unsettled. |
 | `PreToolUse` | Runs the action gate on Bash commands. `deny` blocks the call, `ask` sends it to the permission prompt, `allow` defers to Claude Code's own permission rules and never grants more. Edits to `.better-workflows/` or `.git/` and `bw init` / `bw reconcile <id>` are refused. |
 | `PostToolUse`, `PostToolUseFailure` | Records the exit code: 0 is success, anything else or an interrupt is `unknown`. Records evidence for test, lint, typecheck and build commands. |
-| `Stop`, `SubagentStop` | If files changed in the session and the required evidence is not fresh, sends the agent back once with what is missing; the second time it only warns. |
+| `Stop` | If files changed in the session and the required evidence is not fresh, sends the agent back once with what is missing; the second time it only warns. |
+| `SubagentStop` | Settles side effects the person refused during the subagent. Never sends a subagent back: it shares the parent's session, and the parent's `Stop` is the gate. |
 
 A side effect refused at the permission prompt never runs and gets no `PostToolUse`. The adapter settles it as `failed` only when the session transcript shows Claude Code's refusal as the tool's result. Any other missing result, an interrupt included, stays `unknown`.
 
