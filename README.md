@@ -46,7 +46,7 @@ bw init
 
 Add the marketplace once per machine; run the other two lines in your repository. `bw init` writes `.better-workflows/policy.json`.
 
-Then ask Claude Code for a change and tell it not to run the tests: it is sent back when it tries to finish. [Getting started](packages/bw-core/docs/getting-started.md) covers policies, unknown results and limits. Core is alpha (`6.0.0-alpha.1`), Apache-2.0, and has no runtime dependencies. Direction and milestones are in the [roadmap](ROADMAP.md).
+Then ask Claude Code for a change and tell it not to run the tests: it is sent back when it tries to finish. [Getting started](packages/bw-core/docs/getting-started.md) covers policies, unknown results and limits. Core is alpha (`6.0.0-alpha.2`), Apache-2.0, and has no runtime dependencies. Direction and milestones are in the [roadmap](ROADMAP.md).
 
 
 ## Other languages
