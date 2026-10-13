@@ -24,7 +24,7 @@
     "node": ">=22.14.0"
   },
   "bin": {
-    "bw": "./bin/bw.mjs"
+    "bw": "bin/bw.mjs"
   },
   "exports": {
     ".": "./src/index.mjs"
