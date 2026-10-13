@@ -1,9 +1,24 @@
 {
   "name": "@better-workflows/core",
-  "version": "0.0.0",
-  "private": true,
+  "version": "6.0.0-alpha.1",
   "description": "Evidence binding, action gate and provider reconciliation for AI coding agents.",
   "license": "Apache-2.0",
+  "homepage": "https://betterworkflows.dev/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stephen-taipei/better-workflows.git",
+    "directory": "packages/bw-core"
+  },
+  "bugs": {
+    "url": "https://github.com/stephen-taipei/better-workflows/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "hooks",
+    "evidence",
+    "guardrails",
+    "ai-agents"
+  ],
   "type": "module",
   "engines": {
     "node": ">=22.14.0"
@@ -24,8 +39,13 @@
     "README.md",
     "README.zh-TW.md",
     "LICENSE",
+    "CHANGELOG.md",
     "NOTICE"
   ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "alpha"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs"
   }

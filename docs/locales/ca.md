@@ -25,20 +25,20 @@ L'agent respon davant dels fitxers tal com són ara i del que el proveïdor ha f
 Mira els dos escenaris executar-se en pocs segons, sense Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Instal·lar per a Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 Després demana un canvi a Claude Code i digues-li que no executi els tests: quan intenti acabar, el retornaran.
 
 Les policies, els resultats desconeguts i els límits s'expliquen a la guia d'inici: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core és en pre-alpha. Aquesta pàgina és una traducció automàtica; el README en anglès és la referència.
+> V6 Core és en alpha. Aquesta pàgina és una traducció automàtica; el README en anglès és la referència.

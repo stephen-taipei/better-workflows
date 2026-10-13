@@ -20,7 +20,7 @@
     "themeToggle": "Schimbă tema de culori",
     "homeLabel": "Pagina principală Better Workflows",
     "tagline": "Agentul tău de programare încheie pe baza dovezilor actuale și nu repetă niciodată un efect secundar care a reușit deja la același commit.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Instalare",
     "overview": "Prezentare",
     "hosts": "Gazde",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org redirecționează aici)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Doar dovezi proaspete.",
     "h1Signal": "Necunoscut? Oprire.",
     "lead": "Un plugin pentru Claude Code care împiedică un agent AI să încheie pe baza unui test verde depășit și să repete sau să suprapună efecte secundare al căror rezultat nu l-a văzut niciodată. Ce are voie să facă vine dintr-un fișier policy scris de tine, niciodată din prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Instalare pentru Claude Code",
     "ctaDemo": "Vezi-l oprind",
     "specTitle": "Core",
-    "status": "Pre-alpha. Folosit de autor pe două dintre repository-urile sale din octombrie 2026.",
+    "status": "Alpha. Folosit de autor pe două dintre repository-urile sale din octombrie 2026.",
     "host": "Claude Code (plugin de hooks)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Un policy invalid refuză orice efect secundar în loc să revină la valori implicite.",
       "O permisiune expirată revine la ask. Doar o persoană o prelungește, modificând policy-ul.",
       "Comenzile pe care Core nu le poate citi, cum ar fi <code>eval</code> sau <code>sh -c</code>, sunt tratate ca opace și se cere confirmare.",
-      "Registrul este append-only și înlănțuit prin hash; <code>bw verify</code> detectează intrările modificate sau eliminate și o ultimă linie scrisă pe jumătate, dar nu și intrări întregi tăiate de la final."
+      "Registrul este append-only și înlănțuit prin hash; <code>bw verify</code> detectează intrările modificate, eliminate sau tăiate de la final, dar nu și un registru rescris împreună cu fișierul său head."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Necesită Node.js 22.14 sau mai nou, Git și Claude Code cu suport pentru pluginuri.",
     "steps": [
       [
-        "Clonează Core",
-        "O dată pe mașină. Dacă ai rulat V5 aici, mută mai întâi <code>~/.better-workflows</code> în <code>~/.better-workflows-V5</code> și setează <code>SBW_STATE_ROOT</code> să indice spre el."
+        "Instalează CLI",
+        "O dată pe mașină, din npm. Îți oferă comanda <code>bw</code>."
       ],
       [
         "Adaugă pluginul",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "În lucru",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Hooks Claude Code, scope pentru dovezi, utilizare proprie pe două repository-uri."
+        "Actual",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Hooks Claude Code, scope pentru dovezi și registrul. Utilizarea proprie pe două repository-uri continuă."
       ],
       [
         "NEXT",
         "warn",
         "După utilizarea proprie",
-        "V6 Core alpha",
-        "primul release cu tag",
-        "Publicat după ce perioada de utilizare proprie arată opriri reale și puține blocări false. Mai multe gazde urmează ca adaptoare mici."
+        "V6 Core beta",
+        "format policy înghețat",
+        "După ce utilizarea proprie arată opriri reale și puține blocări false. Mai multe gazde urmează ca adaptoare mici."
       ]
     ],
     "statementTitle": "declarație",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core poate fi folosit astăzi și rulează pe repository-urile autorului. Formatul policy-ului se poate încă schimba înainte de alpha.",
+      "Core poate fi folosit astăzi și rulează pe repository-urile autorului. Formatul policy-ului se poate încă schimba înainte de beta.",
       "Totul aici este gratuit și open source. Nu există plan plătit, cont sau telemetrie."
     ],
     "licTitle": "licențe",
@@ -500,7 +500,7 @@
       ],
       [
         "Ce se întâmplă cu Codex, Gemini CLI sau Qwen Code?",
-        "Acestea au rulat V5, care este înghețat. Core este neutru față de gazdă, iar adaptoarele pentru ele sunt planificate după alpha."
+        "Acestea au rulat V5, care este înghețat. Core este neutru față de gazdă, iar adaptoarele pentru ele sunt planificate după beta."
       ]
     ]
   },

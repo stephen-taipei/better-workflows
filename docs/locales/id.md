@@ -25,20 +25,20 @@ Agen dinilai berdasarkan berkas sebagaimana adanya sekarang, dan berdasarkan apa
 Lihat kedua skenario berjalan dalam beberapa detik, tanpa Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Pasang untuk Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 Lalu minta Claude Code membuat perubahan dan suruh jangan menjalankan tes: ia akan dikembalikan saat mencoba menyelesaikan.
 
 Policy, hasil yang tidak diketahui, dan batasan dijelaskan di panduan memulai: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core masih pre-alpha. Halaman ini diterjemahkan oleh mesin; README berbahasa Inggris adalah acuan resmi.
+> V6 Core masih alpha. Halaman ini diterjemahkan oleh mesin; README berbahasa Inggris adalah acuan resmi.

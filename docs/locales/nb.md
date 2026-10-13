@@ -25,20 +25,20 @@ Agenten holdes til filene slik de er nå, og til hva leverandøren faktisk gjord
 Se begge scenarioene kjøre på noen sekunder, uten Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Installer for Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 Be deretter Claude Code om en endring og si at den ikke skal kjøre testene: den sendes tilbake når den prøver å avslutte.
 
 Policyer, ukjente resultater og begrensninger er beskrevet i kom i gang-veiledningen: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core er i pre-alpha. Denne siden er maskinoversatt; den engelske README-filen gjelder.
+> V6 Core er i alpha. Denne siden er maskinoversatt; den engelske README-filen gjelder.

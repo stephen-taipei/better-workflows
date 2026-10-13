@@ -20,7 +20,7 @@
     "themeToggle": "Canvia el tema de color",
     "homeLabel": "Inici de Better Workflows",
     "tagline": "El teu agent de programació acaba amb evidència actual i no repeteix mai un efecte secundari que ja ha tingut èxit al mateix commit.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Instal·la",
     "overview": "Visió general",
     "hosts": "Hosts",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org redirigeix aquí)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Evidència al dia.",
     "h1Signal": "Si no se sap, s'atura.",
     "lead": "Un plugin per a Claude Code que impedeix que un agent d'IA doni la feina per acabada amb un test en verd ja obsolet, i que repeteixi o acumuli efectes secundaris dels quals no ha vist mai el resultat. El que pot fer ho decideix un fitxer de policy que escrius tu, mai el prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Instal·la per a Claude Code",
     "ctaDemo": "Mira com s'atura",
     "specTitle": "Core",
-    "status": "Pre-alpha. En ús propi en dos repositoris del mantenidor des d'octubre de 2026.",
+    "status": "Alpha. En ús propi en dos repositoris del mantenidor des d'octubre de 2026.",
     "host": "Claude Code (plugin de hooks)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Una policy no vàlida denega tots els efectes secundaris en lloc de recórrer a valors per defecte.",
       "Un permís caducat torna a ask. Només una persona el pot allargar, editant la policy.",
       "Les ordres que Core no pot llegir, com ara <code>eval</code> o <code>sh -c</code>, es tracten com a opaques i se'n pregunta.",
-      "El registre només admet afegir entrades i està encadenat per hash; <code>bw verify</code> detecta entrades editades o eliminades i una última línia escrita a mitges, però no entrades senceres retallades del final."
+      "El registre només admet afegir entrades i està encadenat per hash; <code>bw verify</code> detecta entrades editades, eliminades o retallades del final, però no un registre reescrit juntament amb el seu fitxer head."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Cal Node.js 22.14 o posterior, Git i Claude Code amb suport de plugins.",
     "steps": [
       [
-        "Clona Core",
-        "Un cop per màquina. Si has fet servir V5 aquí, primer mou <code>~/.better-workflows</code> a <code>~/.better-workflows-V5</code> i fes que <code>SBW_STATE_ROOT</code> hi apunti."
+        "Instal·la la CLI",
+        "Un cop per màquina, des d'npm. Et dona l'ordre <code>bw</code>."
       ],
       [
         "Afegeix el plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "En curs",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Hooks de Claude Code, scope de l'evidència, ús propi en dos repositoris."
+        "Actual",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Hooks de Claude Code, scope de l'evidència i el registre. Continua l'ús propi en dos repositoris."
       ],
       [
         "NEXT",
         "warn",
         "Després de l'ús propi",
-        "V6 Core alpha",
-        "primera release etiquetada",
-        "Es publicarà quan el període d'ús propi mostri deteccions reals i pocs bloquejos falsos. Després arribaran més hosts com a petits adaptadors."
+        "V6 Core beta",
+        "format de policy congelat",
+        "Quan el període d'ús propi mostri deteccions reals i pocs bloquejos falsos. Després arribaran més hosts com a petits adaptadors."
       ]
     ],
     "statementTitle": "declaració",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core ja es pot fer servir avui i funciona en els repositoris del mateix mantenidor. El format de la policy encara pot canviar abans de l'alpha.",
+      "Core ja es pot fer servir avui i funciona en els repositoris del mateix mantenidor. El format de la policy encara pot canviar abans de la beta.",
       "Tot és gratuït i de codi obert. No hi ha cap nivell de pagament, compte ni telemetria."
     ],
     "licTitle": "llicències",
@@ -500,7 +500,7 @@
       ],
       [
         "I Codex, Gemini CLI o Qwen Code?",
-        "Feien servir V5, que està congelat. Core és independent del host, i hi ha adaptadors per a ells previstos després de l'alpha."
+        "Feien servir V5, que està congelat. Core és independent del host, i hi ha adaptadors per a ells previstos després de la beta."
       ]
     ]
   },

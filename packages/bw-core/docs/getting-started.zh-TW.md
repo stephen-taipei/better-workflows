@@ -4,29 +4,22 @@
 
 Better Workflows Core 讓 Claude Code 的 agent 不能拿「已經對不上目前檔案」的測試結果宣稱完成，也不能在外部動作結果沒有回來時重複執行或繼續疊加副作用。本文帶你從一個乾淨的 repository 走到第一次攔截，只需要幾分鐘。
 
-狀態：pre-alpha。alpha 發佈前，Core 從 Git checkout 安裝。
+狀態：alpha（`6.0.0-alpha.1`）。beta 之前 policy 格式仍可能調整。
 
 ## 需求
 
-- Node.js 22.14 以上
+- Node.js 22.14 以上，含 npm
 - Git
 - 支援 plugin 的 Claude Code（`claude plugin --help` 可以執行）
 
 ## 1. 不需要 Claude 先看效果（幾秒鐘）
 
-如果這台機器跑過 V5，`~/.better-workflows` 裡是 V5 的狀態，clone 會失敗。先把 V5 移開，並告訴 V5 新位置，V5 才不會寫進 Core 的 clone：
-
 ```bash
-mv ~/.better-workflows ~/.better-workflows-V5
-echo 'export SBW_STATE_ROOT="$HOME/.better-workflows-V5"' >> ~/.zshrc   # 或 ~/.bashrc
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
-```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
-```
-
-demo 會建立一個用完即丟的 repository，送出與 Claude Code 完全相同的 hook 事件，依序呈現：
+第一行會安裝 `bw` 指令。demo 會建立一個用完即丟的 repository，送出與 Claude Code 完全相同的 hook 事件，依序呈現：
 
 1. 測試通過後又改了檔案：不能完成，因為通過的那次是在舊檔案上跑的。
 2. 在新檔案上測試失敗：仍然不能完成。在最終檔案上通過：放行。
@@ -40,14 +33,14 @@ demo 會建立一個用完即丟的 repository，送出與 Claude Code 完全相
 每台機器做一次：
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 ```
 
 接著在每個要保護的 repository 裡：
 
 ```bash
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 `--scope local` 只在這個 repository 啟用 plugin，設定寫在 Git 不追蹤的 `.claude/settings.local.json`。`bw init` 會寫出 `.better-workflows/policy.json`。請把 policy 檔 commit 進去：agent 的權限只來自這個檔案，而且 agent 不能修改它。
@@ -59,10 +52,8 @@ node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
 隨時可以查看狀態：
 
 ```bash
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs status
+bw status
 ```
-
-小技巧：`alias bw="node ~/.better-workflows/packages/bw-core/bin/bw.mjs"`。
 
 ## 4. 告訴它你的檢查與副作用
 
@@ -124,6 +115,31 @@ bw reconcile act_… --outcome success --note "已檢查部署紀錄"
 ```
 
 agent 不能執行 `bw reconcile <id>` 或 `bw init`，也不能修改 `.better-workflows/` 或 `.git/`。
+
+## 更新
+
+plugin 與 `bw` 指令來自同一個套件，請一起更新：
+
+```bash
+claude plugin marketplace update better-workflows
+claude plugin update better-workflows-core@better-workflows --scope local   # 每個 repository 各做一次
+npm install -g @better-workflows/core@alpha
+```
+
+## 從 checkout 安裝
+
+想跑尚未發佈的改動時，用 clone 取代 marketplace 與 npm。如果這台機器跑過 V5，`~/.better-workflows` 裡是 V5 的狀態，先把它移開，並告訴 V5 新位置：
+
+```bash
+mv ~/.better-workflows ~/.better-workflows-V5
+echo 'export SBW_STATE_ROOT="$HOME/.better-workflows-V5"' >> ~/.zshrc   # 或 ~/.bashrc
+```
+
+```bash
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+claude plugin marketplace add ~/.better-workflows/packages/bw-core
+alias bw="node ~/.better-workflows/packages/bw-core/bin/bw.mjs"
+```
 
 ## 關閉
 

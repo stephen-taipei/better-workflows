@@ -20,7 +20,7 @@
     "themeToggle": "Renk temasını değiştir",
     "homeLabel": "Better Workflows ana sayfa",
     "tagline": "Kodlama ajanınız işi güncel kanıtla bitirir ve aynı commit'te zaten başarılı olmuş bir yan etkiyi asla tekrarlamaz.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Kur",
     "overview": "Genel bakış",
     "hosts": "Host'lar",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org buraya yönlendirir)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Kanıt taze olmalı.",
     "h1Signal": "Bilinmiyorsa dur.",
     "lead": "Bir yapay zekâ ajanının eskimiş bir yeşil testle işi bitirmesini ve sonucunu hiç görmediği yan etkileri tekrarlamasını ya da üst üste yığmasını engelleyen bir Claude Code eklentisi. Neler yapabileceği prompt'tan değil, sizin yazdığınız bir policy dosyasından gelir.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Claude Code için kur",
     "ctaDemo": "Durdurduğunu görün",
     "specTitle": "Core",
-    "status": "Pre-alpha. Ekim 2026'dan beri bakımcının iki deposunda kendi kullanımında.",
+    "status": "Alpha. Ekim 2026'dan beri bakımcının iki deposunda kendi kullanımında.",
     "host": "Claude Code (hooks eklentisi)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Geçersiz bir policy, varsayılanlara dönmek yerine tüm yan etkileri reddeder.",
       "Süresi dolan bir izin ask'e geri döner. Onu yalnızca bir insan, policy'yi düzenleyerek uzatabilir.",
       "Core'un okuyamadığı <code>eval</code> ya da <code>sh -c</code> gibi komutlar opak kabul edilir ve sorulur.",
-      "Defter yalnızca ekleme yapılabilen, hash zinciriyle bağlı bir kayıttır; <code>bw verify</code> düzenlenmiş ya da silinmiş girdileri ve yarım yazılmış son satırı tespit eder, ancak sondan bütünüyle kesilmiş girdileri tespit etmez."
+      "Defter yalnızca ekleme yapılabilen, hash zinciriyle bağlı bir kayıttır; <code>bw verify</code> düzenlenmiş, silinmiş ya da sondan kesilmiş girdileri tespit eder, ancak head dosyasıyla birlikte yeniden yazılmış bir defteri tespit etmez."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Node.js 22.14 veya üstü, Git ve eklenti destekli Claude Code gerekir.",
     "steps": [
       [
-        "Core'u klonlayın",
-        "Makine başına bir kez. Burada daha önce V5 çalıştırdıysanız, önce <code>~/.better-workflows</code> dizinini <code>~/.better-workflows-V5</code> olarak taşıyın ve <code>SBW_STATE_ROOT</code> değişkenini oraya yönlendirin."
+        "CLI'ı yükleyin",
+        "Makine başına bir kez, npm üzerinden. Size <code>bw</code> komutunu verir."
       ],
       [
         "Eklentiyi ekleyin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "Sürüyor",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Claude Code hook'ları, kanıt scope'u, iki depoda kendi kullanım."
+        "Güncel",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Claude Code hook'ları, kanıt scope'u ve defter. İki depoda kendi kullanım sürüyor."
       ],
       [
         "NEXT",
         "warn",
         "Kendi kullanımdan sonra",
-        "V6 Core alpha",
-        "ilk etiketli sürüm",
-        "Kendi kullanım dönemi gerçek yakalamalar ve az sayıda yanlış engelleme gösterdiğinde yayımlanır. Diğer host'lar küçük adaptörler olarak ardından gelir."
+        "V6 Core beta",
+        "policy biçimi donmuş",
+        "Kendi kullanım gerçek yakalamalar ve az sayıda yanlış engelleme gösterdiğinde. Diğer host'lar küçük adaptörler olarak ardından gelir."
       ]
     ],
     "statementTitle": "açıklama",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core bugün kullanılabilir ve bakımcının kendi depolarında çalışıyor. Policy biçimi alpha'dan önce hâlâ değişebilir.",
+      "Core bugün kullanılabilir ve bakımcının kendi depolarında çalışıyor. Policy biçimi beta'dan önce hâlâ değişebilir.",
       "Buradaki her şey ücretsiz ve açık kaynaktır. Ücretli plan, hesap ya da telemetri yoktur."
     ],
     "licTitle": "lisanslama",
@@ -500,7 +500,7 @@
       ],
       [
         "Codex, Gemini CLI ya da Qwen Code ne olacak?",
-        "Bunlar dondurulmuş olan V5'i çalıştırıyordu. Core host'tan bağımsızdır ve onlar için adaptörler alpha'dan sonra planlanmaktadır."
+        "Bunlar dondurulmuş olan V5'i çalıştırıyordu. Core host'tan bağımsızdır ve onlar için adaptörler beta'dan sonra planlanmaktadır."
       ]
     ]
   },

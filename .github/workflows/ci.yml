@@ -41,9 +41,18 @@ jobs:
         run: node docs/locales/build.mjs --check
       - name: Check the website builds in every locale with no broken links
         run: node website/build.mjs --check
-      - name: Validate the Claude Code plugin manifest
+      - name: Validate the Claude Code plugin manifests and versions
         shell: bash
-        run: node -e "for (const f of ['.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', 'hooks/hooks.json']) JSON.parse(require('fs').readFileSync('packages/bw-core/' + f, 'utf8'))"
+        run: |
+          node -e "
+          const read = (f) => JSON.parse(require('fs').readFileSync(f, 'utf8'));
+          const core = 'packages/bw-core/';
+          read(core + '.claude-plugin/marketplace.json');
+          read(core + 'hooks/hooks.json');
+          const { version } = read(core + 'package.json');
+          if (read(core + '.claude-plugin/plugin.json').version !== version) throw new Error('package.json and plugin.json versions differ');
+          if (read('.claude-plugin/marketplace.json').plugins[0].source !== './packages/bw-core') throw new Error('the root marketplace must point at packages/bw-core');
+          "
   test:
     name: test
     needs: [core]

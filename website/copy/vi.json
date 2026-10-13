@@ -20,7 +20,7 @@
     "themeToggle": "Đổi giao diện màu",
     "homeLabel": "Trang chủ Better Workflows",
     "tagline": "Agent lập trình của bạn chỉ kết thúc dựa trên bằng chứng hiện tại, và không bao giờ lặp lại một tác động phụ đã thành công ở cùng một commit.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Cài đặt",
     "overview": "Tổng quan",
     "hosts": "Host",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org chuyển hướng về đây)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Chứng cứ phải mới.",
     "h1Signal": "Chưa rõ thì dừng.",
     "lead": "Một plugin cho Claude Code giúp AI agent không kết thúc dựa trên một kết quả test xanh đã cũ, và không lặp lại hay chồng thêm các tác động phụ mà nó chưa từng thấy kết quả. Những gì nó được phép làm đến từ tệp policy do bạn viết, không bao giờ từ prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Cài cho Claude Code",
     "ctaDemo": "Xem nó chặn",
     "specTitle": "Core",
-    "status": "Pre-alpha. Người bảo trì tự dùng trên hai repository của mình từ tháng 10 năm 2026.",
+    "status": "Alpha. Người bảo trì tự dùng trên hai repository của mình từ tháng 10 năm 2026.",
     "host": "Claude Code (hooks plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Một policy không hợp lệ sẽ từ chối mọi tác động phụ thay vì quay về mặc định.",
       "Một quyền đã hết hạn sẽ quay về ask. Chỉ một người mới gia hạn được, bằng cách sửa policy.",
       "Các lệnh Core không đọc được, như <code>eval</code> hay <code>sh -c</code>, được coi là không minh bạch và sẽ được hỏi.",
-      "Sổ cái chỉ ghi thêm và được nối chuỗi bằng hash; <code>bw verify</code> phát hiện các mục bị sửa hoặc bị xóa và một dòng cuối ghi dở, nhưng không phát hiện các mục bị cắt nguyên vẹn khỏi phần cuối."
+      "Sổ cái chỉ ghi thêm và được nối chuỗi bằng hash; <code>bw verify</code> phát hiện các mục bị sửa, bị xóa hoặc bị cắt khỏi phần cuối, nhưng không phát hiện khi sổ cái bị viết lại cùng với tệp head của nó."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Cần Node.js 22.14 trở lên, Git, và Claude Code có hỗ trợ plugin.",
     "steps": [
       [
-        "Clone Core",
-        "Một lần cho mỗi máy. Nếu từng chạy V5 trên máy này, trước hết hãy chuyển <code>~/.better-workflows</code> thành <code>~/.better-workflows-V5</code> và trỏ <code>SBW_STATE_ROOT</code> tới đó."
+        "Cài đặt CLI",
+        "Một lần cho mỗi máy, từ npm. Bạn sẽ có lệnh <code>bw</code>."
       ],
       [
         "Thêm plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "Đang làm",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Hook của Claude Code, scope bằng chứng, tự dùng trên hai repository."
+        "Hiện tại",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Hook của Claude Code, scope bằng chứng và sổ cái. Tiếp tục tự dùng trên hai repository."
       ],
       [
         "NEXT",
         "warn",
         "Sau giai đoạn tự dùng",
-        "V6 Core alpha",
-        "bản phát hành có tag đầu tiên",
-        "Phát hành khi giai đoạn tự dùng cho thấy chặn được lỗi thật và ít chặn nhầm. Thêm host sẽ theo sau dưới dạng adapter nhỏ."
+        "V6 Core beta",
+        "đóng băng định dạng policy",
+        "Khi giai đoạn tự dùng cho thấy chặn được lỗi thật và ít chặn nhầm. Thêm host sẽ theo sau dưới dạng adapter nhỏ."
       ]
     ],
     "statementTitle": "tuyên bố",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core dùng được ngay hôm nay và đang chạy trên chính các repository của người bảo trì. Định dạng policy vẫn có thể thay đổi trước alpha.",
+      "Core dùng được ngay hôm nay và đang chạy trên chính các repository của người bảo trì. Định dạng policy vẫn có thể thay đổi trước beta.",
       "Mọi thứ ở đây đều miễn phí và mã nguồn mở. Không có gói trả phí, tài khoản hay telemetry."
     ],
     "licTitle": "giấy phép",
@@ -500,7 +500,7 @@
       ],
       [
         "Còn Codex, Gemini CLI hay Qwen Code thì sao?",
-        "Chúng đã chạy V5, vốn đã đóng băng. Core không phụ thuộc host, và adapter cho chúng được dự kiến sau alpha."
+        "Chúng đã chạy V5, vốn đã đóng băng. Core không phụ thuộc host, và adapter cho chúng được dự kiến sau beta."
       ]
     ]
   },

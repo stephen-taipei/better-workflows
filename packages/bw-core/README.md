@@ -4,7 +4,7 @@
 
 Stops an AI coding agent from claiming "done" on stale evidence, from repeating or stacking side effects whose result is unknown, and from taking permissions out of prompt text.
 
-Status: pre-alpha, part of the [V6 roadmap](../../ROADMAP.md). Claude Code is the first host, through the hooks plugin in this package. Start with [Getting started](docs/getting-started.md), or run the [stale-green demo](examples/stale-green/demo.mjs) (`node examples/stale-green/demo.mjs`, about 2 seconds, no Claude needed).
+Status: alpha (`6.0.0-alpha.1`), part of the [V6 roadmap](../../ROADMAP.md). Claude Code is the first host, through the hooks plugin in this package. Start with [Getting started](docs/getting-started.md), or run the [stale-green demo](examples/stale-green/demo.mjs) (`node examples/stale-green/demo.mjs`, about 2 seconds, no Claude needed).
 
 ## What it checks
 
@@ -15,7 +15,7 @@ Status: pre-alpha, part of the [V6 roadmap](../../ROADMAP.md). Claude Code is th
 | Action gate | Pushes, PR merges and creates, releases, package publishes, `gh api` writes, HTTP writes and any custom kinds are side effects. Each needs `allow` from the policy file; the default is `ask`. Commands whose effects cannot be read (command substitution, `eval`, `sh -c`) are treated as `opaque`, default `ask`. |
 | At most once | The same side effect at the same commit is refused after it has succeeded. |
 | Reconciliation | Only exit code 0 is a known result. Anything else leaves the action `unknown`, and every further side effect is refused until `bw reconcile` settles it with a read-only check against the provider (`git ls-remote`, `gh pr view`, `gh release view`, `npm view`), or a person settles it with a note. |
-| Ledger | Every record goes to an append-only, hash-chained ledger in `.git/better-workflows/`. `bw verify` detects edited or removed entries and a half-written last line; it cannot tell that whole entries were cut from the end. |
+| Ledger | Every record goes to an append-only, hash-chained ledger in `.git/better-workflows/`. `bw verify` detects edited, removed or cut-off entries and a half-written last line. It keeps the last entry's seq and hash in `ledger.head`; rewriting both files together still goes unseen. |
 
 ## Commands
 
@@ -31,12 +31,13 @@ bw status | bw verify | bw log
 
 ## Claude Code
 
-Until the alpha release, install it from a checkout (details in [Getting started](docs/getting-started.md)):
+Install it from this repository's marketplace and npm (details in [Getting started](docs/getting-started.md)):
 
 ```bash
-claude plugin marketplace add path/to/better-workflows/packages/bw-core
+npm install -g @better-workflows/core@alpha                      # the bw command
+claude plugin marketplace add stephen-taipei/better-workflows     # once per machine
 claude plugin install better-workflows-core@better-workflows --scope local
-node path/to/better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 | Hook | What it does |

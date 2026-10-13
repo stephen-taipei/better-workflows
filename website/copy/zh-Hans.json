@@ -20,7 +20,7 @@
     "themeToggle": "切换颜色主题",
     "homeLabel": "Better Workflows 首页",
     "tagline": "编程 agent 以当前的文件为准才算完成，同一个 commit 上已经成功的副作用绝不重复执行。",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "安装",
     "overview": "概览",
     "hosts": "支持范围",
@@ -39,7 +39,7 @@
     "alias": "（betterworkflows.org 会重定向到这里）"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "证据要新，才算完成。",
     "h1Signal": "结果不明，就先停下。",
     "lead": "一个 Claude Code 插件：不让 AI agent 拿过期的绿灯收工，也不让它重复或叠加从未看到结果的副作用。它能做什么，由你写的 policy 文件决定，绝不由 prompt 决定。",
@@ -53,7 +53,7 @@
     "ctaInstall": "安装到 Claude Code",
     "ctaDemo": "看它如何拦下",
     "specTitle": "Core",
-    "status": "Pre-alpha。自 2026 年 10 月起在维护者的两个仓库上自用。",
+    "status": "Alpha。自 2026 年 10 月起在维护者的两个仓库上自用。",
     "host": "Claude Code（hooks 插件）",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "policy 无效时，拒绝所有副作用，而不是回退到默认值。",
       "权限过期后回退为 ask。只有人能通过修改 policy 来延长。",
       "Core 读不懂的命令（例如 <code>eval</code>、<code>sh -c</code>）一律视为 opaque，交由你决定。",
-      "账本只能追加、以哈希链接；<code>bw verify</code> 能检测被修改或删除的条目以及写了一半的最后一行，但检测不到从末尾整条截掉的条目。"
+      "账本只能追加、以哈希链接；<code>bw verify</code> 能检测被修改、删除或从末尾截掉的条目，但账本与 head 文件被一起改写时检测不到。"
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "需要 Node.js 22.14 或更高版本、Git，以及支持插件的 Claude Code。",
     "steps": [
       [
-        "Clone Core",
-        "每台机器一次。如果这台机器运行过 V5，先把 <code>~/.better-workflows</code> 重命名为 <code>~/.better-workflows-V5</code>，并让 <code>SBW_STATE_ROOT</code> 指向它。"
+        "安装 CLI",
+        "每台机器一次，从 npm 安装，获得 <code>bw</code> 命令。"
       ],
       [
         "添加插件",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "进行中",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Claude Code hooks、证据 scope，在两个仓库上自用。"
+        "当前版本",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Claude Code hooks、证据 scope 与账本。继续在两个仓库上自用。"
       ],
       [
         "NEXT",
         "warn",
         "自用期之后",
-        "V6 Core alpha",
-        "第一个打 tag 的版本",
-        "等自用期证明确实能拦下问题、且误拦很少，才会发布。之后以小型适配器支持更多 host。"
+        "V6 Core beta",
+        "冻结 policy 格式",
+        "等自用期证明确实能拦下问题、且误拦很少时。再以小型适配器支持更多 host。"
       ]
     ],
     "statementTitle": "声明",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core 现在就能用，并运行在维护者自己的仓库上。alpha 之前 policy 格式仍可能变化。",
+      "Core 现在就能用，并运行在维护者自己的仓库上。beta 之前 policy 格式仍可能变化。",
       "这里的一切都免费、开源。没有付费版、账号或遥测。"
     ],
     "licTitle": "许可证",
@@ -500,7 +500,7 @@
       ],
       [
         "Codex、Gemini CLI 或 Qwen Code 呢？",
-        "它们运行的是已冻结的 V5。Core 与 host 无关，alpha 之后计划为它们开发适配器。"
+        "它们运行的是已冻结的 V5。Core 与 host 无关，beta 之后计划为它们开发适配器。"
       ]
     ]
   },

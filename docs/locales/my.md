@@ -25,20 +25,20 @@ agent ကို လက်ရှိ ဖိုင်များ၏ အခြေ�
 Claude မလိုဘဲ ဖြစ်ရပ်နှစ်ခုလုံး စက္ကန့်အနည်းငယ်အတွင်း လည်ပတ်သည်ကို ကြည့်ပါ:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Claude Code အတွက် ထည့်သွင်းခြင်း
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 ထို့နောက် Claude Code ကို ပြောင်းလဲမှုတစ်ခု တောင်းဆိုပြီး test မ run ရန် ပြောပါ။ အလုပ်ပြီးအောင် လုပ်ရန် ကြိုးစားသောအခါ ပြန်ပို့ခံရမည်။
 
 policy များ၊ မသိရသေးသော ရလဒ်များနှင့် ကန့်သတ်ချက်များကို စတင်အသုံးပြုခြင်း လမ်းညွှန်တွင် ဖော်ပြထားသည်: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core သည် pre-alpha အဆင့်တွင် ရှိသည်။ ဤစာမျက်နှာကို စက်ဖြင့် ဘာသာပြန်ထားသည်။ အင်္ဂလိပ် README ကို အတည်ဖြစ်သည်ဟု ယူပါ။
+> V6 Core သည် alpha အဆင့်တွင် ရှိသည်။ ဤစာမျက်နှာကို စက်ဖြင့် ဘာသာပြန်ထားသည်။ အင်္ဂလိပ် README ကို အတည်ဖြစ်သည်ဟု ယူပါ။

@@ -20,7 +20,7 @@
     "themeToggle": "Przełącz motyw kolorów",
     "homeLabel": "Strona główna Better Workflows",
     "tagline": "Twój agent AI do programowania kończy pracę na aktualnych dowodach i nigdy nie powtarza skutku ubocznego, który już się powiódł na tym samym commicie.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Instalacja",
     "overview": "Przegląd",
     "hosts": "Hosty",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org przekierowuje tutaj)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Dowód musi być świeży.",
     "h1Signal": "Nieznane znaczy stop.",
     "lead": "Plugin do Claude Code, który nie pozwala agentowi AI zakończyć pracy na nieaktualnym zielonym teście ani powtarzać czy nawarstwiać skutków ubocznych, których wyniku nigdy nie zobaczył. To, co może zrobić, wynika z pliku policy, który piszesz Ty, nigdy z promptu.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Zainstaluj w Claude Code",
     "ctaDemo": "Zobacz, jak zatrzymuje",
     "specTitle": "Core",
-    "status": "Pre-alpha. Od października 2026 używany przez opiekuna projektu w dwóch jego repozytoriach.",
+    "status": "Alpha. Od października 2026 używany przez opiekuna projektu w dwóch jego repozytoriach.",
     "host": "Claude Code (plugin z hookami)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Nieprawidłowa policy odmawia każdego skutku ubocznego zamiast wracać do ustawień domyślnych.",
       "Wygasłe uprawnienie wraca do ask. Przedłużyć je może tylko człowiek, edytując policy.",
       "Polecenia, których Core nie potrafi odczytać, np. <code>eval</code> lub <code>sh -c</code>, są traktowane jako nieprzejrzyste i wymagają pytania.",
-      "Rejestr jest append-only i łańcuchowany hashami; <code>bw verify</code> wykrywa zmienione lub usunięte wpisy i do połowy zapisaną ostatnią linię, ale nie całe wpisy odcięte od końca."
+      "Rejestr jest append-only i łańcuchowany hashami; <code>bw verify</code> wykrywa wpisy zmienione, usunięte lub odcięte od końca, ale nie rejestr przepisany razem z jego plikiem head."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Wymaga Node.js 22.14 lub nowszego, Git oraz Claude Code z obsługą pluginów.",
     "steps": [
       [
-        "Sklonuj Core",
-        "Raz na maszynę. Jeśli używałeś tu V5, najpierw przenieś <code>~/.better-workflows</code> do <code>~/.better-workflows-V5</code> i wskaż ten katalog w <code>SBW_STATE_ROOT</code>."
+        "Zainstaluj CLI",
+        "Raz na maszynę, z npm. Daje ci polecenie <code>bw</code>."
       ],
       [
         "Dodaj plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "W toku",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Hooki Claude Code, scope dowodów, używanie na dwóch własnych repozytoriach."
+        "Aktualna",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Hooki Claude Code, scope dowodów i rejestr. Używanie na dwóch własnych repozytoriach trwa dalej."
       ],
       [
         "NEXT",
         "warn",
         "Po okresie własnego użycia",
-        "V6 Core alpha",
-        "pierwszy otagowany release",
-        "Opublikowany, gdy okres własnego użycia pokaże realne wyłapane błędy i niewiele fałszywych blokad. Kolejne hosty dojdą jako małe adaptery."
+        "V6 Core beta",
+        "format policy zamrożony",
+        "Gdy własne użycie pokaże realne wyłapane błędy i niewiele fałszywych blokad. Kolejne hosty dojdą jako małe adaptery."
       ]
     ],
     "statementTitle": "oświadczenie",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core można używać już dziś; działa w repozytoriach opiekuna projektu. Format policy może się jeszcze zmienić przed alphą.",
+      "Core można używać już dziś; działa w repozytoriach opiekuna projektu. Format policy może się jeszcze zmienić przed betą.",
       "Wszystko tutaj jest darmowe i open source. Nie ma płatnego planu, konta ani telemetrii."
     ],
     "licTitle": "licencje",
@@ -500,7 +500,7 @@
       ],
       [
         "A co z Codex, Gemini CLI lub Qwen Code?",
-        "Obsługiwały V5, które jest zamrożone. Core jest niezależny od hosta, a adaptery dla nich są planowane po alphie."
+        "Obsługiwały V5, które jest zamrożone. Core jest niezależny od hosta, a adaptery dla nich są planowane po becie."
       ]
     ]
   },

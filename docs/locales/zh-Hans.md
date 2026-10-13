@@ -25,20 +25,20 @@ agent 必须以文件当前的内容为准，以 provider 实际做了什么为�
 不需要 Claude，几秒就能看到两个场景实际运行一次：
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## 安装到 Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 然后请 Claude Code 改点东西，并让它不要运行测试：它想收工时会被退回。
 
 policy、结果未知的操作与限制，请看快速入门： [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core 目前是 pre-alpha。本页为机器翻译，以英文 README 为准。
+> V6 Core 目前是 alpha。本页为机器翻译，以英文 README 为准。

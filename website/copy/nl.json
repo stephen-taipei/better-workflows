@@ -20,7 +20,7 @@
     "themeToggle": "Kleurthema wisselen",
     "homeLabel": "Better Workflows startpagina",
     "tagline": "Je codeeragent rondt af op actueel bewijs en herhaalt nooit een neveneffect dat op dezelfde commit al is gelukt.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Installeren",
     "overview": "Overzicht",
     "hosts": "Hosts",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org verwijst hierheen)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Bewijs moet vers zijn.",
     "h1Signal": "Onbekend? Stop.",
     "lead": "Een Claude Code-plugin die voorkomt dat een AI-agent afrondt op een verouderde groene test, en dat hij neveneffecten herhaalt of stapelt waarvan hij het resultaat nooit heeft gezien. Wat hij mag, komt uit een policy-bestand dat jij schrijft, nooit uit de prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Installeren voor Claude Code",
     "ctaDemo": "Zie het stoppen",
     "specTitle": "Core",
-    "status": "Pre-alpha. Sinds oktober 2026 in eigen gebruik op twee repositories van de maintainer.",
+    "status": "Alpha. Sinds oktober 2026 in eigen gebruik op twee repositories van de maintainer.",
     "host": "Claude Code (hooks-plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Een ongeldige policy weigert elk neveneffect in plaats van terug te vallen op standaardwaarden.",
       "Een verlopen recht valt terug op ask. Alleen een mens verlengt het, door de policy te bewerken.",
       "Commando's die Core niet kan lezen, zoals <code>eval</code> of <code>sh -c</code>, worden als ondoorzichtig behandeld en er wordt om bevestiging gevraagd.",
-      "Het logboek is append-only en met hashes geketend; <code>bw verify</code> detecteert bewerkte of verwijderde items en een half geschreven laatste regel, maar niet hele items die van het einde zijn afgeknipt."
+      "Het logboek is append-only en met hashes geketend; <code>bw verify</code> detecteert bewerkte, verwijderde of van het einde afgeknipte items, maar niet een logboek dat samen met zijn head-bestand is herschreven."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Vereist Node.js 22.14 of nieuwer, Git, en Claude Code met pluginondersteuning.",
     "steps": [
       [
-        "Clone Core",
-        "Eén keer per machine. Als je hier V5 gebruikte, verplaats dan eerst <code>~/.better-workflows</code> naar <code>~/.better-workflows-V5</code> en laat <code>SBW_STATE_ROOT</code> daarnaar wijzen."
+        "Installeer de CLI",
+        "Eén keer per machine, via npm. Daarmee krijg je het commando <code>bw</code>."
       ],
       [
         "Voeg de plugin toe",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "Bezig",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Claude Code-hooks, bewijs-scope, eigen gebruik op twee repositories."
+        "Huidig",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Claude Code-hooks, bewijs-scope, logboek. Eigen gebruik op twee repositories gaat door."
       ],
       [
         "NEXT",
         "warn",
         "Na eigen gebruik",
-        "V6 Core alpha",
-        "eerste getagde release",
-        "Gepubliceerd zodra de periode van eigen gebruik echte vangsten en weinig onterechte blokkades laat zien. Meer hosts volgen als kleine adapters."
+        "V6 Core beta",
+        "policy-formaat bevroren",
+        "Zodra eigen gebruik echte vangsten en weinig onterechte blokkades laat zien. Meer hosts volgen als kleine adapters."
       ]
     ],
     "statementTitle": "verklaring",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core is vandaag bruikbaar en draait op de eigen repositories van de maintainer. Het policy-formaat kan vóór alpha nog veranderen.",
+      "Core is vandaag bruikbaar en draait op de eigen repositories van de maintainer. Het policy-formaat kan vóór beta nog veranderen.",
       "Alles hier is gratis en open source. Er is geen betaald abonnement, account of telemetrie."
     ],
     "licTitle": "licenties",
@@ -500,7 +500,7 @@
       ],
       [
         "En Codex, Gemini CLI of Qwen Code?",
-        "Die draaiden V5, dat bevroren is. Core is host-neutraal, en adapters voor hen staan gepland na de alpha."
+        "Die draaiden V5, dat bevroren is. Core is host-neutraal, en adapters voor hen staan gepland na de beta."
       ]
     ]
   },

@@ -20,7 +20,7 @@
     "themeToggle": "Ganti tema warna",
     "homeLabel": "Beranda Better Workflows",
     "tagline": "Agen pemrograman Anda selesai berdasarkan bukti terkini, dan tidak pernah mengulang efek samping yang sudah berhasil pada commit yang sama.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Pasang",
     "overview": "Ikhtisar",
     "hosts": "Host",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org dialihkan ke sini)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Bukti harus segar.",
     "h1Signal": "Tak pasti? Berhenti.",
     "lead": "Plugin Claude Code yang mencegah agen AI menyelesaikan pekerjaan berdasarkan tes hijau yang sudah usang, serta mengulang atau menumpuk efek samping yang hasilnya belum pernah ia lihat. Apa yang boleh ia lakukan ditentukan oleh berkas policy yang Anda tulis, tidak pernah oleh prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Pasang untuk Claude Code",
     "ctaDemo": "Lihat saat agen dihentikan",
     "specTitle": "Core",
-    "status": "Pre-alpha. Dipakai sendiri oleh maintainer di dua repositorinya sejak Oktober 2026.",
+    "status": "Alpha. Dipakai sendiri oleh maintainer di dua repositorinya sejak Oktober 2026.",
     "host": "Claude Code (plugin hooks)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Policy yang tidak valid menolak setiap efek samping alih-alih kembali ke bawaan.",
       "Izin yang kedaluwarsa kembali ke ask. Hanya manusia yang bisa memperpanjangnya, dengan mengedit policy.",
       "Perintah yang tidak bisa dibaca Core, seperti <code>eval</code> atau <code>sh -c</code>, diperlakukan sebagai buram dan ditanyakan.",
-      "Buku besar bersifat append-only dan berantai hash; <code>bw verify</code> mendeteksi entri yang diedit atau dihapus dan baris terakhir yang setengah tertulis, tetapi tidak mendeteksi entri utuh yang dipotong dari bagian akhir."
+      "Buku besar bersifat append-only dan berantai hash; <code>bw verify</code> mendeteksi entri yang diedit, dihapus, atau dipotong dari bagian akhir, tetapi tidak mendeteksi buku besar yang ditulis ulang bersama file head-nya."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Membutuhkan Node.js 22.14 atau lebih baru, Git, dan Claude Code dengan dukungan plugin.",
     "steps": [
       [
-        "Clone Core",
-        "Sekali per mesin. Jika Anda pernah menjalankan V5 di sini, pindahkan dulu <code>~/.better-workflows</code> ke <code>~/.better-workflows-V5</code> dan arahkan <code>SBW_STATE_ROOT</code> ke sana."
+        "Instal CLI",
+        "Sekali per mesin, dari npm. Ini memberi Anda perintah <code>bw</code>."
       ],
       [
         "Tambahkan plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "Sedang berjalan",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Hook Claude Code, scope bukti, pemakaian sendiri di dua repositori."
+        "Saat ini",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Hook Claude Code, scope bukti, buku besar. Pemakaian sendiri di dua repositori berlanjut."
       ],
       [
         "NEXT",
         "warn",
         "Setelah pemakaian sendiri",
-        "V6 Core alpha",
-        "rilis bertag pertama",
-        "Dirilis setelah periode pemakaian sendiri menunjukkan tangkapan nyata dan sedikit blokir palsu. Host lain menyusul sebagai adapter kecil."
+        "V6 Core beta",
+        "format policy dibekukan",
+        "Setelah pemakaian sendiri menunjukkan tangkapan nyata dan sedikit blokir palsu. Host lain menyusul sebagai adapter kecil."
       ]
     ],
     "statementTitle": "pernyataan",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core sudah bisa dipakai hari ini dan berjalan di repositori milik maintainer sendiri. Format policy-nya masih bisa berubah sebelum alpha.",
+      "Core sudah bisa dipakai hari ini dan berjalan di repositori milik maintainer sendiri. Format policy-nya masih bisa berubah sebelum beta.",
       "Semua di sini gratis dan open source. Tidak ada paket berbayar, akun, maupun telemetri."
     ],
     "licTitle": "lisensi",
@@ -500,7 +500,7 @@
       ],
       [
         "Bagaimana dengan Codex, Gemini CLI, atau Qwen Code?",
-        "Mereka menjalankan V5, yang sudah dibekukan. Core netral terhadap host, dan adapter untuk mereka direncanakan setelah alpha."
+        "Mereka menjalankan V5, yang sudah dibekukan. Core netral terhadap host, dan adapter untuk mereka direncanakan setelah beta."
       ]
     ]
   },

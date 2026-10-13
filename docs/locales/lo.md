@@ -25,20 +25,20 @@ agent ຕ້ອງຍຶດຕາມໄຟລ໌ໃນສະພາບປັດ�
 ເບິ່ງທັງສອງສະຖານະການເຮັດວຽກໃນບໍ່ເທົ່າໃດວິນາທີ ໂດຍບໍ່ຕ້ອງໃຊ້ Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## ຕິດຕັ້ງສຳລັບ Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 ຈາກນັ້ນຂໍໃຫ້ Claude Code ແກ້ໄຂບາງຢ່າງ ແລະ ບອກວ່າບໍ່ຕ້ອງແລ່ນເທສ: ເມື່ອມັນພະຍາຍາມປິດວຽກ ມັນຈະຖືກສົ່ງກັບ.
 
 policy, ຜົນລັບທີ່ບໍ່ຮູ້ ແລະ ຂໍ້ຈຳກັດ ອະທິບາຍໄວ້ໃນຄູ່ມືເລີ່ມຕົ້ນ: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core ຢູ່ໃນໄລຍະ pre-alpha. ໜ້ານີ້ແປດ້ວຍເຄື່ອງ; ໃຫ້ຖື README ພາສາອັງກິດເປັນຫຼັກ.
+> V6 Core ຢູ່ໃນໄລຍະ alpha. ໜ້ານີ້ແປດ້ວຍເຄື່ອງ; ໃຫ້ຖື README ພາສາອັງກິດເປັນຫຼັກ.

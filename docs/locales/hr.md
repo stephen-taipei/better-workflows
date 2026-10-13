@@ -25,20 +25,20 @@ Agent se drži datoteka kakve su sada i onoga što je pružatelj stvarno učinio
 Pogledajte kako se oba scenarija izvode za nekoliko sekundi, bez Claudea:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Instalacija za Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 Zatim zatražite od Claude Codea promjenu i recite mu da ne pokreće testove: kad pokuša završiti, bit će vraćen.
 
 Policy, nepoznati rezultati i ograničenja opisani su u vodiču za početak: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core je u fazi pre-alpha. Ova je stranica strojno prevedena; mjerodavan je README na engleskom.
+> V6 Core je u fazi alpha. Ova je stranica strojno prevedena; mjerodavan je README na engleskom.

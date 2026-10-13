@@ -20,7 +20,7 @@
     "themeToggle": "Színtéma váltása",
     "homeLabel": "Better Workflows kezdőlap",
     "tagline": "A kódolóügynököd aktuális bizonyíték alapján fejezi be a munkát, és sosem ismétel meg olyan mellékhatást, amely ugyanazon a commiton már sikerült.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Telepítés",
     "overview": "Áttekintés",
     "hosts": "Hostok",
@@ -39,7 +39,7 @@
     "alias": "(a betterworkflows.org ide irányít át)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Csak friss bizonyíték.",
     "h1Signal": "Ismeretlen? Megállunk.",
     "lead": "Claude Code-plugin, amely megakadályozza, hogy egy AI-ügynök elavult zöld teszt alapján fejezze be a munkát, vagy megismételjen, illetve halmozzon olyan mellékhatásokat, amelyek eredményét sosem látta. Hogy mit tehet, azt az általad írt policy-fájl határozza meg, sosem a prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Telepítés Claude Code-hoz",
     "ctaDemo": "Nézd, hogyan állít meg",
     "specTitle": "Core",
-    "status": "Pre-alpha. 2026 októbere óta saját használatban a karbantartó két repositoryjában.",
+    "status": "Alpha. 2026 októbere óta saját használatban a karbantartó két repositoryjában.",
     "host": "Claude Code (hooks plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Egy érvénytelen policy minden mellékhatást elutasít, ahelyett hogy alapértelmezésekre esne vissza.",
       "Egy lejárt engedély visszaesik ask-ra. Csak ember hosszabbíthatja meg, a policy szerkesztésével.",
       "Azokat a parancsokat, amelyeket a Core nem tud értelmezni, például az <code>eval</code> vagy az <code>sh -c</code>, átláthatatlanként kezeli, és rákérdez.",
-      "A napló csak hozzáfűzhető és hash-lánccal védett; a <code>bw verify</code> észleli a módosított vagy eltávolított bejegyzéseket és a félig megírt utolsó sort, de a végéről levágott teljes bejegyzéseket nem."
+      "A napló csak hozzáfűzhető és hash-lánccal védett; a <code>bw verify</code> észleli a módosított, eltávolított vagy a végéről levágott bejegyzéseket, de azt nem, ha a naplót a head fájljával együtt írják újra."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Szükséges: Node.js 22.14 vagy újabb, Git, és pluginokat támogató Claude Code.",
     "steps": [
       [
-        "Klónozd a Core-t",
-        "Gépenként egyszer. Ha itt korábban V5-öt futtattál, előbb helyezd át a <code>~/.better-workflows</code> könyvtárat ide: <code>~/.better-workflows-V5</code>, és állítsd rá a <code>SBW_STATE_ROOT</code> változót."
+        "Telepítsd a CLI-t",
+        "Gépenként egyszer, npm-ből. Ezzel megkapod a <code>bw</code> parancsot."
       ],
       [
         "Add hozzá a plugint",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "Folyamatban",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Claude Code-hookok, bizonyíték-scope, saját használat két repositoryban."
+        "Aktuális",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Claude Code-hookok, bizonyíték-scope, napló. A saját használat két repositoryban folytatódik."
       ],
       [
         "NEXT",
         "warn",
         "A saját használat után",
-        "V6 Core alpha",
-        "első címkézett kiadás",
-        "Akkor jelenik meg, ha a saját használati időszak valódi fogásokat és kevés téves blokkolást mutat. Később további hostok jönnek kis adapterekként."
+        "V6 Core beta",
+        "policy-formátum rögzítve",
+        "Ha a saját használat valódi fogásokat és kevés téves blokkolást mutat. További hostok kis adapterekként jönnek."
       ]
     ],
     "statementTitle": "nyilatkozat",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "A Core már ma használható, és a karbantartó saját repositoryjain fut. A policy formátuma az alpha előtt még változhat.",
+      "A Core már ma használható, és a karbantartó saját repositoryjain fut. A policy formátuma a beta előtt még változhat.",
       "Itt minden ingyenes és nyílt forráskódú. Nincs fizetős csomag, fiók vagy telemetria."
     ],
     "licTitle": "licencelés",
@@ -500,7 +500,7 @@
       ],
       [
         "Mi a helyzet a Codexszel, a Gemini CLI-jal vagy a Qwen Code-dal?",
-        "Ezek a V5-öt futtatták, amely befagyott. A Core hostfüggetlen, és az alpha után adaptereket tervezünk hozzájuk."
+        "Ezek a V5-öt futtatták, amely befagyott. A Core hostfüggetlen, és a beta után adaptereket tervezünk hozzájuk."
       ]
     ]
   },

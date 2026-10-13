@@ -25,20 +25,20 @@ Agent jest rozliczany z plików w ich obecnym stanie i z tego, co dostawca fakty
 Zobacz, jak oba scenariusze działają w kilka sekund, bez Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Instalacja dla Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 Następnie poproś Claude Code o zmianę i powiedz mu, żeby nie uruchamiał testów: gdy spróbuje zakończyć, zostanie odesłany z powrotem.
 
 Policy, nieznane wyniki i ograniczenia opisuje przewodnik wprowadzający: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core jest w fazie pre-alpha. Ta strona została przetłumaczona maszynowo; wiążąca jest angielska wersja README.
+> V6 Core jest w fazie alpha. Ta strona została przetłumaczona maszynowo; wiążąca jest angielska wersja README.

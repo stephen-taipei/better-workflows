@@ -20,7 +20,7 @@
     "themeToggle": "Togol tema warna",
     "homeLabel": "Laman utama Better Workflows",
     "tagline": "Ejen pengekodan anda menamatkan kerja berdasarkan bukti terkini, dan tidak sekali-kali mengulangi kesan sampingan yang sudah berjaya pada commit yang sama.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Pasang",
     "overview": "Gambaran keseluruhan",
     "hosts": "Hos",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org diubah hala ke sini)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Bukti mesti terkini.",
     "h1Signal": "Tidak pasti? Berhenti.",
     "lead": "Plugin Claude Code yang menghalang ejen AI daripada menamatkan kerja berdasarkan ujian hijau yang sudah lapuk, dan daripada mengulang atau menindih kesan sampingan yang hasilnya tidak pernah dilihatnya. Apa yang boleh dilakukannya datang daripada fail policy yang anda tulis, tidak sekali-kali daripada prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Pasang untuk Claude Code",
     "ctaDemo": "Lihat ia berhenti",
     "specTitle": "Core",
-    "status": "Pre-alpha. Digunakan sendiri oleh penyelenggara pada dua repositorinya sejak Oktober 2026.",
+    "status": "Alpha. Digunakan sendiri oleh penyelenggara pada dua repositorinya sejak Oktober 2026.",
     "host": "Claude Code (plugin hooks)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Policy yang tidak sah menolak setiap kesan sampingan dan tidak kembali kepada nilai lalai.",
       "Kebenaran yang tamat tempoh kembali kepada ask. Hanya manusia boleh melanjutkannya, dengan menyunting policy.",
       "Arahan yang tidak dapat dibaca oleh Core, seperti <code>eval</code> atau <code>sh -c</code>, dianggap legap dan pengesahan akan diminta.",
-      "Lejar bersifat append-only dan dirantai dengan hash; <code>bw verify</code> mengesan entri yang disunting atau dibuang dan baris terakhir yang separuh ditulis, tetapi bukan entri penuh yang dipotong dari hujung."
+      "Lejar bersifat append-only dan dirantai dengan hash; <code>bw verify</code> mengesan entri yang disunting, dibuang atau dipotong dari hujung, tetapi bukan lejar yang ditulis semula bersama fail head-nya."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Memerlukan Node.js 22.14 atau lebih baharu, Git, dan Claude Code dengan sokongan plugin.",
     "steps": [
       [
-        "Klon Core",
-        "Sekali bagi setiap mesin. Jika anda pernah menjalankan V5 di sini, alihkan <code>~/.better-workflows</code> ke <code>~/.better-workflows-V5</code> dahulu dan halakan <code>SBW_STATE_ROOT</code> kepadanya."
+        "Pasang CLI",
+        "Sekali bagi setiap mesin, daripada npm. Ia memberi anda arahan <code>bw</code>."
       ],
       [
         "Tambah plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "Sedang berjalan",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Hooks Claude Code, scope bukti, penggunaan sendiri pada dua repositori."
+        "Semasa",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Hooks Claude Code, scope bukti dan lejar. Penggunaan sendiri pada dua repositori diteruskan."
       ],
       [
         "NEXT",
         "warn",
         "Selepas penggunaan sendiri",
-        "V6 Core alpha",
-        "release bertag pertama",
-        "Diterbitkan apabila tempoh penggunaan sendiri menunjukkan tangkapan sebenar dan sedikit sekatan palsu. Lebih banyak hos menyusul sebagai penyesuai kecil."
+        "V6 Core beta",
+        "format policy dibekukan",
+        "Apabila penggunaan sendiri menunjukkan tangkapan sebenar dan sedikit sekatan palsu. Lebih banyak hos menyusul sebagai penyesuai kecil."
       ]
     ],
     "statementTitle": "kenyataan",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core boleh digunakan hari ini dan berjalan pada repositori penyelenggara sendiri. Format policynya mungkin masih berubah sebelum alpha.",
+      "Core boleh digunakan hari ini dan berjalan pada repositori penyelenggara sendiri. Format policynya mungkin masih berubah sebelum beta.",
       "Semua di sini percuma dan sumber terbuka. Tiada pelan berbayar, akaun atau telemetri."
     ],
     "licTitle": "pelesenan",
@@ -500,7 +500,7 @@
       ],
       [
         "Bagaimana dengan Codex, Gemini CLI atau Qwen Code?",
-        "Ia menjalankan V5, yang dibekukan. Core neutral terhadap hos, dan penyesuai untuknya dirancang selepas alpha."
+        "Ia menjalankan V5, yang dibekukan. Core neutral terhadap hos, dan penyesuai untuknya dirancang selepas beta."
       ]
     ]
   },

@@ -20,7 +20,7 @@
     "themeToggle": "Palitan ang color theme",
     "homeLabel": "Home ng Better Workflows",
     "tagline": "Tinatapos ng iyong coding agent ang trabaho batay sa kasalukuyang ebidensya, at hindi kailanman inuulit ang side effect na nagtagumpay na sa parehong commit.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "I-install",
     "overview": "Pangkalahatang-ideya",
     "hosts": "Mga host",
@@ -39,7 +39,7 @@
     "alias": "(nire-redirect dito ang betterworkflows.org)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Sariwang patunay lang.",
     "h1Signal": "Hindi alam? Huminto.",
     "lead": "Isang Claude Code plugin na pumipigil sa AI agent na tumapos gamit ang lumang green na test, at umulit o magpatong ng mga side effect na hindi pa nito nakita ang resulta. Ang puwede nitong gawin ay galing sa policy file na ikaw ang sumulat, hindi kailanman sa prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "I-install para sa Claude Code",
     "ctaDemo": "Panoorin itong pumigil",
     "specTitle": "Core",
-    "status": "Pre-alpha. Sariling ginagamit ng maintainer sa dalawa niyang repository mula Oktubre 2026.",
+    "status": "Alpha. Sariling ginagamit ng maintainer sa dalawa niyang repository mula Oktubre 2026.",
     "host": "Claude Code (hooks plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Tinatanggihan ng invalid na policy ang lahat ng side effect sa halip na bumalik sa mga default.",
       "Bumabalik sa ask ang expired na pahintulot. Tao lang ang makakapagpahaba nito, sa pag-edit ng policy.",
       "Ang mga command na hindi mabasa ng Core, gaya ng <code>eval</code> o <code>sh -c</code>, ay itinuturing na opaque at itinatanong.",
-      "Append-only at hash-chained ang ledger; natutukoy ng <code>bw verify</code> ang mga entry na na-edit o inalis at ang kalahating-naisulat na huling linya, pero hindi ang buong mga entry na pinutol mula sa dulo."
+      "Append-only at hash-chained ang ledger; natutukoy ng <code>bw verify</code> ang mga entry na na-edit, inalis o pinutol mula sa dulo, pero hindi ang ledger na isinulat muli kasama ng head file nito."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Kailangan ng Node.js 22.14 o mas bago, Git, at Claude Code na may suporta sa plugin.",
     "steps": [
       [
-        "I-clone ang Core",
-        "Isang beses bawat machine. Kung nagpatakbo ka ng V5 dito, ilipat muna ang <code>~/.better-workflows</code> sa <code>~/.better-workflows-V5</code> at ituro doon ang <code>SBW_STATE_ROOT</code>."
+        "I-install ang CLI",
+        "Isang beses bawat machine, mula sa npm. Ibinibigay nito ang command na <code>bw</code>."
       ],
       [
         "Idagdag ang plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "Kasalukuyang ginagawa",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Mga Claude Code hook, evidence scope, sariling paggamit sa dalawang repository."
+        "Kasalukuyan",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Mga Claude Code hook, evidence scope at ang ledger. Tuloy ang sariling paggamit sa dalawang repository."
       ],
       [
         "NEXT",
         "warn",
         "Pagkatapos ng sariling paggamit",
-        "V6 Core alpha",
-        "unang naka-tag na release",
-        "Ilalabas kapag ipinakita ng panahon ng sariling paggamit ang tunay na mga nahuli at kaunting maling pagharang. Susunod ang iba pang host bilang maliliit na adapter."
+        "V6 Core beta",
+        "naka-freeze na format ng policy",
+        "Kapag ipinakita ng sariling paggamit ang tunay na mga nahuli at kaunting maling pagharang. Susunod ang iba pang host bilang maliliit na adapter."
       ]
     ],
     "statementTitle": "pahayag",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Magagamit na ang Core ngayon at tumatakbo sa sariling mga repository ng maintainer. Puwede pang magbago ang format ng policy nito bago ang alpha.",
+      "Magagamit na ang Core ngayon at tumatakbo sa sariling mga repository ng maintainer. Puwede pang magbago ang format ng policy nito bago ang beta.",
       "Libre at open source ang lahat dito. Walang bayad na tier, account o telemetry."
     ],
     "licTitle": "lisensya",
@@ -500,7 +500,7 @@
       ],
       [
         "Paano ang Codex, Gemini CLI o Qwen Code?",
-        "Pinatakbo nila ang V5, na naka-freeze na. Host-neutral ang Core, at nakaplano ang mga adapter para sa kanila pagkatapos ng alpha."
+        "Pinatakbo nila ang V5, na naka-freeze na. Host-neutral ang Core, at nakaplano ang mga adapter para sa kanila pagkatapos ng beta."
       ]
     ]
   },

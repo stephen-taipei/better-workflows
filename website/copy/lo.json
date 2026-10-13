@@ -20,7 +20,7 @@
     "themeToggle": "ສະຫຼັບ theme ສີ",
     "homeLabel": "ໜ້າຫຼັກ Better Workflows",
     "tagline": "coding agent ຂອງທ່ານປິດວຽກດ້ວຍຫຼັກຖານປັດຈຸບັນ ແລະ ບໍ່ເຄີຍເຮັດ side effect ທີ່ສຳເລັດແລ້ວໃນ commit ດຽວກັນຊ້ຳອີກ.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "ຕິດຕັ້ງ",
     "overview": "ພາບລວມ",
     "hosts": "Host",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org ສົ່ງຕໍ່ມາທີ່ນີ້)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "ຫຼັກຖານຕ້ອງໃໝ່.",
     "h1Signal": "ບໍ່ຮູ້ ຕ້ອງຢຸດ.",
     "lead": "Claude Code plugin ທີ່ກັນບໍ່ໃຫ້ AI agent ປິດວຽກດ້ວຍຜົນເທສສີຂຽວທີ່ເກົ່າແລ້ວ ແລະ ບໍ່ໃຫ້ເຮັດ side effect ຊ້ຳ ຫຼື ຊ້ອນກັນ ທີ່ມັນບໍ່ເຄີຍເຫັນຜົນລັບ. ສິ່ງທີ່ມັນເຮັດໄດ້ມາຈາກໄຟລ໌ policy ທີ່ທ່ານຂຽນ ບໍ່ເຄີຍມາຈາກ prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "ຕິດຕັ້ງສຳລັບ Claude Code",
     "ctaDemo": "ເບິ່ງມັນຢຸດ",
     "specTitle": "Core",
-    "status": "Pre-alpha. ຜູ້ດູແລໃຊ້ເອງໃນສອງ repository ຂອງຕົນ ຕັ້ງແຕ່ເດືອນຕຸລາ 2026.",
+    "status": "Alpha. ຜູ້ດູແລໃຊ້ເອງໃນສອງ repository ຂອງຕົນ ຕັ້ງແຕ່ເດືອນຕຸລາ 2026.",
     "host": "Claude Code (hooks plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "policy ທີ່ບໍ່ຖືກຕ້ອງຈະປະຕິເສດທຸກ side effect ແທນທີ່ຈະກັບໄປໃຊ້ຄ່າເລີ່ມຕົ້ນ.",
       "ສິດທີ່ໝົດອາຍຸຈະກັບໄປເປັນ ask. ມີພຽງຄົນທີ່ຕໍ່ອາຍຸໄດ້ ໂດຍການແກ້ໄຂ policy.",
       "ຄຳສັ່ງທີ່ Core ອ່ານບໍ່ໄດ້ ເຊັ່ນ <code>eval</code> ຫຼື <code>sh -c</code> ຖືວ່າເປັນ opaque ແລະ ຈະຖາມກ່ອນ.",
-      "ledger ເປັນແບບ append-only ແລະ ຕໍ່ກັນດ້ວຍ hash; <code>bw verify</code> ກວດພົບລາຍການທີ່ຖືກແກ້ໄຂ ຫຼື ຖືກລຶບ ແລະ ແຖວສຸດທ້າຍທີ່ຂຽນບໍ່ແລ້ວ, ແຕ່ກວດບໍ່ພົບລາຍການທັງລາຍການທີ່ຖືກຕັດອອກຈາກທ້າຍ."
+      "ledger ເປັນແບບ append-only ແລະ ຕໍ່ກັນດ້ວຍ hash; <code>bw verify</code> ກວດພົບລາຍການທີ່ຖືກແກ້ໄຂ, ຖືກລຶບ ຫຼື ຖືກຕັດອອກຈາກທ້າຍ, ແຕ່ກວດບໍ່ພົບ ledger ທີ່ຖືກຂຽນໃໝ່ພ້ອມກັບໄຟລ໌ head ຂອງມັນ."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "ຕ້ອງການ Node.js 22.14 ຂຶ້ນໄປ, Git ແລະ Claude Code ທີ່ຮອງຮັບ plugin.",
     "steps": [
       [
-        "Clone Core",
-        "ຄັ້ງດຽວຕໍ່ເຄື່ອງ. ຖ້າທ່ານເຄີຍແລ່ນ V5 ຢູ່ນີ້ ໃຫ້ຍ້າຍ <code>~/.better-workflows</code> ໄປເປັນ <code>~/.better-workflows-V5</code> ກ່ອນ ແລ້ວຕັ້ງ <code>SBW_STATE_ROOT</code> ໃຫ້ຊີ້ໄປທີ່ນັ້ນ."
+        "ຕິດຕັ້ງ CLI",
+        "ຄັ້ງດຽວຕໍ່ເຄື່ອງ, ຈາກ npm. ມັນໃຫ້ຄຳສັ່ງ <code>bw</code> ແກ່ທ່ານ."
       ],
       [
         "ເພີ່ມ plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "ກຳລັງດຳເນີນ",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Claude Code hooks, scope ຂອງຫຼັກຖານ, ໃຊ້ເອງໃນສອງ repository."
+        "ປັດຈຸບັນ",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Claude Code hooks, scope ຫຼັກຖານ ແລະ ledger. ການໃຊ້ເອງໃນສອງ repository ຍັງສືບຕໍ່."
       ],
       [
         "NEXT",
         "warn",
         "ຫຼັງໄລຍະໃຊ້ເອງ",
-        "V6 Core alpha",
-        "release ທຳອິດທີ່ມີ tag",
-        "ຈະເຜີຍແຜ່ເມື່ອໄລຍະໃຊ້ເອງສະແດງວ່າຈັບບັນຫາໄດ້ແທ້ ແລະ ບລັອກຜິດໜ້ອຍ. host ອື່ນຈະຕາມມາເປັນ adapter ນ້ອຍໆ."
+        "V6 Core beta",
+        "ແຊ່ແຂງຮູບແບບ policy",
+        "ເມື່ອການໃຊ້ເອງສະແດງວ່າຈັບບັນຫາໄດ້ແທ້ ແລະ ບລັອກຜິດໜ້ອຍ. host ອື່ນຈະຕາມມາເປັນ adapter ນ້ອຍໆ."
       ]
     ],
     "statementTitle": "ຖະແຫຼງການ",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core ໃຊ້ໄດ້ແລ້ວມື້ນີ້ ແລະ ແລ່ນຢູ່ໃນ repository ຂອງຜູ້ດູແລເອງ. ຮູບແບບ policy ອາດຍັງປ່ຽນກ່ອນ alpha.",
+      "Core ໃຊ້ໄດ້ແລ້ວມື້ນີ້ ແລະ ແລ່ນຢູ່ໃນ repository ຂອງຜູ້ດູແລເອງ. ຮູບແບບ policy ອາດຍັງປ່ຽນກ່ອນ beta.",
       "ທຸກຢ່າງຢູ່ນີ້ຟຣີ ແລະ ເປັນ open source. ບໍ່ມີແພັກເກັດເສຍເງິນ, ບັນຊີ ຫຼື telemetry."
     ],
     "licTitle": "ລິຂະສິດ",
@@ -500,7 +500,7 @@
       ],
       [
         "ແລ້ວ Codex, Gemini CLI ຫຼື Qwen Code ເດ?",
-        "ພວກມັນເຄີຍແລ່ນ V5 ເຊິ່ງຖືກແຊ່ແຂງແລ້ວ. Core ບໍ່ຜູກກັບ host ໃດ ແລະ ມີແຜນສ້າງ adapter ສຳລັບພວກມັນຫຼັງ alpha."
+        "ພວກມັນເຄີຍແລ່ນ V5 ເຊິ່ງຖືກແຊ່ແຂງແລ້ວ. Core ບໍ່ຜູກກັບ host ໃດ ແລະ ມີແຜນສ້າງ adapter ສຳລັບພວກມັນຫຼັງ beta."
       ]
     ]
   },

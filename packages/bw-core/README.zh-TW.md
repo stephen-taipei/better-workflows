@@ -4,7 +4,7 @@
 
 防止 AI coding agent 拿過期的證據宣稱「完成」、在結果不明的副作用之後繼續疊加動作，以及從 prompt 文字取得權限。
 
-狀態：pre-alpha，屬於 [V6 路線圖](../../docs/ROADMAP.zh-TW.md)。第一個 host 是 Claude Code，透過本套件內的 hooks plugin 接入。請從[快速開始](docs/getting-started.zh-TW.md)入手，或執行 [stale-green demo](examples/stale-green/demo.mjs)（`node examples/stale-green/demo.mjs`，約 2 秒，不需要 Claude）。
+狀態：alpha（`6.0.0-alpha.1`），屬於 [V6 路線圖](../../docs/ROADMAP.zh-TW.md)。第一個 host 是 Claude Code，透過本套件內的 hooks plugin 接入。請從[快速開始](docs/getting-started.zh-TW.md)入手，或執行 [stale-green demo](examples/stale-green/demo.mjs)（`node examples/stale-green/demo.mjs`，約 2 秒，不需要 Claude）。
 
 ## 檢查什麼
 
@@ -15,7 +15,7 @@
 | Action gate | push、PR merge 與建立、release、套件發佈、`gh api` 寫入、HTTP 寫入，以及自訂種類都算副作用，各自需要 policy 檔的 `allow`；預設是 `ask`。無法看穿效果的指令（command substitution、`eval`、`sh -c`）視為 `opaque`，預設 `ask`。 |
 | 最多一次 | 同一個副作用在同一個 commit 成功後，再次執行會被拒絕。 |
 | 對帳 | 只有 exit code 0 算已知結果。其他情況一律標為 `unknown`，之後所有副作用都會被拒絕，直到 `bw reconcile` 用唯讀查詢向 provider 確認（`git ls-remote`、`gh pr view`、`gh release view`、`npm view`），或由人附註說明後手動結案。 |
-| Ledger | 每筆紀錄寫入 `.git/better-workflows/` 內 append-only、hash chain 串接的 ledger。`bw verify` 能偵測竄改與截斷。 |
+| Ledger | 每筆紀錄寫入 `.git/better-workflows/` 內 append-only、hash chain 串接的 ledger。`bw verify` 能偵測被修改、刪除或從尾端截掉的紀錄，以及寫到一半的最後一行。最後一筆的序號與 hash 另存在 `ledger.head`；兩個檔案一起改寫仍偵測不到。 |
 
 ## 指令
 
@@ -40,12 +40,13 @@ exact 種類還可以宣告 `"scope": ["plugins/x", "shared"]`，也就是這個
 
 ## Claude Code
 
-alpha 發佈前，從 checkout 安裝（細節見[快速開始](docs/getting-started.zh-TW.md)）：
+從本 repository 的 marketplace 與 npm 安裝（細節見[快速開始](docs/getting-started.zh-TW.md)）：
 
 ```bash
-claude plugin marketplace add path/to/better-workflows/packages/bw-core
+npm install -g @better-workflows/core@alpha                      # bw 指令
+claude plugin marketplace add stephen-taipei/better-workflows     # 每台機器一次
 claude plugin install better-workflows-core@better-workflows --scope local
-node path/to/better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 | Hook | 行為 |

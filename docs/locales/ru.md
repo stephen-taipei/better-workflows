@@ -25,20 +25,20 @@ bw     ✗ Denied. git-push: the same action already succeeded at this commit.
 Посмотрите, как оба сценария выполняются за несколько секунд, без Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Установка для Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 Затем попросите Claude Code внести изменение и скажите не запускать тесты: когда он попытается завершить работу, его вернут.
 
 Policy, неизвестные результаты и ограничения описаны в руководстве по началу работы: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core находится на стадии pre-alpha. Эта страница переведена машинно; основной является английская версия README.
+> V6 Core находится на стадии alpha. Эта страница переведена машинно; основной является английская версия README.

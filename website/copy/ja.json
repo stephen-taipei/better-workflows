@@ -20,7 +20,7 @@
     "themeToggle": "カラーテーマを切り替え",
     "homeLabel": "Better Workflows ホーム",
     "tagline": "コーディングエージェントは現在の証拠に基づいて完了し、同じコミットですでに成功した副作用を繰り返すことはありません。",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "インストール",
     "overview": "概要",
     "hosts": "対応ホスト",
@@ -39,7 +39,7 @@
     "alias": "（betterworkflows.org からここへリダイレクトされます）"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "証拠は最新であること。",
     "h1Signal": "不明なら、止まる。",
     "lead": "AI エージェントが古いグリーンのテストで完了したり、結果を確認していない副作用を繰り返したり重ねたりするのを防ぐ Claude Code プラグインです。エージェントに何が許されるかは、あなたが書く policy ファイルで決まり、プロンプトで決まることはありません。",
@@ -53,7 +53,7 @@
     "ctaInstall": "Claude Code にインストール",
     "ctaDemo": "止まる様子を見る",
     "specTitle": "Core",
-    "status": "Pre-alpha。2026 年 10 月から、メンテナー自身の 2 つのリポジトリで自ら使っています。",
+    "status": "Alpha。2026 年 10 月から、メンテナー自身の 2 つのリポジトリで自ら使っています。",
     "host": "Claude Code（hooks プラグイン）",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "無効な policy は、デフォルトに戻るのではなく、すべての副作用を拒否します。",
       "期限切れの許可は ask に戻ります。延長できるのは policy を編集する人だけです。",
       "<code>eval</code> や <code>sh -c</code> のように Core が読み取れないコマンドは、不透明なものとして扱われ、確認が求められます。",
-      "台帳は追記専用でハッシュチェーンされています。<code>bw verify</code> は編集・削除されたエントリと書きかけの最終行を検出しますが、末尾から丸ごと切り取られたエントリは検出しません。"
+      "台帳は追記専用でハッシュチェーンされています。<code>bw verify</code> は編集・削除されたエントリや末尾から切り取られたエントリを検出しますが、台帳を head ファイルごと書き換えた場合は検出しません。"
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Node.js 22.14 以降、Git、プラグイン対応の Claude Code が必要です。",
     "steps": [
       [
-        "Core をクローン",
-        "マシンごとに 1 回。ここで V5 を使っていた場合は、先に <code>~/.better-workflows</code> を <code>~/.better-workflows-V5</code> に移動し、<code>SBW_STATE_ROOT</code> をそこに向けてください。"
+        "CLI をインストール",
+        "マシンごとに 1 回、npm からインストールします。<code>bw</code> コマンドが使えるようになります。"
       ],
       [
         "プラグインを追加",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "進行中",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Claude Code hooks、証拠の scope、2 つのリポジトリでの自己利用。"
+        "現行",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Claude Code hooks、証拠の scope、台帳。2 つのリポジトリでの自己利用を継続中。"
       ],
       [
         "NEXT",
         "warn",
         "自己利用期間の後",
-        "V6 Core alpha",
-        "最初のタグ付きリリース",
-        "自己利用期間で実際の検出があり、誤ブロックが少ないと確認できた時点で公開します。その後、他のホストを小さなアダプターとして追加します。"
+        "V6 Core beta",
+        "policy 形式を凍結",
+        "自己利用で実際の検出があり、誤ブロックが少ないと確認できた時点。その後、他のホストを小さなアダプターとして追加します。"
       ]
     ],
     "statementTitle": "声明",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core は今日から使え、メンテナー自身のリポジトリで動いています。policy の形式は alpha までに変わる可能性があります。",
+      "Core は今日から使え、メンテナー自身のリポジトリで動いています。policy の形式は beta までに変わる可能性があります。",
       "ここにあるものはすべて無料のオープンソースです。有料プラン、アカウント、テレメトリーはありません。"
     ],
     "licTitle": "ライセンス",
@@ -500,7 +500,7 @@
       ],
       [
         "Codex、Gemini CLI、Qwen Code は？",
-        "これらは V5 で動いていましたが、V5 は凍結されています。Core はホストに依存しないので、alpha の後にアダプターを予定しています。"
+        "これらは V5 で動いていましたが、V5 は凍結されています。Core はホストに依存しないので、beta の後にアダプターを予定しています。"
       ]
     ]
   },

@@ -25,20 +25,20 @@ Sinusukat ang agent batay sa mga file kung ano ang mga ito ngayon, at sa talagan
 Panoorin ang dalawang sitwasyon na tumakbo sa loob ng ilang segundo, nang walang Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## I-install para sa Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 Pagkatapos, humiling ng pagbabago sa Claude Code at sabihing huwag patakbuhin ang mga test: ibabalik ito kapag sinubukan nitong tapusin.
 
 Ang mga policy, hindi alam na resulta at mga limitasyon ay nasa getting-started na gabay: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> Ang V6 Core ay nasa pre-alpha. Ang pahinang ito ay isinalin ng makina; ang README sa Ingles ang opisyal.
+> Ang V6 Core ay nasa alpha. Ang pahinang ito ay isinalin ng makina; ang README sa Ingles ang opisyal.

@@ -20,7 +20,7 @@
     "themeToggle": "Přepnout barevný motiv",
     "homeLabel": "Better Workflows – úvodní stránka",
     "tagline": "Váš programovací agent končí na aktuálních důkazech a nikdy nezopakuje vedlejší účinek, který už na stejném commitu uspěl.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Instalovat",
     "overview": "Přehled",
     "hosts": "Hostitelé",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org přesměrovává sem)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Jen čerstvé důkazy.",
     "h1Signal": "Neznámé znamená stop.",
     "lead": "Plugin pro Claude Code, který AI agentovi nedovolí dokončit práci na zastaralém zeleném testu ani opakovat či vrstvit vedlejší účinky, jejichž výsledek nikdy neviděl. Co smí dělat, určuje soubor policy, který píšete vy, nikdy prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Instalovat pro Claude Code",
     "ctaDemo": "Podívejte se, jak zastaví",
     "specTitle": "Core",
-    "status": "Pre-alpha. Od října 2026 ho správce sám používá na dvou svých repozitářích.",
+    "status": "Alpha. Od října 2026 ho správce sám používá na dvou svých repozitářích.",
     "host": "Claude Code (plugin s hooky)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Neplatná policy zamítne každý vedlejší účinek, místo aby se vrátila k výchozím hodnotám.",
       "Oprávnění, kterému vypršela platnost, se vrací na ask. Prodloužit ho může jen člověk, úpravou policy.",
       "Příkazy, které Core neumí přečíst, například <code>eval</code> nebo <code>sh -c</code>, se považují za neprůhledné a Core se na ně ptá.",
-      "Deník je jen pro přidávání a řetězený pomocí hashů; <code>bw verify</code> odhalí upravené nebo odstraněné záznamy a napůl zapsaný poslední řádek, ale ne celé záznamy odříznuté z konce."
+      "Deník je jen pro přidávání a řetězený pomocí hashů; <code>bw verify</code> odhalí upravené, odstraněné nebo z konce odříznuté záznamy, ale ne deník přepsaný společně s jeho head souborem."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Vyžaduje Node.js 22.14 nebo novější, Git a Claude Code s podporou pluginů.",
     "steps": [
       [
-        "Naklonujte Core",
-        "Jednou na každý počítač. Pokud jste zde používali V5, nejdřív přesuňte <code>~/.better-workflows</code> do <code>~/.better-workflows-V5</code> a nastavte na něj <code>SBW_STATE_ROOT</code>."
+        "Nainstalujte CLI",
+        "Jednou na každý počítač, z npm. Získáte příkaz <code>bw</code>."
       ],
       [
         "Přidejte plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "Probíhá",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Hooky Claude Code, scope důkazů, vlastní používání na dvou repozitářích."
+        "Aktuální",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Hooky Claude Code, scope důkazů a deník. Vlastní používání na dvou repozitářích pokračuje."
       ],
       [
         "NEXT",
         "warn",
         "Po vlastním používání",
-        "V6 Core alpha",
-        "první otagované vydání",
-        "Vyjde, až období vlastního používání ukáže skutečně zachycené chyby a málo falešných blokací. Další hostitelé přibudou jako malé adaptéry."
+        "V6 Core beta",
+        "zmrazený formát policy",
+        "Až období vlastního používání ukáže skutečně zachycené chyby a málo falešných blokací. Další hostitelé přibudou jako malé adaptéry."
       ]
     ],
     "statementTitle": "prohlášení",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core je použitelný už dnes a běží na vlastních repozitářích správce. Formát policy se před alfou ještě může změnit.",
+      "Core je použitelný už dnes a běží na vlastních repozitářích správce. Formát policy se před betou ještě může změnit.",
       "Vše je zde zdarma a open source. Neexistuje žádná placená úroveň, účet ani telemetrie."
     ],
     "licTitle": "licence",
@@ -500,7 +500,7 @@
       ],
       [
         "A co Codex, Gemini CLI nebo Qwen Code?",
-        "Běžely na V5, která je zmrazená. Core je na hostiteli nezávislý a adaptéry pro ně jsou plánovány po alfě."
+        "Běžely na V5, která je zmrazená. Core je na hostiteli nezávislý a adaptéry pro ně jsou plánovány po betě."
       ]
     ]
   },
