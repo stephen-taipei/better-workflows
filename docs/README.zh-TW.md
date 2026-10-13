@@ -6,7 +6,7 @@
 
 **AI coding agent 不能拿過時的綠燈宣稱完成，也不能在副作用結果不明時重複執行或繼續疊加。**
 
-[![Core](https://img.shields.io/badge/V6_Core-pre--alpha-B45309?style=flat-square)](../packages/bw-core)
+[![Core](https://img.shields.io/badge/V6_Core-alpha-B45309?style=flat-square)](../packages/bw-core)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.14.0-3C873A?style=flat-square)](../packages/bw-core/package.json)
 [![Core license](https://img.shields.io/badge/Core_license-Apache--2.0-64748B?style=flat-square)](../packages/bw-core/LICENSE)
 
@@ -32,19 +32,19 @@ agent 只能依據「現在的檔案」與「provider 實際發生的事」宣�
 不需要 Claude，幾秒鐘就能看到這兩個故事實際跑一次：
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## 安裝到 Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core               # 每台機器一次
+claude plugin marketplace add stephen-taipei/better-workflows                 # 每台機器一次
 claude plugin install better-workflows-core@better-workflows --scope local    # 在你的 repository 裡
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init                     # 寫出 .better-workflows/policy.json
+bw init                                                                       # 寫出 .better-workflows/policy.json
 ```
 
-接著請 Claude Code 做一個改動，並告訴它不要跑測試：它要結束時會被退回。policy 設定、結果不明時的處理與限制，請見[快速開始](../packages/bw-core/docs/getting-started.zh-TW.md)。Core 目前是 pre-alpha、Apache-2.0、沒有 runtime 相依套件。方向與里程碑見[路線圖](ROADMAP.zh-TW.md)。
+接著請 Claude Code 做一個改動，並告訴它不要跑測試：它要結束時會被退回。policy 設定、結果不明時的處理與限制，請見[快速開始](../packages/bw-core/docs/getting-started.zh-TW.md)。Core 目前是 alpha（`6.0.0-alpha.1`）、Apache-2.0、沒有 runtime 相依套件。方向與里程碑見[路線圖](ROADMAP.zh-TW.md)。
 
 
 ## 其他語言

@@ -20,7 +20,7 @@
     "themeToggle": "Farbschema umschalten",
     "homeLabel": "Better Workflows Startseite",
     "tagline": "Ihr Coding-Agent schließt mit aktuellen Belegen ab und wiederholt nie eine Nebenwirkung, die auf demselben Commit bereits gelungen ist.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Installieren",
     "overview": "Überblick",
     "hosts": "Hosts",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org leitet hierher weiter)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Nur frische Belege.",
     "h1Signal": "Unbekannt heißt Stopp.",
     "lead": "Ein Plugin für Claude Code, das einen KI-Agenten daran hindert, auf Basis eines veralteten grünen Tests abzuschließen und Nebenwirkungen zu wiederholen oder zu stapeln, deren Ergebnis er nie gesehen hat. Was er darf, legt eine Policy-Datei fest, die Sie schreiben, niemals der Prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Für Claude Code installieren",
     "ctaDemo": "Den Stopp ansehen",
     "specTitle": "Core",
-    "status": "Pre-alpha. Seit Oktober 2026 im Eigeneinsatz auf zwei Repositories des Maintainers.",
+    "status": "Alpha. Seit Oktober 2026 im Eigeneinsatz auf zwei Repositories des Maintainers.",
     "host": "Claude Code (Hooks-Plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Eine ungültige Policy verweigert jede Nebenwirkung, statt auf Standardwerte zurückzufallen.",
       "Eine abgelaufene Berechtigung fällt auf ask zurück. Nur ein Mensch verlängert sie, indem er die Policy bearbeitet.",
       "Befehle, die Core nicht lesen kann, wie <code>eval</code> oder <code>sh -c</code>, gelten als undurchsichtig und werden nachgefragt.",
-      "Der Ledger ist append-only und per Hash verkettet; <code>bw verify</code> erkennt bearbeitete oder entfernte Einträge und eine halb geschriebene letzte Zeile, aber nicht ganze Einträge, die am Ende abgeschnitten wurden."
+      "Der Ledger ist append-only und per Hash verkettet; <code>bw verify</code> erkennt bearbeitete, entfernte oder am Ende abgeschnittene Einträge, aber keinen Ledger, der zusammen mit seiner Head-Datei neu geschrieben wurde."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Benötigt Node.js 22.14 oder neuer, Git und Claude Code mit Plugin-Unterstützung.",
     "steps": [
       [
-        "Core klonen",
-        "Einmal pro Rechner. Wenn Sie hier V5 genutzt haben, verschieben Sie zuerst <code>~/.better-workflows</code> nach <code>~/.better-workflows-V5</code> und lassen Sie <code>SBW_STATE_ROOT</code> darauf zeigen."
+        "CLI installieren",
+        "Einmal pro Rechner, über npm. Damit erhalten Sie den Befehl <code>bw</code>."
       ],
       [
         "Plugin hinzufügen",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "In Arbeit",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Hooks für Claude Code, Scope für Belege, Eigennutzung in zwei Repositories."
+        "Aktuell",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Hooks für Claude Code, Scope für Belege und Ledger. Eigennutzung in zwei Repositories läuft weiter."
       ],
       [
         "NEXT",
         "warn",
         "Nach der Eigennutzung",
-        "V6 Core alpha",
-        "erstes getaggtes Release",
-        "Wird veröffentlicht, sobald die Eigennutzung echte Treffer und wenige Fehlblockaden zeigt. Weitere Hosts folgen als kleine Adapter."
+        "V6 Core beta",
+        "Policy-Format eingefroren",
+        "Sobald die Eigennutzung echte Treffer und wenige Fehlblockaden zeigt. Weitere Hosts folgen als kleine Adapter."
       ]
     ],
     "statementTitle": "Erklärung",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core ist heute nutzbar und läuft auf den eigenen Repositories des Maintainers. Das Policy-Format kann sich vor der Alpha noch ändern.",
+      "Core ist heute nutzbar und läuft auf den eigenen Repositories des Maintainers. Das Policy-Format kann sich vor der Beta noch ändern.",
       "Alles hier ist kostenlos und Open Source. Es gibt keine bezahlte Stufe, kein Konto und keine Telemetrie."
     ],
     "licTitle": "Lizenzen",
@@ -500,7 +500,7 @@
       ],
       [
         "Was ist mit Codex, Gemini CLI oder Qwen Code?",
-        "Sie liefen mit V5, das eingefroren ist. Core ist hostneutral, und Adapter für sie sind nach der Alpha geplant."
+        "Sie liefen mit V5, das eingefroren ist. Core ist hostneutral, und Adapter für sie sind nach der Beta geplant."
       ]
     ]
   },

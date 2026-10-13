@@ -20,7 +20,7 @@
     "themeToggle": "Toggle color theme",
     "homeLabel": "Better Workflows home",
     "tagline": "Your coding agent finishes on current evidence, and never repeats a side effect that already succeeded at the same commit.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Install",
     "overview": "Overview",
     "hosts": "Hosts",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org redirects here)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Proof must be fresh.",
     "h1Signal": "Unknown means stop.",
     "lead": "A Claude Code plugin that keeps an AI agent from finishing on a stale green test, and from repeating or stacking side effects whose result it never saw. What it may do comes from a policy file you write, never from the prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Install for Claude Code",
     "ctaDemo": "See it stop",
     "specTitle": "Core",
-    "status": "Pre-alpha. In self-use on two of the maintainer's repositories since October 2026.",
+    "status": "Alpha. In self-use on two of the maintainer's repositories since October 2026.",
     "host": "Claude Code (hooks plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "An invalid policy denies every side effect instead of falling back to defaults.",
       "An expired permission falls back to ask. Only a person extends it, by editing the policy.",
       "Commands Core cannot read, like <code>eval</code> or <code>sh -c</code>, are treated as opaque and asked about.",
-      "The ledger is append-only and hash-chained; <code>bw verify</code> detects edited or removed entries and a half-written last line, but not whole entries cut from the end."
+      "The ledger is append-only and hash-chained; <code>bw verify</code> detects edited, removed or cut-off entries, but not a ledger rewritten together with its head file."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Needs Node.js 22.14 or later, Git, and Claude Code with plugin support.",
     "steps": [
       [
-        "Clone Core",
-        "Once per machine. If you ran V5 here, first move <code>~/.better-workflows</code> to <code>~/.better-workflows-V5</code> and point <code>SBW_STATE_ROOT</code> at it."
+        "Install the CLI",
+        "Once per machine, from npm. It gives you the <code>bw</code> command."
       ],
       [
         "Add the plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "In progress",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Claude Code hooks, evidence scope, self-use on two repositories."
+        "Current",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Claude Code hooks, evidence scope and the ledger. Self-use on two repositories continues."
       ],
       [
         "NEXT",
         "warn",
         "After self-use",
-        "V6 Core alpha",
-        "first tagged release",
-        "Published once the self-use period shows real catches and few false blocks. More hosts follow as small adapters."
+        "V6 Core beta",
+        "policy format frozen",
+        "Once self-use shows real catches and few false blocks. More hosts follow as small adapters."
       ]
     ],
     "statementTitle": "statement",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core is usable today and runs on the maintainer's own repositories. Its policy format may still change before alpha.",
+      "Core is usable today and runs on the maintainer's own repositories. Its policy format may still change before beta.",
       "Everything here is free and open source. There is no paid tier, account or telemetry."
     ],
     "licTitle": "licensing",
@@ -500,7 +500,7 @@
       ],
       [
         "What about Codex, Gemini CLI or Qwen Code?",
-        "They ran V5, which is frozen. Core is host-neutral, and adapters for them are planned after the alpha."
+        "They ran V5, which is frozen. Core is host-neutral, and adapters for them are planned after the beta."
       ]
     ]
   },

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile, writeFile, appendFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, appendFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { appendEvent, ledgerPath, readLedger, verifyLedger } from "../src/ledger.mjs";
 import { subtreeDigests, worktreeTree, treeState } from "../src/repo.mjs";
@@ -30,6 +30,23 @@ test("ledger rejects edited and truncated entries", async (t) => {
   assert.match((await verifyLedger(repo)).error, /incomplete entry/);
   await writeFile(file, original.split("\n").slice(1).join("\n"));
   assert.match((await verifyLedger(repo)).error, /broken at entry 1/);
+});
+
+test("ledger notices whole entries cut from the end", async (t) => {
+  const { repo } = await fixtureRepo(t);
+  for (const i of [1, 2, 3]) await appendEvent(repo, "note", { i });
+  const file = ledgerPath(repo);
+  const original = await readFile(file, "utf8");
+  await writeFile(file, original.split("\n").slice(0, 2).join("\n") + "\n");
+  assert.match((await verifyLedger(repo)).error, /ends before its recorded head \(entry 3\)/);
+  await rm(file);
+  assert.match((await verifyLedger(repo)).error, /entries were removed/);
+  await writeFile(file, original);
+  await rm(path.join(repo.stateDir, "ledger.head"));
+  assert.equal((await verifyLedger(repo)).entries, 3, "a ledger from before the head still reads");
+  await appendEvent(repo, "note", { i: 4 });
+  await writeFile(file, original);
+  assert.equal((await verifyLedger(repo)).ok, false, "the next append anchors it");
 });
 
 test("tree digest follows content, includes untracked files, ignores ignored ones, leaves the index alone", async (t) => {

@@ -20,7 +20,7 @@
     "themeToggle": "Promijeni temu boja",
     "homeLabel": "Better Workflows početna",
     "tagline": "Vaš agent za programiranje završava na aktualnim dokazima i nikad ne ponavlja nuspojavu koja je već uspjela na istom commitu.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Instaliraj",
     "overview": "Pregled",
     "hosts": "Hostovi",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org preusmjerava ovdje)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Dokaz mora biti svjež.",
     "h1Signal": "Nepoznato znači stop.",
     "lead": "Claude Code plugin koji AI agentu ne dopušta da završi posao na zastarjelom zelenom testu, niti da ponavlja ili gomila nuspojave čiji rezultat nikad nije vidio. Što smije raditi određuje policy datoteka koju vi pišete, nikad prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Instaliraj za Claude Code",
     "ctaDemo": "Pogledajte kako zaustavlja",
     "specTitle": "Core",
-    "status": "Pre-alpha. Od listopada 2026. održavatelj ga sam koristi na dva svoja repozitorija.",
+    "status": "Alpha. Od listopada 2026. održavatelj ga sam koristi na dva svoja repozitorija.",
     "host": "Claude Code (hooks plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Nevažeći policy odbija svaku nuspojavu umjesto da se vrati na zadane postavke.",
       "Isteklo dopuštenje vraća se na ask. Produljiti ga može samo čovjek, uređivanjem policyja.",
       "Naredbe koje Core ne može pročitati, poput <code>eval</code> ili <code>sh -c</code>, tretiraju se kao neprozirne i za njih se pita.",
-      "Dnevnik se samo nadopisuje i ulančan je hashevima; <code>bw verify</code> otkriva izmijenjene ili uklonjene zapise i napola zapisan zadnji redak, ali ne i cijele zapise odrezane s kraja."
+      "Dnevnik se samo nadopisuje i ulančan je hashevima; <code>bw verify</code> otkriva izmijenjene, uklonjene ili s kraja odrezane zapise, ali ne i dnevnik prepisan zajedno s njegovom head datotekom."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Potrebni su Node.js 22.14 ili noviji, Git i Claude Code s podrškom za pluginove.",
     "steps": [
       [
-        "Klonirajte Core",
-        "Jednom po računalu. Ako ste ovdje koristili V5, najprije premjestite <code>~/.better-workflows</code> u <code>~/.better-workflows-V5</code> i usmjerite <code>SBW_STATE_ROOT</code> na njega."
+        "Instalirajte CLI",
+        "Jednom po računalu, iz npm-a. Dobivate naredbu <code>bw</code>."
       ],
       [
         "Dodajte plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "U tijeku",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Claude Code hookovi, scope dokaza, vlastita upotreba na dva repozitorija."
+        "Aktualno",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Claude Code hookovi, scope dokaza i dnevnik. Vlastita upotreba na dva repozitorija traje."
       ],
       [
         "NEXT",
         "warn",
         "Nakon vlastite upotrebe",
-        "V6 Core alpha",
-        "prvo označeno izdanje",
-        "Objavljuje se kad razdoblje vlastite upotrebe pokaže stvarne ulove i malo lažnih blokada. Ostali hostovi slijede kao mali adapteri."
+        "V6 Core beta",
+        "format policyja zamrznut",
+        "Kad vlastita upotreba pokaže stvarne ulove i malo lažnih blokada. Ostali hostovi slijede kao mali adapteri."
       ]
     ],
     "statementTitle": "izjava",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core je upotrebljiv već danas i radi na repozitorijima samog održavatelja. Format policyja može se još promijeniti prije alphe.",
+      "Core je upotrebljiv već danas i radi na repozitorijima samog održavatelja. Format policyja može se još promijeniti prije bete.",
       "Sve ovdje je besplatno i otvorenog koda. Nema plaćenog paketa, računa ni telemetrije."
     ],
     "licTitle": "licenciranje",
@@ -500,7 +500,7 @@
       ],
       [
         "Što je s Codexom, Gemini CLI-jem ili Qwen Codeom?",
-        "Oni su koristili V5, koji je zamrznut. Core ne ovisi o hostu, a adapteri za njih planirani su nakon alphe."
+        "Oni su koristili V5, koji je zamrznut. Core ne ovisi o hostu, a adapteri za njih planirani su nakon bete."
       ]
     ]
   },

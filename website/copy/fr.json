@@ -20,7 +20,7 @@
     "themeToggle": "Changer le thème de couleur",
     "homeLabel": "Accueil Better Workflows",
     "tagline": "Votre agent de code termine sur des preuves à jour, et ne répète jamais un effet de bord qui a déjà réussi sur le même commit.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Installer",
     "overview": "Vue d'ensemble",
     "hosts": "Hôtes",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org redirige ici)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Preuve fraîche exigée.",
     "h1Signal": "Inconnu ? On s'arrête.",
     "lead": "Un plugin Claude Code qui empêche un agent IA de conclure sur un test vert périmé, et de répéter ou d'empiler des effets de bord dont il n'a jamais vu le résultat. Ce qu'il a le droit de faire vient d'un fichier de policy que vous écrivez, jamais du prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Installer pour Claude Code",
     "ctaDemo": "Le voir bloquer",
     "specTitle": "Core",
-    "status": "Pre-alpha. Utilisé par le mainteneur sur deux de ses dépôts depuis octobre 2026.",
+    "status": "Alpha. Utilisé par le mainteneur sur deux de ses dépôts depuis octobre 2026.",
     "host": "Claude Code (plugin de hooks)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Une policy invalide refuse tous les effets de bord au lieu de revenir aux valeurs par défaut.",
       "Une permission expirée revient à ask. Seule une personne peut la prolonger, en modifiant la policy.",
       "Les commandes que Core ne sait pas lire, comme <code>eval</code> ou <code>sh -c</code>, sont traitées comme opaques et font l'objet d'une demande.",
-      "Le registre est en ajout seul et chaîné par hachage ; <code>bw verify</code> détecte les entrées modifiées ou supprimées et une dernière ligne à moitié écrite, mais pas des entrées entières coupées à la fin."
+      "Le registre est en ajout seul et chaîné par hachage ; <code>bw verify</code> détecte les entrées modifiées, supprimées ou coupées à la fin, mais pas un registre réécrit en même temps que son fichier head."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Nécessite Node.js 22.14 ou plus récent, Git, et Claude Code avec la prise en charge des plugins.",
     "steps": [
       [
-        "Cloner Core",
-        "Une fois par machine. Si vous avez utilisé V5 ici, déplacez d'abord <code>~/.better-workflows</code> vers <code>~/.better-workflows-V5</code> et faites pointer <code>SBW_STATE_ROOT</code> dessus."
+        "Installer la CLI",
+        "Une fois par machine, depuis npm. Vous obtenez la commande <code>bw</code>."
       ],
       [
         "Ajouter le plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "En cours",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Hooks Claude Code, scope des preuves, usage interne sur deux dépôts."
+        "Actuelle",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Hooks Claude Code, scope des preuves et registre. L'usage interne sur deux dépôts continue."
       ],
       [
         "NEXT",
         "warn",
         "Après l'usage interne",
-        "V6 Core alpha",
-        "première release taguée",
-        "Publiée une fois que la période d'usage interne montre de vraies détections et peu de faux blocages. D'autres hôtes suivront sous forme de petits adaptateurs."
+        "V6 Core beta",
+        "format de policy figé",
+        "Une fois que l'usage interne montre de vraies détections et peu de faux blocages. D'autres hôtes suivront sous forme de petits adaptateurs."
       ]
     ],
     "statementTitle": "déclaration",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core est utilisable aujourd'hui et tourne sur les dépôts du mainteneur. Son format de policy peut encore changer avant l'alpha.",
+      "Core est utilisable aujourd'hui et tourne sur les dépôts du mainteneur. Son format de policy peut encore changer avant la beta.",
       "Tout ici est gratuit et open source. Il n'y a ni offre payante, ni compte, ni télémétrie."
     ],
     "licTitle": "licences",
@@ -500,7 +500,7 @@
       ],
       [
         "Et Codex, Gemini CLI ou Qwen Code ?",
-        "Ils utilisaient V5, qui est gelé. Core est indépendant de l'hôte, et des adaptateurs pour eux sont prévus après l'alpha."
+        "Ils utilisaient V5, qui est gelé. Core est indépendant de l'hôte, et des adaptateurs pour eux sont prévus après la beta."
       ]
     ]
   },

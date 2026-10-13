@@ -285,7 +285,16 @@ async function stop(input, repo) {
   };
 }
 
-const HANDLERS = { PreToolUse: preToolUse, PostToolUse: postToolUse, PostToolUseFailure: postToolUse, SessionStart: sessionStart, Stop: stop, SubagentStop: stop };
+// A subagent stopping is not the session finishing. SubagentStop carries the
+// parent's session_id, so judging completion here would send a read-only
+// subagent back for the parent's edits; the parent's Stop is the gate. What
+// the person refused during the subagent is in the subagent's own transcript.
+async function subagentStop(input, repo) {
+  await settleRefused({ ...input, transcript_path: input.agent_transcript_path ?? input.transcript_path }, repo, await loadState(repo));
+  return null;
+}
+
+const HANDLERS = { PreToolUse: preToolUse, PostToolUse: postToolUse, PostToolUseFailure: postToolUse, SessionStart: sessionStart, Stop: stop, SubagentStop: subagentStop };
 
 // Returns { output, exitCode }. Never throws: a hook that crashes would
 // leave the host guessing, so internal errors become explicit outcomes.

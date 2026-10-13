@@ -25,20 +25,20 @@ bw     ✗ Denied. git-push: the same action already succeeded at this commit.
 Claude 없이 몇 초 만에 두 가지 시나리오가 실행되는 것을 볼 수 있습니다:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Claude Code에 설치
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 그런 다음 Claude Code에 변경을 요청하고 테스트는 실행하지 말라고 하세요. 작업을 끝내려 할 때 되돌려 보내집니다.
 
 policy, 결과를 알 수 없는 작업, 제한 사항은 시작 가이드에서 다룹니다: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core는 pre-alpha 단계입니다. 이 페이지는 기계 번역되었습니다. 영어 README가 기준입니다.
+> V6 Core는 alpha 단계입니다. 이 페이지는 기계 번역되었습니다. 영어 README가 기준입니다.

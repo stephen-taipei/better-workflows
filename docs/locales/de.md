@@ -25,20 +25,20 @@ Der Agent wird an den Dateien in ihrem jetzigen Zustand gemessen und daran, was 
 Sehen Sie beide Szenarien in wenigen Sekunden laufen, ohne Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Installation für Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 Bitten Sie Claude Code dann um eine Änderung und sagen Sie ihm, dass es die Tests nicht ausführen soll: Beim Versuch abzuschließen wird es zurückgeschickt.
 
 Policies, unbekannte Ergebnisse und Grenzen beschreibt die Einstiegsanleitung: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core ist im Pre-Alpha-Stadium. Diese Seite ist maschinell übersetzt; maßgeblich ist die englische README.
+> V6 Core ist im Alpha-Stadium. Diese Seite ist maschinell übersetzt; maßgeblich ist die englische README.

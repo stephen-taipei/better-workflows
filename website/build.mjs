@@ -20,11 +20,11 @@ const RTL = new Set(["ar", "he"]);
 const SPONSOR = { address: "TGuMUi1d8MoBQcuFrGJZnu4JrbaeP3wy9a", qr: "/docs/assets/sponsor-usdt-trc20.jpeg" };
 const STATIC = ["styles.css", "site.js", "better-workflows-mark.svg", "favicon.svg", "favicon.ico", "apple-touch-icon.png", "robots.txt", "healthz"];
 const CMD = {
-  clone: "git clone https://github.com/stephen-taipei/better-workflows ~/.better-workflows",
-  demo: "node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs",
-  market: "claude plugin marketplace add ~/.better-workflows/packages/bw-core",
+  cli: "npm install -g @better-workflows/core@alpha",
+  demo: 'node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"',
+  market: "claude plugin marketplace add stephen-taipei/better-workflows",
   install: "claude plugin install better-workflows-core@better-workflows --scope local",
-  init: "node ~/.better-workflows/packages/bw-core/bin/bw.mjs init",
+  init: "bw init",
 };
 
 const esc = (v) => String(v).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
@@ -131,7 +131,7 @@ function mainHtml(code, t, nums, count) {
       <aside class="spec" aria-labelledby="spec-title">
         <div class="spec-head"><i class="led led-live" aria-hidden="true"></i><h2 id="spec-title" class="mono">V6 <span>${t.hero.specTitle}</span></h2></div>
         <dl class="spec-list">
-          <div><dt>STATUS</dt><dd><span class="pill pill-warn">pre-alpha</span></dd></div>
+          <div><dt>STATUS</dt><dd><span class="pill pill-warn">alpha</span></dd></div>
           <div><dt>HOST</dt><dd>${t.hero.host}</dd></div>
           <div><dt>OS</dt><dd class="mono">${t.hero.platforms}</dd></div>
           <div><dt>NODE</dt><dd class="mono">22.14+</dd></div>
@@ -236,7 +236,7 @@ function mainHtml(code, t, nums, count) {
       <div class="tablist" role="tablist" aria-label="${esc(t.install.tabsLabel)}"><button type="button" role="tab" id="tab-claude" aria-controls="panel-claude" aria-selected="true">Claude Code</button></div>
       <div class="tabpanel" role="tabpanel" id="panel-claude" aria-labelledby="tab-claude">
         <h3 class="nojs-title">Claude Code</h3>
-        ${cmd(CMD.clone, t.install.copyCommand, t.install.copy)}
+        ${cmd(CMD.cli, t.install.copyCommand, t.install.copy)}
         ${cmd(CMD.market, t.install.copyCommand, t.install.copy)}
         ${cmd(CMD.install, t.install.copyCommand, t.install.copy)}
         ${cmd(CMD.init, t.install.copyCommand, t.install.copy)}
@@ -318,7 +318,7 @@ function mainHtml(code, t, nums, count) {
 function header(code, c, locales, v) {
   const h = home(code);
   const langs = locales.map((l) => `<a data-locale-link="${l.code}" lang="${l.code}" hreflang="${l.code}" href="${home(l.code)}"${l.code === code ? ' aria-current="page"' : ""}>${esc(l.name)}</a>`).join("");
-  const brand = `<a class="brand" href="${h}" aria-label="${esc(c.homeLabel)}"><img class="brand-mark brand-mark--converge" src="/better-workflows-mark.svg?v=${v}" width="34" height="27" alt="" aria-hidden="true"><span class="brand-name">Better Workflows</span><span class="brand-tag" title="V6 Core pre-alpha">V6</span></a>`;
+  const brand = `<a class="brand" href="${h}" aria-label="${esc(c.homeLabel)}"><img class="brand-mark brand-mark--converge" src="/better-workflows-mark.svg?v=${v}" width="34" height="27" alt="" aria-hidden="true"><span class="brand-name">Better Workflows</span><span class="brand-tag" title="V6 Core alpha">V6</span></a>`;
   return `<a class="skip-link" href="#main">${c.skip}</a><header class="site-header" data-site-header><span class="read-bar" aria-hidden="true"></span><div class="shell header-inner">${brand}`
     + `<nav class="site-nav" id="site-nav" aria-label="${esc(c.product)}" data-site-nav><a href="${h}#product">${c.product}</a><a href="${h}#principles">${c.principles}</a><a href="${h}#workflow">${c.workflow}</a><a href="${h}#install">${c.install}</a><a href="${h}#docs">${c.docs}</a><a href="${h}#sponsor">${c.sponsor}</a><a class="nav-gh" href="${REPO}" ${EXT}>GitHub${ic("ext")}</a><a class="nav-cta btn btn-primary" href="${h}#install">${c.installCta}${ic("arrow")}</a></nav>`
     + `<div class="header-tools"><details class="lang-menu"><summary aria-label="${esc(c.language)}">${esc(locales.find((l) => l.code === code).name)}</summary><nav class="lang" aria-label="${esc(c.language)}">${langs}</nav></details>`

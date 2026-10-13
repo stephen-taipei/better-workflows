@@ -4,29 +4,22 @@
 
 Better Workflows Core stops a Claude Code agent from finishing on a test result that no longer matches the files, and from repeating or stacking side effects whose result never came back. This guide takes a clean repository to its first block in a few minutes.
 
-Status: pre-alpha. Until the alpha release, Core is installed from a Git checkout.
+Status: alpha (`6.0.0-alpha.1`). The policy format may still change before beta.
 
 ## Requirements
 
-- Node.js 22.14 or later
+- Node.js 22.14 or later, with npm
 - Git
 - Claude Code with plugin support (`claude plugin --help` works)
 
 ## 1. See it work without Claude (a few seconds)
 
-If you ran V5 on this machine, `~/.better-workflows` holds its state and the clone fails. Move V5 aside first and tell V5 where it went, so V5 never writes into the Core clone:
-
 ```bash
-mv ~/.better-workflows ~/.better-workflows-V5
-echo 'export SBW_STATE_ROOT="$HOME/.better-workflows-V5"' >> ~/.zshrc   # or ~/.bashrc
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
-```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
-```
-
-The demo builds a throwaway repository and sends the same hook events Claude Code sends. It shows:
+The first line installs the `bw` command. The demo builds a throwaway repository and sends the same hook events Claude Code sends. It shows:
 
 1. Tests pass, then a file is edited: finishing is blocked because the passing run was on older files.
 2. The tests fail on the new files: still blocked. They pass on the final files: allowed.
@@ -40,14 +33,14 @@ It exits 1 if any step does not behave as described.
 Once per machine:
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 ```
 
 Then in each repository you want to protect:
 
 ```bash
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 `--scope local` turns the plugin on for this repository only, in `.claude/settings.local.json`, which Git does not track. `bw init` writes `.better-workflows/policy.json`. Commit the policy file: it is the only place the agent's permissions come from, and the agent is not allowed to change it.
@@ -59,10 +52,8 @@ Start Claude Code in the repository and ask for a small change, telling it not t
 Check the state at any time:
 
 ```bash
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs status
+bw status
 ```
-
-Tip: `alias bw="node ~/.better-workflows/packages/bw-core/bin/bw.mjs"`.
 
 ## 4. Tell it what your checks and side effects are
 
@@ -124,6 +115,31 @@ bw reconcile act_… --outcome success --note "checked the deploy log"
 ```
 
 The agent cannot run `bw reconcile <id>` or `bw init`, and cannot edit `.better-workflows/` or `.git/`.
+
+## Updating
+
+The plugin and the `bw` command come from the same package; update them together:
+
+```bash
+claude plugin marketplace update better-workflows
+claude plugin update better-workflows-core@better-workflows --scope local   # in each repository
+npm install -g @better-workflows/core@alpha
+```
+
+## Installing from a checkout
+
+To run unreleased changes, use a clone instead of the marketplace and npm. If you ran V5 on this machine, `~/.better-workflows` holds its state; move it aside first and tell V5 where it went:
+
+```bash
+mv ~/.better-workflows ~/.better-workflows-V5
+echo 'export SBW_STATE_ROOT="$HOME/.better-workflows-V5"' >> ~/.zshrc   # or ~/.bashrc
+```
+
+```bash
+git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
+claude plugin marketplace add ~/.better-workflows/packages/bw-core
+alias bw="node ~/.better-workflows/packages/bw-core/bin/bw.mjs"
+```
 
 ## Turning it off
 

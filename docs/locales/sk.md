@@ -25,20 +25,20 @@ Agent sa posudzuje podľa súborov v ich aktuálnom stave a podľa toho, čo pos
 Pozrite sa, ako oba scenáre prebehnú za pár sekúnd, bez Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Inštalácia pre Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 Potom požiadajte Claude Code o zmenu a povedzte mu, aby nespúšťal testy: keď sa pokúsi skončiť, bude vrátený späť.
 
 Policy, neznáme výsledky a obmedzenia sú opísané v úvodnej príručke: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core je vo fáze pre-alpha. Táto stránka je strojovo preložená; záväzná je anglická verzia README.
+> V6 Core je vo fáze alpha. Táto stránka je strojovo preložená; záväzná je anglická verzia README.

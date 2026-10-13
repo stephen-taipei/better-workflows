@@ -25,20 +25,20 @@ bw     ✗ Denied. git-push: the same action already succeeded at this commit.
 Claude なしで、2 つのシナリオが数秒で動くのを確認できます:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Claude Code にインストール
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 次に Claude Code に変更を依頼し、テストは実行しないよう伝えてください。完了しようとすると差し戻されます。
 
 policy、結果が不明なアクション、制限事項は入門ガイドにあります: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core は pre-alpha です。このページは機械翻訳です。英語の README が正となります。
+> V6 Core は alpha です。このページは機械翻訳です。英語の README が正となります。

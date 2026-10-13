@@ -20,7 +20,7 @@
     "themeToggle": "Alternar tema de cores",
     "homeLabel": "Página inicial do Better Workflows",
     "tagline": "O seu agente de programação conclui com evidências atuais e nunca repete um efeito secundário que já teve sucesso no mesmo commit.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Instalar",
     "overview": "Visão geral",
     "hosts": "Hosts",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org redireciona para aqui)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Só conta prova atual.",
     "h1Signal": "Desconhecido? Parar.",
     "lead": "Um plugin para o Claude Code que impede um agente de IA de concluir com base num teste verde desatualizado, e de repetir ou acumular efeitos secundários cujo resultado nunca viu. O que pode fazer vem de um ficheiro de policy escrito por si, nunca do prompt.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Instalar no Claude Code",
     "ctaDemo": "Veja-o a parar",
     "specTitle": "Core",
-    "status": "Pre-alpha. Em uso próprio em dois repositórios do mantenedor desde outubro de 2026.",
+    "status": "Alpha. Em uso próprio em dois repositórios do mantenedor desde outubro de 2026.",
     "host": "Claude Code (plugin de hooks)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "Uma policy inválida nega todos os efeitos secundários em vez de recorrer a valores predefinidos.",
       "Uma permissão expirada volta a ask. Só uma pessoa a prolonga, editando a policy.",
       "Comandos que o Core não consegue ler, como <code>eval</code> ou <code>sh -c</code>, são tratados como opacos e é pedida confirmação.",
-      "O registo é append-only e encadeado por hash; <code>bw verify</code> deteta entradas editadas ou removidas e uma última linha escrita a meio, mas não entradas inteiras cortadas do fim."
+      "O registo é append-only e encadeado por hash; <code>bw verify</code> deteta entradas editadas, removidas ou cortadas do fim, mas não um registo reescrito juntamente com o seu ficheiro head."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Requer Node.js 22.14 ou posterior, Git e Claude Code com suporte para plugins.",
     "steps": [
       [
-        "Clonar o Core",
-        "Uma vez por máquina. Se já usou o V5 aqui, mova primeiro <code>~/.better-workflows</code> para <code>~/.better-workflows-V5</code> e aponte <code>SBW_STATE_ROOT</code> para lá."
+        "Instalar o CLI",
+        "Uma vez por máquina, a partir do npm. Disponibiliza o comando <code>bw</code>."
       ],
       [
         "Adicionar o plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "Em curso",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Hooks do Claude Code, scope de evidência, uso próprio em dois repositórios."
+        "Atual",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Hooks do Claude Code, scope de evidência e o registo. Uso próprio em dois repositórios continua."
       ],
       [
         "NEXT",
         "warn",
         "Após o uso próprio",
-        "V6 Core alpha",
-        "primeira release com tag",
-        "Publicado quando o período de uso próprio mostrar erros reais apanhados e poucos bloqueios falsos. Mais hosts seguem-se como pequenos adaptadores."
+        "V6 Core beta",
+        "formato da policy congelado",
+        "Quando o uso próprio mostrar erros reais apanhados e poucos bloqueios falsos. Mais hosts seguem-se como pequenos adaptadores."
       ]
     ],
     "statementTitle": "declaração",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "O Core já pode ser usado hoje e corre nos repositórios do próprio mantenedor. O formato da policy ainda pode mudar antes da alpha.",
+      "O Core já pode ser usado hoje e corre nos repositórios do próprio mantenedor. O formato da policy ainda pode mudar antes da beta.",
       "Tudo aqui é gratuito e open source. Não há plano pago, conta nem telemetria."
     ],
     "licTitle": "licenciamento",
@@ -500,7 +500,7 @@
       ],
       [
         "E o Codex, o Gemini CLI ou o Qwen Code?",
-        "Corriam o V5, que está congelado. O Core é neutro em relação ao host, e estão planeados adaptadores para eles depois da alpha."
+        "Corriam o V5, que está congelado. O Core é neutro em relação ao host, e estão planeados adaptadores para eles depois da beta."
       ]
     ]
   },

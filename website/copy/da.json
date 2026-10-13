@@ -20,7 +20,7 @@
     "themeToggle": "Skift farvetema",
     "homeLabel": "Better Workflows forside",
     "tagline": "Din kodeagent afslutter på aktuel evidens og gentager aldrig en sideeffekt, der allerede er lykkedes på samme commit.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Installér",
     "overview": "Overblik",
     "hosts": "Værter",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org viderestiller hertil)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Kun friske beviser.",
     "h1Signal": "Ukendt betyder stop.",
     "lead": "Et plugin til Claude Code, der forhindrer en AI-agent i at afslutte på en forældet grøn test og i at gentage eller stable sideeffekter, hvis resultat den aldrig så. Hvad den må, bestemmes af en policy-fil, du selv skriver, aldrig af prompten.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Installér til Claude Code",
     "ctaDemo": "Se den stoppe",
     "specTitle": "Core",
-    "status": "Pre-alpha. I eget brug på to af maintainerens repositories siden oktober 2026.",
+    "status": "Alpha. I eget brug på to af maintainerens repositories siden oktober 2026.",
     "host": "Claude Code (hooks-plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "En ugyldig policy afviser alle sideeffekter i stedet for at falde tilbage på standardværdier.",
       "En udløbet tilladelse falder tilbage til ask. Kun et menneske forlænger den, ved at redigere policyen.",
       "Kommandoer, som Core ikke kan læse, f.eks. <code>eval</code> eller <code>sh -c</code>, behandles som uigennemsigtige, og der spørges om dem.",
-      "Logbogen er append-only og hash-kædet; <code>bw verify</code> opdager redigerede eller fjernede poster og en halvt skrevet sidste linje, men ikke hele poster, der er skåret af i slutningen."
+      "Logbogen er append-only og hash-kædet; <code>bw verify</code> opdager poster, der er redigeret, fjernet eller skåret af i slutningen, men ikke en logbog, der er omskrevet sammen med dens head-fil."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Kræver Node.js 22.14 eller nyere, Git og Claude Code med plugin-understøttelse.",
     "steps": [
       [
-        "Klon Core",
-        "Én gang pr. maskine. Hvis du har kørt V5 her, så flyt først <code>~/.better-workflows</code> til <code>~/.better-workflows-V5</code> og peg <code>SBW_STATE_ROOT</code> på den."
+        "Installér CLI",
+        "Én gang pr. maskine, fra npm. Det giver dig kommandoen <code>bw</code>."
       ],
       [
         "Tilføj pluginet",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "I gang",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Hooks i Claude Code, scope for evidens, egen brug på to repositories."
+        "Aktuel",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Hooks i Claude Code, scope for evidens og logbogen. Egen brug på to repositories fortsætter."
       ],
       [
         "NEXT",
         "warn",
         "Efter egen brug",
-        "V6 Core alpha",
-        "første taggede release",
-        "Udgives, når perioden med egen brug viser reelle fangster og få fejlagtige blokeringer. Flere værter følger som små adaptere."
+        "V6 Core beta",
+        "policy-format frosset",
+        "Når perioden med egen brug viser reelle fangster og få fejlagtige blokeringer. Flere værter følger som små adaptere."
       ]
     ],
     "statementTitle": "erklæring",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core kan bruges i dag og kører på maintainerens egne repositories. Policy-formatet kan stadig ændre sig før alpha.",
+      "Core kan bruges i dag og kører på maintainerens egne repositories. Policy-formatet kan stadig ændre sig før beta.",
       "Alt her er gratis og open source. Der er ingen betalt plan, konto eller telemetri."
     ],
     "licTitle": "licenser",
@@ -500,7 +500,7 @@
       ],
       [
         "Hvad med Codex, Gemini CLI eller Qwen Code?",
-        "De kørte V5, som er frosset. Core er værtsneutral, og adaptere til dem er planlagt efter alpha."
+        "De kørte V5, som er frosset. Core er værtsneutral, og adaptere til dem er planlagt efter beta."
       ]
     ]
   },

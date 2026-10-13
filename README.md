@@ -6,7 +6,7 @@
 
 **Your AI coding agent cannot finish on a stale green test, and cannot repeat or stack side effects whose result it never saw.**
 
-[![Core](https://img.shields.io/badge/V6_Core-pre--alpha-B45309?style=flat-square)](packages/bw-core)
+[![Core](https://img.shields.io/badge/V6_Core-alpha-B45309?style=flat-square)](packages/bw-core)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.14.0-3C873A?style=flat-square)](packages/bw-core/package.json)
 [![Core license](https://img.shields.io/badge/Core_license-Apache--2.0-64748B?style=flat-square)](packages/bw-core/LICENSE)
 
@@ -32,19 +32,19 @@ The agent is held to the files as they are now, and to what the provider actuall
 See both stories run in a few seconds, without Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Install for Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core               # once per machine
+claude plugin marketplace add stephen-taipei/better-workflows                 # once per machine
 claude plugin install better-workflows-core@better-workflows --scope local    # in your repository
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init                     # writes .better-workflows/policy.json
+bw init                                                                       # writes .better-workflows/policy.json
 ```
 
-Then ask Claude Code for a change and tell it not to run the tests: it is sent back when it tries to finish. [Getting started](packages/bw-core/docs/getting-started.md) covers policies, unknown results and limits. Core is pre-alpha, Apache-2.0, and has no runtime dependencies. Direction and milestones are in the [roadmap](ROADMAP.md).
+Then ask Claude Code for a change and tell it not to run the tests: it is sent back when it tries to finish. [Getting started](packages/bw-core/docs/getting-started.md) covers policies, unknown results and limits. Core is alpha (`6.0.0-alpha.1`), Apache-2.0, and has no runtime dependencies. Direction and milestones are in the [roadmap](ROADMAP.md).
 
 
 ## Other languages

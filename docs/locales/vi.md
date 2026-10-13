@@ -25,20 +25,20 @@ Agent bị ràng buộc với các tệp đúng như hiện tại và với nh�
 Xem cả hai tình huống chạy trong vài giây, không cần Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Cài đặt cho Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 Sau đó hãy nhờ Claude Code thực hiện một thay đổi và bảo nó đừng chạy test: nó sẽ bị trả lại khi cố kết thúc.
 
 Policy, kết quả không xác định và các giới hạn được trình bày trong hướng dẫn bắt đầu: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core đang ở giai đoạn pre-alpha. Trang này được dịch máy; README tiếng Anh là bản chính thức.
+> V6 Core đang ở giai đoạn alpha. Trang này được dịch máy; README tiếng Anh là bản chính thức.

@@ -20,7 +20,7 @@ Thank you for helping improve Better Workflows.
 
 Requirements:
 
-- Node.js 24 or newer;
+- Node.js 22.14 or newer;
 - no third-party runtime dependency;
 - a clean branch based on the current target branch.
 
@@ -32,6 +32,16 @@ git diff --check
 ```
 
 V5 is frozen on the [`frozen/v5`](https://github.com/stephen-taipei/better-workflows/tree/frozen/v5) branch; its baseline (`npm test --prefix plugins/better-workflows`, `sbw eval`) runs there, not on `main`.
+
+## Sign-off (DCO)
+
+Every commit in a contributed pull request must be signed off under the [Developer Certificate of Origin 1.1](https://developercertificate.org/): by adding the line below you certify that you wrote the change or otherwise have the right to submit it under the license of the files it touches (Apache-2.0 for `packages/bw-core`, AGPL-3.0-only elsewhere).
+
+```text
+Signed-off-by: Your Name <you@example.com>
+```
+
+`git commit -s` adds it. There is no separate contributor agreement to sign, and you keep the copyright to your contribution.
 
 ## Change rules
 
@@ -50,6 +60,7 @@ V5 is frozen on the [`frozen/v5`](https://github.com/stephen-taipei/better-workf
 - [ ] Focused tests cover success and failure paths.
 - [ ] `npm test --prefix packages/bw-core` passes.
 - [ ] `git diff --check` passes.
+- [ ] Every commit carries a `Signed-off-by` line.
 - [ ] No secrets, private state, or external receipts are included.
 
 Small reviewable commits are preferred. Do not combine unrelated cleanup with a

@@ -52,7 +52,7 @@
       "installHeading": "Install for Claude Code",
       "installNext": "Then ask Claude Code for a change and tell it not to run the tests: it is sent back when it tries to finish.",
       "docsLine": "Policies, unknown results and limits are covered in the getting-started guide:",
-      "status": "V6 Core is pre-alpha."
+      "status": "V6 Core is in alpha."
     },
     "zh-Hant": {
       "tagline": "你的 AI 寫程式 agent 不能拿過期的綠燈宣稱完成，也不能重複或疊加它從沒看到結果的副作用。",
@@ -63,7 +63,7 @@
       "installHeading": "安裝到 Claude Code",
       "installNext": "接著請 Claude Code 改點東西，並叫它不要跑測試：它想收工時會被退回。",
       "docsLine": "policy、結果不明的動作與限制，請看快速開始：",
-      "status": "V6 Core 目前是 pre-alpha。",
+      "status": "V6 Core 目前是 alpha。",
       "machine": "本頁為機器翻譯，以英文 README 為準。"
     },
     "zh-Hant-TW": {
@@ -75,7 +75,7 @@
       "installHeading": "安裝到 Claude Code",
       "installNext": "接著請 Claude Code 改點東西，並叫它不要跑測試：它想收工時會被退回。",
       "docsLine": "policy、結果不明的動作與限制，請看快速開始：",
-      "status": "V6 Core 目前是 pre-alpha。"
+      "status": "V6 Core 目前是 alpha。"
     },
     "zh-Hant-HK": {
       "tagline": "你的 AI 編程 agent 不能憑過期的綠燈聲稱完成，也不能重複或疊加它從未看到結果的副作用。",
@@ -86,7 +86,7 @@
       "installHeading": "安裝到 Claude Code",
       "installNext": "然後請 Claude Code 改點東西，並叫它不要執行測試：它想收工時會被退回。",
       "docsLine": "policy、結果不明的動作與限制，請參閱入門指南：",
-      "status": "V6 Core 目前是 pre-alpha。",
+      "status": "V6 Core 目前是 alpha。",
       "machine": "本頁為機器翻譯，以英文 README 為準。"
     },
     "zh-Hans": {
@@ -98,7 +98,7 @@
       "installHeading": "安装到 Claude Code",
       "installNext": "然后请 Claude Code 改点东西，并让它不要运行测试：它想收工时会被退回。",
       "docsLine": "policy、结果未知的操作与限制，请看快速入门：",
-      "status": "V6 Core 目前是 pre-alpha。",
+      "status": "V6 Core 目前是 alpha。",
       "machine": "本页为机器翻译，以英文 README 为准。"
     },
     "vi": {
@@ -110,7 +110,7 @@
       "installHeading": "Cài đặt cho Claude Code",
       "installNext": "Sau đó hãy nhờ Claude Code thực hiện một thay đổi và bảo nó đừng chạy test: nó sẽ bị trả lại khi cố kết thúc.",
       "docsLine": "Policy, kết quả không xác định và các giới hạn được trình bày trong hướng dẫn bắt đầu:",
-      "status": "V6 Core đang ở giai đoạn pre-alpha.",
+      "status": "V6 Core đang ở giai đoạn alpha.",
       "machine": "Trang này được dịch máy; README tiếng Anh là bản chính thức."
     },
     "uk": {
@@ -122,7 +122,7 @@
       "installHeading": "Встановлення для Claude Code",
       "installNext": "Потім попросіть Claude Code внести зміну і скажіть не запускати тести: коли він спробує завершити, його буде повернено.",
       "docsLine": "Policy, невідомі результати та обмеження описано в посібнику для початку роботи:",
-      "status": "V6 Core перебуває на стадії pre-alpha.",
+      "status": "V6 Core перебуває на стадії alpha.",
       "machine": "Цю сторінку перекладено машинно; основною є англійська версія README."
     },
     "tr": {
@@ -134,7 +134,7 @@
       "installHeading": "Claude Code için kurulum",
       "installNext": "Ardından Claude Code'dan bir değişiklik isteyin ve testleri çalıştırmamasını söyleyin: bitirmeye çalıştığında geri gönderilir.",
       "docsLine": "Policy'ler, bilinmeyen sonuçlar ve sınırlar başlangıç kılavuzunda anlatılır:",
-      "status": "V6 Core pre-alpha aşamasındadır.",
+      "status": "V6 Core alpha aşamasındadır.",
       "machine": "Bu sayfa makine çevirisidir; esas alınan metin İngilizce README'dir."
     },
     "th": {
@@ -146,7 +146,7 @@
       "installHeading": "ติดตั้งสำหรับ Claude Code",
       "installNext": "จากนั้นขอให้ Claude Code แก้ไขโค้ดสักอย่าง และบอกว่าไม่ต้องรันเทสต์ เมื่อมันพยายามปิดงาน มันจะถูกส่งกลับ",
       "docsLine": "policy ผลลัพธ์ที่ไม่ทราบ และข้อจำกัด อธิบายไว้ในคู่มือเริ่มต้น:",
-      "status": "V6 Core อยู่ในระยะ pre-alpha",
+      "status": "V6 Core อยู่ในระยะ alpha",
       "machine": "หน้านี้แปลด้วยเครื่อง ให้ยึด README ภาษาอังกฤษเป็นหลัก"
     },
     "sv": {
@@ -158,7 +158,7 @@
       "installHeading": "Installera för Claude Code",
       "installNext": "Be sedan Claude Code om en ändring och säg åt den att inte köra testerna: den skickas tillbaka när den försöker avsluta.",
       "docsLine": "Policyer, okända resultat och begränsningar beskrivs i kom igång-guiden:",
-      "status": "V6 Core är i pre-alpha.",
+      "status": "V6 Core är i alpha.",
       "machine": "Den här sidan är maskinöversatt; den engelska README-filen gäller."
     },
     "sk": {
@@ -170,7 +170,7 @@
       "installHeading": "Inštalácia pre Claude Code",
       "installNext": "Potom požiadajte Claude Code o zmenu a povedzte mu, aby nespúšťal testy: keď sa pokúsi skončiť, bude vrátený späť.",
       "docsLine": "Policy, neznáme výsledky a obmedzenia sú opísané v úvodnej príručke:",
-      "status": "V6 Core je vo fáze pre-alpha.",
+      "status": "V6 Core je vo fáze alpha.",
       "machine": "Táto stránka je strojovo preložená; záväzná je anglická verzia README."
     },
     "ru": {
@@ -182,7 +182,7 @@
       "installHeading": "Установка для Claude Code",
       "installNext": "Затем попросите Claude Code внести изменение и скажите не запускать тесты: когда он попытается завершить работу, его вернут.",
       "docsLine": "Policy, неизвестные результаты и ограничения описаны в руководстве по началу работы:",
-      "status": "V6 Core находится на стадии pre-alpha.",
+      "status": "V6 Core находится на стадии alpha.",
       "machine": "Эта страница переведена машинно; основной является английская версия README."
     },
     "ro": {
@@ -194,7 +194,7 @@
       "installHeading": "Instalare pentru Claude Code",
       "installNext": "Apoi cere-i lui Claude Code o modificare și spune-i să nu ruleze testele: va fi trimis înapoi când încearcă să încheie.",
       "docsLine": "Policy-urile, rezultatele necunoscute și limitările sunt descrise în ghidul de început:",
-      "status": "V6 Core este în stadiul pre-alpha.",
+      "status": "V6 Core este în stadiul alpha.",
       "machine": "Această pagină este tradusă automat; versiunea în engleză a README-ului este cea de referință."
     },
     "pt": {
@@ -206,7 +206,7 @@
       "installHeading": "Instalar no Claude Code",
       "installNext": "Depois peça uma alteração ao Claude Code e diga-lhe para não correr os testes: é mandado para trás quando tenta concluir.",
       "docsLine": "Policies, resultados desconhecidos e limitações estão descritos no guia de introdução:",
-      "status": "O V6 Core está em pre-alpha.",
+      "status": "O V6 Core está em alpha.",
       "machine": "Esta página foi traduzida automaticamente; o README em inglês é a referência."
     },
     "pt-BR": {
@@ -218,7 +218,7 @@
       "installHeading": "Instalar no Claude Code",
       "installNext": "Depois peça uma alteração ao Claude Code e diga para ele não rodar os testes: ele é mandado de volta quando tenta concluir.",
       "docsLine": "Policies, resultados desconhecidos e limitações estão no guia de primeiros passos:",
-      "status": "O V6 Core está em pre-alpha.",
+      "status": "O V6 Core está em alpha.",
       "machine": "Esta página foi traduzida automaticamente; o README em inglês é a referência."
     },
     "pl": {
@@ -230,7 +230,7 @@
       "installHeading": "Instalacja dla Claude Code",
       "installNext": "Następnie poproś Claude Code o zmianę i powiedz mu, żeby nie uruchamiał testów: gdy spróbuje zakończyć, zostanie odesłany z powrotem.",
       "docsLine": "Policy, nieznane wyniki i ograniczenia opisuje przewodnik wprowadzający:",
-      "status": "V6 Core jest w fazie pre-alpha.",
+      "status": "V6 Core jest w fazie alpha.",
       "machine": "Ta strona została przetłumaczona maszynowo; wiążąca jest angielska wersja README."
     },
     "nl": {
@@ -242,7 +242,7 @@
       "installHeading": "Installeren voor Claude Code",
       "installNext": "Vraag Claude Code daarna om een wijziging en zeg dat hij de tests niet moet draaien: hij wordt teruggestuurd zodra hij wil afronden.",
       "docsLine": "Policies, onbekende resultaten en beperkingen staan in de handleiding om te beginnen:",
-      "status": "V6 Core is pre-alpha.",
+      "status": "V6 Core is in alpha.",
       "machine": "Deze pagina is machinaal vertaald; de Engelse README is leidend."
     },
     "nb": {
@@ -254,7 +254,7 @@
       "installHeading": "Installer for Claude Code",
       "installNext": "Be deretter Claude Code om en endring og si at den ikke skal kjøre testene: den sendes tilbake når den prøver å avslutte.",
       "docsLine": "Policyer, ukjente resultater og begrensninger er beskrevet i kom i gang-veiledningen:",
-      "status": "V6 Core er i pre-alpha.",
+      "status": "V6 Core er i alpha.",
       "machine": "Denne siden er maskinoversatt; den engelske README-filen gjelder."
     },
     "my": {
@@ -266,7 +266,7 @@
       "installHeading": "Claude Code အတွက် ထည့်သွင်းခြင်း",
       "installNext": "ထို့နောက် Claude Code ကို ပြောင်းလဲမှုတစ်ခု တောင်းဆိုပြီး test မ run ရန် ပြောပါ။ အလုပ်ပြီးအောင် လုပ်ရန် ကြိုးစားသောအခါ ပြန်ပို့ခံရမည်။",
       "docsLine": "policy များ၊ မသိရသေးသော ရလဒ်များနှင့် ကန့်သတ်ချက်များကို စတင်အသုံးပြုခြင်း လမ်းညွှန်တွင် ဖော်ပြထားသည်:",
-      "status": "V6 Core သည် pre-alpha အဆင့်တွင် ရှိသည်။",
+      "status": "V6 Core သည် alpha အဆင့်တွင် ရှိသည်။",
       "machine": "ဤစာမျက်နှာကို စက်ဖြင့် ဘာသာပြန်ထားသည်။ အင်္ဂလိပ် README ကို အတည်ဖြစ်သည်ဟု ယူပါ။"
     },
     "ms": {
@@ -278,7 +278,7 @@
       "installHeading": "Pasang untuk Claude Code",
       "installNext": "Kemudian minta Claude Code membuat perubahan dan suruh ia jangan menjalankan ujian: ia akan dihantar balik apabila cuba menamatkan kerja.",
       "docsLine": "Policy, hasil yang tidak diketahui dan had diterangkan dalam panduan permulaan:",
-      "status": "V6 Core masih pre-alpha.",
+      "status": "V6 Core masih alpha.",
       "machine": "Halaman ini diterjemah secara mesin; README bahasa Inggeris ialah rujukan rasmi."
     },
     "lo": {
@@ -290,7 +290,7 @@
       "installHeading": "ຕິດຕັ້ງສຳລັບ Claude Code",
       "installNext": "ຈາກນັ້ນຂໍໃຫ້ Claude Code ແກ້ໄຂບາງຢ່າງ ແລະ ບອກວ່າບໍ່ຕ້ອງແລ່ນເທສ: ເມື່ອມັນພະຍາຍາມປິດວຽກ ມັນຈະຖືກສົ່ງກັບ.",
       "docsLine": "policy, ຜົນລັບທີ່ບໍ່ຮູ້ ແລະ ຂໍ້ຈຳກັດ ອະທິບາຍໄວ້ໃນຄູ່ມືເລີ່ມຕົ້ນ:",
-      "status": "V6 Core ຢູ່ໃນໄລຍະ pre-alpha.",
+      "status": "V6 Core ຢູ່ໃນໄລຍະ alpha.",
       "machine": "ໜ້ານີ້ແປດ້ວຍເຄື່ອງ; ໃຫ້ຖື README ພາສາອັງກິດເປັນຫຼັກ."
     },
     "ko": {
@@ -302,7 +302,7 @@
       "installHeading": "Claude Code에 설치",
       "installNext": "그런 다음 Claude Code에 변경을 요청하고 테스트는 실행하지 말라고 하세요. 작업을 끝내려 할 때 되돌려 보내집니다.",
       "docsLine": "policy, 결과를 알 수 없는 작업, 제한 사항은 시작 가이드에서 다룹니다:",
-      "status": "V6 Core는 pre-alpha 단계입니다.",
+      "status": "V6 Core는 alpha 단계입니다.",
       "machine": "이 페이지는 기계 번역되었습니다. 영어 README가 기준입니다."
     },
     "km": {
@@ -314,7 +314,7 @@
       "installHeading": "ដំឡើងសម្រាប់ Claude Code",
       "installNext": "បន្ទាប់មកសុំឱ្យ Claude Code ធ្វើការផ្លាស់ប្តូរ ហើយប្រាប់វាកុំឱ្យដំណើរការតេស្ត៖ នៅពេលវាព្យាយាមបញ្ចប់ វានឹងត្រូវបានបញ្ជូនត្រឡប់មកវិញ។",
       "docsLine": "policy លទ្ធផលដែលមិនស្គាល់ និងដែនកំណត់ ត្រូវបានពន្យល់នៅក្នុងមគ្គុទ្ទេសក៍ចាប់ផ្តើម៖",
-      "status": "V6 Core ស្ថិតក្នុងដំណាក់កាល pre-alpha។",
+      "status": "V6 Core ស្ថិតក្នុងដំណាក់កាល alpha។",
       "machine": "ទំព័រនេះត្រូវបានបកប្រែដោយម៉ាស៊ីន។ README ភាសាអង់គ្លេសគឺជាឯកសារយោងផ្លូវការ។"
     },
     "ja": {
@@ -326,7 +326,7 @@
       "installHeading": "Claude Code にインストール",
       "installNext": "次に Claude Code に変更を依頼し、テストは実行しないよう伝えてください。完了しようとすると差し戻されます。",
       "docsLine": "policy、結果が不明なアクション、制限事項は入門ガイドにあります:",
-      "status": "V6 Core は pre-alpha です。",
+      "status": "V6 Core は alpha です。",
       "machine": "このページは機械翻訳です。英語の README が正となります。"
     },
     "it": {
@@ -338,7 +338,7 @@
       "installHeading": "Installazione per Claude Code",
       "installNext": "Poi chiedi a Claude Code una modifica e digli di non eseguire i test: quando prova a concludere viene rimandato indietro.",
       "docsLine": "Policy, risultati sconosciuti e limiti sono descritti nella guida introduttiva:",
-      "status": "V6 Core è in pre-alpha.",
+      "status": "V6 Core è in alpha.",
       "machine": "Questa pagina è tradotta automaticamente; fa fede il README in inglese."
     },
     "id": {
@@ -350,7 +350,7 @@
       "installHeading": "Pasang untuk Claude Code",
       "installNext": "Lalu minta Claude Code membuat perubahan dan suruh jangan menjalankan tes: ia akan dikembalikan saat mencoba menyelesaikan.",
       "docsLine": "Policy, hasil yang tidak diketahui, dan batasan dijelaskan di panduan memulai:",
-      "status": "V6 Core masih pre-alpha.",
+      "status": "V6 Core masih alpha.",
       "machine": "Halaman ini diterjemahkan oleh mesin; README berbahasa Inggris adalah acuan resmi."
     },
     "hu": {
@@ -362,7 +362,7 @@
       "installHeading": "Telepítés Claude Code-hoz",
       "installNext": "Ezután kérj egy módosítást a Claude Code-tól, és mondd neki, hogy ne futtassa a teszteket: amikor be akarja fejezni, visszaküldi a rendszer.",
       "docsLine": "A policyket, az ismeretlen eredményeket és a korlátokat a kezdő útmutató ismerteti:",
-      "status": "A V6 Core pre-alpha állapotban van.",
+      "status": "A V6 Core alpha állapotban van.",
       "machine": "Ez az oldal gépi fordítás; az angol README a mérvadó."
     },
     "hr": {
@@ -374,7 +374,7 @@
       "installHeading": "Instalacija za Claude Code",
       "installNext": "Zatim zatražite od Claude Codea promjenu i recite mu da ne pokreće testove: kad pokuša završiti, bit će vraćen.",
       "docsLine": "Policy, nepoznati rezultati i ograničenja opisani su u vodiču za početak:",
-      "status": "V6 Core je u fazi pre-alpha.",
+      "status": "V6 Core je u fazi alpha.",
       "machine": "Ova je stranica strojno prevedena; mjerodavan je README na engleskom."
     },
     "hi": {
@@ -386,7 +386,7 @@
       "installHeading": "Claude Code के लिए इंस्टॉल करें",
       "installNext": "फिर Claude Code से कोई बदलाव करने को कहें और उसे टेस्ट न चलाने को कहें: जब वह काम ख़त्म करने की कोशिश करेगा, उसे वापस भेज दिया जाएगा।",
       "docsLine": "Policy, अज्ञात नतीजे और सीमाएँ शुरुआती गाइड में बताई गई हैं:",
-      "status": "V6 Core अभी pre-alpha है।",
+      "status": "V6 Core अभी alpha है।",
       "machine": "यह पेज मशीन से अनुवादित है; अंग्रेज़ी README ही मान्य है।"
     },
     "he": {
@@ -398,7 +398,7 @@
       "installHeading": "התקנה עבור Claude Code",
       "installNext": "לאחר מכן בקשו מ-Claude Code שינוי ואמרו לו לא להריץ את הבדיקות: כשינסה לסיים, הוא יוחזר.",
       "docsLine": "policy, תוצאות לא ידועות ומגבלות מתוארים במדריך לתחילת העבודה:",
-      "status": "V6 Core נמצא בשלב pre-alpha.",
+      "status": "V6 Core נמצא בשלב alpha.",
       "machine": "דף זה תורגם במכונה; ה-README באנגלית הוא הקובע."
     },
     "fr": {
@@ -410,7 +410,7 @@
       "installHeading": "Installer pour Claude Code",
       "installNext": "Demandez ensuite une modification à Claude Code en lui disant de ne pas lancer les tests : il est renvoyé au travail quand il essaie de terminer.",
       "docsLine": "Les policies, les résultats inconnus et les limites sont décrits dans le guide de démarrage :",
-      "status": "V6 Core est en pre-alpha.",
+      "status": "V6 Core est en alpha.",
       "machine": "Cette page est traduite automatiquement ; le README en anglais fait foi."
     },
     "fil": {
@@ -422,7 +422,7 @@
       "installHeading": "I-install para sa Claude Code",
       "installNext": "Pagkatapos, humiling ng pagbabago sa Claude Code at sabihing huwag patakbuhin ang mga test: ibabalik ito kapag sinubukan nitong tapusin.",
       "docsLine": "Ang mga policy, hindi alam na resulta at mga limitasyon ay nasa getting-started na gabay:",
-      "status": "Ang V6 Core ay nasa pre-alpha.",
+      "status": "Ang V6 Core ay nasa alpha.",
       "machine": "Ang pahinang ito ay isinalin ng makina; ang README sa Ingles ang opisyal."
     },
     "fi": {
@@ -434,7 +434,7 @@
       "installHeading": "Asennus Claude Codeen",
       "installNext": "Pyydä sitten Claude Codelta muutosta ja kiellä sitä ajamasta testejä: kun se yrittää lopettaa, se lähetetään takaisin.",
       "docsLine": "Policyt, tuntemattomat tulokset ja rajoitukset kuvataan aloitusoppaassa:",
-      "status": "V6 Core on pre-alpha-vaiheessa.",
+      "status": "V6 Core on alpha-vaiheessa.",
       "machine": "Tämä sivu on konekäännös; englanninkielinen README on ensisijainen."
     },
     "es": {
@@ -446,7 +446,7 @@
       "installHeading": "Instalar para Claude Code",
       "installNext": "Después pide un cambio a Claude Code y dile que no ejecute los tests: cuando intente terminar, se le devuelve.",
       "docsLine": "Las policies, los resultados desconocidos y los límites se explican en la guía de inicio:",
-      "status": "V6 Core está en pre-alpha.",
+      "status": "V6 Core está en alpha.",
       "machine": "Esta página es una traducción automática; el README en inglés es la referencia."
     },
     "es-MX": {
@@ -458,7 +458,7 @@
       "installHeading": "Instalar para Claude Code",
       "installNext": "Después pídele un cambio a Claude Code y dile que no corra las pruebas: cuando intente terminar, se le regresa.",
       "docsLine": "Las policies, los resultados desconocidos y los límites se explican en la guía de inicio:",
-      "status": "V6 Core está en pre-alpha.",
+      "status": "V6 Core está en alpha.",
       "machine": "Esta página es una traducción automática; el README en inglés es la referencia."
     },
     "el": {
@@ -470,7 +470,7 @@
       "installHeading": "Εγκατάσταση για το Claude Code",
       "installNext": "Έπειτα ζητήστε από το Claude Code μια αλλαγή και πείτε του να μην τρέξει τα τεστ: όταν προσπαθήσει να ολοκληρώσει, θα σταλεί πίσω.",
       "docsLine": "Τα policy, τα άγνωστα αποτελέσματα και οι περιορισμοί περιγράφονται στον οδηγό έναρξης:",
-      "status": "Το V6 Core είναι σε pre-alpha.",
+      "status": "Το V6 Core είναι σε alpha.",
       "machine": "Αυτή η σελίδα είναι μηχανική μετάφραση· το αγγλικό README είναι το έγκυρο."
     },
     "de": {
@@ -482,7 +482,7 @@
       "installHeading": "Installation für Claude Code",
       "installNext": "Bitten Sie Claude Code dann um eine Änderung und sagen Sie ihm, dass es die Tests nicht ausführen soll: Beim Versuch abzuschließen wird es zurückgeschickt.",
       "docsLine": "Policies, unbekannte Ergebnisse und Grenzen beschreibt die Einstiegsanleitung:",
-      "status": "V6 Core ist im Pre-Alpha-Stadium.",
+      "status": "V6 Core ist im Alpha-Stadium.",
       "machine": "Diese Seite ist maschinell übersetzt; maßgeblich ist die englische README."
     },
     "da": {
@@ -494,7 +494,7 @@
       "installHeading": "Installér til Claude Code",
       "installNext": "Bed derefter Claude Code om en ændring og sig, at den ikke skal køre testene: den bliver sendt tilbage, når den forsøger at afslutte.",
       "docsLine": "Policyer, ukendte resultater og begrænsninger er beskrevet i kom godt i gang-vejledningen:",
-      "status": "V6 Core er i pre-alpha.",
+      "status": "V6 Core er i alpha.",
       "machine": "Denne side er maskinoversat; den engelske README er gældende."
     },
     "cs": {
@@ -506,7 +506,7 @@
       "installHeading": "Instalace pro Claude Code",
       "installNext": "Potom požádejte Claude Code o změnu a řekněte mu, ať nespouští testy: když se pokusí skončit, bude vrácen zpět.",
       "docsLine": "Policy, neznámé výsledky a omezení popisuje úvodní průvodce:",
-      "status": "V6 Core je ve fázi pre-alpha.",
+      "status": "V6 Core je ve fázi alpha.",
       "machine": "Tato stránka je strojově přeložená; závazná je anglická verze README."
     },
     "ca": {
@@ -518,7 +518,7 @@
       "installHeading": "Instal·lar per a Claude Code",
       "installNext": "Després demana un canvi a Claude Code i digues-li que no executi els tests: quan intenti acabar, el retornaran.",
       "docsLine": "Les policies, els resultats desconeguts i els límits s'expliquen a la guia d'inici:",
-      "status": "V6 Core és en pre-alpha.",
+      "status": "V6 Core és en alpha.",
       "machine": "Aquesta pàgina és una traducció automàtica; el README en anglès és la referència."
     },
     "ar": {
@@ -530,7 +530,7 @@
       "installHeading": "التثبيت في Claude Code",
       "installNext": "ثم اطلب من Claude Code تعديلًا وأخبره ألا يشغّل الاختبارات: سيُعاد عندما يحاول الإنهاء.",
       "docsLine": "يشرح دليل البدء الـ policy والنتائج غير المعروفة والقيود:",
-      "status": "V6 Core في مرحلة pre-alpha.",
+      "status": "V6 Core في مرحلة alpha.",
       "machine": "هذه الصفحة مترجمة آليًا، والمرجع المعتمد هو ملف README باللغة الإنجليزية."
     }
   }

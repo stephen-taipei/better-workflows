@@ -20,7 +20,7 @@
     "themeToggle": "สลับธีมสี",
     "homeLabel": "หน้าแรก Better Workflows",
     "tagline": "coding agent ของคุณปิดงานด้วยหลักฐานปัจจุบัน และไม่ทำ side effect ที่สำเร็จไปแล้วบน commit เดียวกันซ้ำอีกเลย",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "ติดตั้ง",
     "overview": "ภาพรวม",
     "hosts": "Host",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org เปลี่ยนเส้นทางมาที่นี่)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "หลักฐานต้องสดใหม่",
     "h1Signal": "ไม่รู้ผล ต้องหยุด",
     "lead": "Claude Code plugin ที่ไม่ให้ AI agent ปิดงานด้วยผลเทสต์ที่ผ่านแต่ล้าสมัย และไม่ให้ทำซ้ำหรือซ้อน side effect ที่ยังไม่เคยเห็นผลลัพธ์ สิ่งที่มันทำได้มาจากไฟล์ policy ที่คุณเขียน ไม่เคยมาจาก prompt",
@@ -53,7 +53,7 @@
     "ctaInstall": "ติดตั้งสำหรับ Claude Code",
     "ctaDemo": "ดูมันหยุด",
     "specTitle": "Core",
-    "status": "Pre-alpha ผู้ดูแลใช้งานเองบนสอง repository ของตัวเองตั้งแต่ตุลาคม 2026",
+    "status": "Alpha ผู้ดูแลใช้งานเองบนสอง repository ของตัวเองตั้งแต่ตุลาคม 2026",
     "host": "Claude Code (hooks plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "policy ที่ไม่ถูกต้องจะปฏิเสธทุก side effect แทนที่จะถอยกลับไปใช้ค่าเริ่มต้น",
       "สิทธิ์ที่หมดอายุจะถอยกลับเป็น ask มีเพียงคนเท่านั้นที่ต่ออายุได้ โดยแก้ policy",
       "คำสั่งที่ Core อ่านไม่ออก เช่น <code>eval</code> หรือ <code>sh -c</code> จะถือว่าทึบและต้องถามก่อน",
-      "บัญชีบันทึกเขียนต่อท้ายได้อย่างเดียวและเชื่อมกันด้วย hash chain; <code>bw verify</code> ตรวจจับรายการที่ถูกแก้หรือถูกลบ และบรรทัดสุดท้ายที่เขียนไม่เสร็จได้ แต่ตรวจไม่พบรายการทั้งรายการที่ถูกตัดออกจากท้าย"
+      "บัญชีบันทึกเขียนต่อท้ายได้อย่างเดียวและเชื่อมกันด้วย hash chain; <code>bw verify</code> ตรวจจับรายการที่ถูกแก้ ถูกลบ หรือถูกตัดออกจากท้ายได้ แต่ตรวจไม่พบเมื่อบัญชีบันทึกถูกเขียนใหม่พร้อมกับไฟล์ head ของมัน"
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "ต้องมี Node.js 22.14 ขึ้นไป Git และ Claude Code ที่รองรับ plugin",
     "steps": [
       [
-        "Clone Core",
-        "ทำครั้งเดียวต่อเครื่อง ถ้าเคยรัน V5 บนเครื่องนี้ ให้ย้าย <code>~/.better-workflows</code> ไปเป็น <code>~/.better-workflows-V5</code> ก่อน แล้วตั้ง <code>SBW_STATE_ROOT</code> ให้ชี้ไปที่นั่น"
+        "ติดตั้ง CLI",
+        "ทำครั้งเดียวต่อเครื่อง ติดตั้งจาก npm แล้วจะได้คำสั่ง <code>bw</code>"
       ],
       [
         "เพิ่ม plugin",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "กำลังทำ",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "hook ของ Claude Code, scope ของหลักฐาน, ใช้งานเองบนสอง repository"
+        "ปัจจุบัน",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "hook ของ Claude Code, scope ของหลักฐาน และบัญชีบันทึก ยังใช้งานเองบนสอง repository ต่อไป"
       ],
       [
         "NEXT",
         "warn",
         "หลังช่วงใช้งานเอง",
-        "V6 Core alpha",
-        "release แรกที่ติด tag",
-        "จะเผยแพร่เมื่อช่วงใช้งานเองแสดงให้เห็นว่าจับปัญหาได้จริงและบล็อกผิดน้อย host อื่น ๆ จะตามมาในรูปแบบ adapter เล็ก ๆ"
+        "V6 Core beta",
+        "ตรึงรูปแบบ policy",
+        "เมื่อช่วงใช้งานเองแสดงให้เห็นว่าจับปัญหาได้จริงและบล็อกผิดน้อย host อื่น ๆ จะตามมาในรูปแบบ adapter เล็ก ๆ"
       ]
     ],
     "statementTitle": "แถลง",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core ใช้งานได้แล้ววันนี้ และรันอยู่บน repository ของผู้ดูแลเอง รูปแบบ policy อาจยังเปลี่ยนก่อนถึง alpha",
+      "Core ใช้งานได้แล้ววันนี้ และรันอยู่บน repository ของผู้ดูแลเอง รูปแบบ policy อาจยังเปลี่ยนก่อนถึง beta",
       "ทุกอย่างที่นี่ฟรีและเป็นโอเพนซอร์ส ไม่มีแผนเสียเงิน บัญชี หรือ telemetry"
     ],
     "licTitle": "สัญญาอนุญาต",
@@ -500,7 +500,7 @@
       ],
       [
         "แล้ว Codex, Gemini CLI หรือ Qwen Code ล่ะ",
-        "พวกนั้นเคยใช้ V5 ซึ่งถูกตรึงแล้ว Core ไม่ผูกกับ host ใด และมีแผนทำ adapter ให้หลัง alpha"
+        "พวกนั้นเคยใช้ V5 ซึ่งถูกตรึงแล้ว Core ไม่ผูกกับ host ใด และมีแผนทำ adapter ให้หลัง beta"
       ]
     ]
   },

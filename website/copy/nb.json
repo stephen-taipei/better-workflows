@@ -20,7 +20,7 @@
     "themeToggle": "Bytt fargetema",
     "homeLabel": "Better Workflows forside",
     "tagline": "Kodeagenten din avslutter på ferske bevis og gjentar aldri en sideeffekt som allerede har lyktes på samme commit.",
-    "chip": "V6 Core · pre-alpha",
+    "chip": "V6 Core · alpha",
     "installCta": "Installer",
     "overview": "Oversikt",
     "hosts": "Verter",
@@ -39,7 +39,7 @@
     "alias": "(betterworkflows.org videresender hit)"
   },
   "hero": {
-    "badge": "pre-alpha",
+    "badge": "alpha",
     "h1": "Bevis må være ferskt.",
     "h1Signal": "Ukjent betyr stopp.",
     "lead": "En Claude Code-plugin som hindrer en AI-agent i å avslutte på en utdatert grønn test, og i å gjenta eller stable sideeffekter den aldri så resultatet av. Hva den får gjøre, kommer fra en policy-fil du skriver, aldri fra prompten.",
@@ -53,7 +53,7 @@
     "ctaInstall": "Installer for Claude Code",
     "ctaDemo": "Se den stoppe",
     "specTitle": "Core",
-    "status": "Pre-alpha. I egen bruk på to av vedlikeholderens repositorier siden oktober 2026.",
+    "status": "Alpha. I egen bruk på to av vedlikeholderens repositorier siden oktober 2026.",
     "host": "Claude Code (hooks-plugin)",
     "platforms": "macOS · Linux",
     "license": "Apache-2.0",
@@ -280,7 +280,7 @@
       "En ugyldig policy avviser alle sideeffekter i stedet for å falle tilbake til standardverdier.",
       "En utløpt tillatelse faller tilbake til ask. Bare et menneske forlenger den, ved å redigere policyen.",
       "Kommandoer Core ikke kan lese, som <code>eval</code> eller <code>sh -c</code>, behandles som ugjennomsiktige, og du blir spurt.",
-      "Loggen er append-only og hash-kjedet; <code>bw verify</code> oppdager endrede eller fjernede oppføringer og en halvskrevet siste linje, men ikke hele oppføringer som er kuttet bort fra slutten."
+      "Loggen er append-only og hash-kjedet; <code>bw verify</code> oppdager oppføringer som er endret, fjernet eller kuttet bort fra slutten, men ikke en logg som er skrevet om sammen med head-filen sin."
     ]
   },
   "hosts": {
@@ -308,8 +308,8 @@
     "lead": "Krever Node.js 22.14 eller nyere, Git og Claude Code med plugin-støtte.",
     "steps": [
       [
-        "Klon Core",
-        "Én gang per maskin. Hvis du har kjørt V5 her, flytt først <code>~/.better-workflows</code> til <code>~/.better-workflows-V5</code> og pek <code>SBW_STATE_ROOT</code> dit."
+        "Installer CLI-en",
+        "Én gang per maskin, fra npm. Det gir deg kommandoen <code>bw</code>."
       ],
       [
         "Legg til pluginen",
@@ -400,24 +400,24 @@
       [
         "NOW",
         "sig",
-        "Pågår",
-        "V6 Core pre-alpha",
-        "packages/bw-core",
-        "Claude Code-hooks, bevis-scope, egenbruk på to repositorier."
+        "Aktuell",
+        "V6 Core alpha",
+        "6.0.0-alpha.1",
+        "Claude Code-hooks, bevis-scope, logg. Egenbruk på to repositorier fortsetter."
       ],
       [
         "NEXT",
         "warn",
         "Etter egenbruk",
-        "V6 Core alpha",
-        "første taggede release",
-        "Publiseres når egenbruksperioden viser reelle fangster og få falske blokkeringer. Flere verter følger som små adaptere."
+        "V6 Core beta",
+        "policy-format fryst",
+        "Når egenbruken viser reelle fangster og få falske blokkeringer. Flere verter følger som små adaptere."
       ]
     ],
     "statementTitle": "erklæring",
-    "statementK": "PRE-ALPHA",
+    "statementK": "ALPHA",
     "statement": [
-      "Core kan brukes i dag og kjører på vedlikeholderens egne repositorier. Policy-formatet kan fortsatt endres før alpha.",
+      "Core kan brukes i dag og kjører på vedlikeholderens egne repositorier. Policy-formatet kan fortsatt endres før beta.",
       "Alt her er gratis og åpen kildekode. Det finnes ingen betalt plan, konto eller telemetri."
     ],
     "licTitle": "lisenser",
@@ -500,7 +500,7 @@
       ],
       [
         "Hva med Codex, Gemini CLI eller Qwen Code?",
-        "De kjørte V5, som er fryst. Core er vertsnøytral, og adaptere for dem er planlagt etter alpha."
+        "De kjørte V5, som er fryst. Core er vertsnøytral, og adaptere for dem er planlagt etter beta."
       ]
     ]
   },

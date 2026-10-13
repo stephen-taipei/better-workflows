@@ -25,20 +25,20 @@ Az ügynököt a fájlok jelenlegi állapotához és ahhoz mérik, amit a szolg�
 Nézd meg mindkét forgatókönyvet néhány másodperc alatt, Claude nélkül:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Telepítés Claude Code-hoz
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 Ezután kérj egy módosítást a Claude Code-tól, és mondd neki, hogy ne futtassa a teszteket: amikor be akarja fejezni, visszaküldi a rendszer.
 
 A policyket, az ismeretlen eredményeket és a korlátokat a kezdő útmutató ismerteti: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> A V6 Core pre-alpha állapotban van. Ez az oldal gépi fordítás; az angol README a mérvadó.
+> A V6 Core alpha állapotban van. Ez az oldal gépi fordítás; az angol README a mérvadó.

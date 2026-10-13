@@ -25,20 +25,20 @@ De agent wordt gehouden aan de bestanden zoals ze nu zijn, en aan wat de provide
 Zie beide scenario's in een paar seconden draaien, zonder Claude:
 
 ```bash
-git clone --depth 1 https://github.com/stephen-taipei/better-workflows ~/.better-workflows
-node ~/.better-workflows/packages/bw-core/examples/stale-green/demo.mjs
+npm install -g @better-workflows/core@alpha
+node "$(npm root -g)/@better-workflows/core/examples/stale-green/demo.mjs"
 ```
 
 ## Installeren voor Claude Code
 
 ```bash
-claude plugin marketplace add ~/.better-workflows/packages/bw-core
+claude plugin marketplace add stephen-taipei/better-workflows
 claude plugin install better-workflows-core@better-workflows --scope local
-node ~/.better-workflows/packages/bw-core/bin/bw.mjs init
+bw init
 ```
 
 Vraag Claude Code daarna om een wijziging en zeg dat hij de tests niet moet draaien: hij wordt teruggestuurd zodra hij wil afronden.
 
 Policies, onbekende resultaten en beperkingen staan in de handleiding om te beginnen: [English](../../packages/bw-core/docs/getting-started.md) · [繁體中文（台灣）](../../packages/bw-core/docs/getting-started.zh-TW.md)
 
-> V6 Core is pre-alpha. Deze pagina is machinaal vertaald; de Engelse README is leidend.
+> V6 Core is in alpha. Deze pagina is machinaal vertaald; de Engelse README is leidend.

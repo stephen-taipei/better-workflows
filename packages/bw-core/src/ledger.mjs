@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rmdir, stat } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, rmdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { digest } from "./canonical.mjs";
@@ -8,6 +8,37 @@ const LOCK_STALE_MS = 30_000;
 
 export function ledgerPath(repo) {
   return path.join(repo.stateDir, "ledger.jsonl");
+}
+
+// The last entry's seq and hash, kept beside the ledger. The chain alone cannot
+// show that whole entries were cut from the end, so a ledger shorter than its
+// head is broken. Editing both files together still goes unseen.
+function headPath(repo) {
+  return path.join(repo.stateDir, "ledger.head");
+}
+
+async function readHead(repo) {
+  try {
+    return JSON.parse(await readFile(headPath(repo), "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return null; // a ledger from before the head existed
+    throw new Error("Ledger head is not valid JSON");
+  }
+}
+
+function checkHead(entries, head) {
+  if (!head || head.seq === 0) return;
+  // A crash between appending and writing the head leaves the ledger ahead of
+  // it, never behind.
+  if (entries[head.seq - 1]?.hash !== head.hash) {
+    throw new Error(`Ledger ends before its recorded head (entry ${head.seq}); entries were removed`);
+  }
+}
+
+async function writeHead(repo, entry) {
+  const temp = `${headPath(repo)}.${process.pid}`;
+  await writeFile(temp, `${JSON.stringify({ seq: entry.seq, hash: entry.hash })}\n`, { mode: 0o600 });
+  await rename(temp, headPath(repo));
 }
 
 function entryHash(entry) {
@@ -42,12 +73,13 @@ async function withLock(repo, fn) {
 // Reads every entry and verifies the hash chain. A broken chain is an error:
 // nothing built on a tampered or truncated ledger can be trusted.
 export async function readLedger(repo) {
+  const head = await readHead(repo);
   let text;
   try {
     text = await readFile(ledgerPath(repo), "utf8");
   } catch (error) {
-    if (error.code === "ENOENT") return [];
-    throw error;
+    if (error.code !== "ENOENT") throw error;
+    text = "";
   }
   const entries = [];
   let prev = GENESIS;
@@ -66,6 +98,7 @@ export async function readLedger(repo) {
     entries.push(entry);
     prev = entry.hash;
   }
+  checkHead(entries, head);
   return entries;
 }
 
@@ -76,6 +109,7 @@ export async function appendEvent(repo, type, data, { now = new Date() } = {}) {
     const entry = { seq: entries.length + 1, at: now.toISOString(), type, data, prev: last?.hash ?? GENESIS };
     entry.hash = entryHash(entry);
     await appendFile(ledgerPath(repo), `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+    await writeHead(repo, entry);
     return entry;
   });
 }
