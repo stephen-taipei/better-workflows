@@ -6,7 +6,7 @@
 
 ## 專案目前狀態
 
-- **V6 Core alpha 已發佈。** [`6.0.0-alpha.1`](../packages/bw-core/CHANGELOG.md) 可從本 repository 的 Claude Code plugin marketplace 與 npm 安裝。beta 之前 policy 格式仍可能調整。
+- **V6 Core alpha 已發佈。** [`6.0.0-alpha.2`](../packages/bw-core/CHANGELOG.md) 可從本 repository 的 Claude Code plugin marketplace 與 npm 安裝。beta 之前 policy 格式仍可能調整。
 - **自用持續進行。** 2026-10-12 起在維護者的兩個 repository 上運作；第一次檢視真擋與誤擋在 2026-10-26。
 - **V5 已凍結。** 位於 [`frozen/v5`](https://github.com/stephen-taipei/better-workflows/tree/frozen/v5) 分支，[V5.0 RC1](https://github.com/stephen-taipei/better-workflows/releases/tag/V5.0.rc1) 仍可安裝。V5.1 計畫已停止。
 
@@ -29,7 +29,7 @@ Claude Code 是第一個支援的工具。透過它的 hooks，Core 能以確定
 2. **Core kernel**（完成）：`packages/bw-core`，包含證據、policy、action token、對帳、append-only ledger 與 `bw` CLI。零執行階段依賴，Node 22.14 以上。
 3. **Claude Code plugin**（完成）：以 Core 為基礎的 `SessionStart`、`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`Stop`、`SubagentStop` hooks。
 4. **Demo 與文件**（完成）：幾秒鐘的情境，過期的測試綠燈被拒絕、結果不明的 push 必須先對帳。指南提供英文與繁體中文（台灣）；README 與官網提供 41 種語言，其中 39 種為機器翻譯。
-5. **Alpha 發行**（目前）：`6.0.0-alpha.1`，可從 plugin marketplace 與 npm 安裝。
+5. **Alpha 發行**（目前）：`6.0.0-alpha.2`，可從 plugin marketplace 與 npm 安裝。
 6. **Beta**：自用期證明真的擋下錯誤、而且誤擋夠少之後，凍結 policy 格式。
 7. **正式版 `6.0.0`**：以下條件全部成立才發佈：
    - 沒有已知 bug 會讓 agent 把不該算數的證據算數，或讓副作用重複執行、疊加執行。
