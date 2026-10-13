@@ -4,7 +4,7 @@
 
 Better Workflows Core 讓 Claude Code 的 agent 不能拿「已經對不上目前檔案」的測試結果宣稱完成，也不能在外部動作結果沒有回來時重複執行或繼續疊加副作用。本文帶你從一個乾淨的 repository 走到第一次攔截，只需要幾分鐘。
 
-狀態：alpha（`6.0.0-alpha.1`）。beta 之前 policy 格式仍可能調整。
+狀態：alpha（`6.0.0-alpha.2`）。beta 之前 policy 格式仍可能調整。
 
 ## 需求
 

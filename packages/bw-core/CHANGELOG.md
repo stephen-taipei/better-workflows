@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.0.0-alpha.2
+
+### Fixed
+
+- **The agent could fake a passing check with `bw run`.** `bw run --kind test -- true` recorded a passing `test` for the current files, and the Claude Code hook let the agent run it. The hook now refuses `bw run` from the agent, however it is invoked (`bw`, `npx bw`, `node …/bw.mjs`, `npx @better-workflows/core`); a person can still use it.
+- **Two sessions could both be let through for the same side effect.** The hook decided from the ledger and recorded the action as two separate steps, so a second session could pass between them. The final decision and the record now happen under the ledger lock, and the second session is refused while the first one's result is open.
+- **A ledger lock older than 30 seconds was deleted.** The lock now names its owner and is taken back only when that process, on the same machine, is gone. A lock whose owner is still running is never removed for being old; after waiting 10 seconds the writer reports which process holds it.
+
 ## 6.0.0-alpha.1
 
 First release of Better Workflows Core, the V6 line. V5 is frozen on the [`frozen/v5`](https://github.com/stephen-taipei/better-workflows/tree/frozen/v5) branch and shares no code with it.

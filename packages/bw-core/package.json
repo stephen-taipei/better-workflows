@@ -1,6 +1,6 @@
 {
   "name": "@better-workflows/core",
-  "version": "6.0.0-alpha.1",
+  "version": "6.0.0-alpha.2",
   "description": "Evidence binding, action gate and provider reconciliation for AI coding agents.",
   "license": "Apache-2.0",
   "homepage": "https://betterworkflows.dev/",

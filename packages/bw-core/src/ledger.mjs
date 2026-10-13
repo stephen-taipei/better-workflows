@@ -1,10 +1,12 @@
-import { appendFile, mkdir, readFile, rename, rmdir, stat, writeFile } from "node:fs/promises";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
+import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { hostname } from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { digest } from "./canonical.mjs";
 
 const GENESIS = "0".repeat(64);
-const LOCK_STALE_MS = 30_000;
 
 export function ledgerPath(repo) {
   return path.join(repo.stateDir, "ledger.jsonl");
@@ -46,27 +48,104 @@ function entryHash(entry) {
   return digest(body);
 }
 
-async function withLock(repo, fn) {
-  const lock = path.join(repo.stateDir, "ledger.lock");
-  for (let attempt = 0; ; attempt += 1) {
+// The lock is a directory holding its owner. It is taken back only from an
+// owner on this machine whose process is gone, never for being old: a slow
+// holder still owns it, and two writers would fork the chain.
+const LOCK_WAIT_MS = 10_000;
+const ORPHAN_MS = 60_000; // a lock whose owner file never got written
+const held = new AsyncLocalStorage();
+
+function lockPath(repo) {
+  return path.join(repo.stateDir, "ledger.lock");
+}
+
+async function readOwner(dir) {
+  try {
+    return JSON.parse(await readFile(path.join(dir, "owner.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+
+async function abandoned(dir, owner) {
+  if (owner) return owner.host === hostname() && Number.isInteger(owner.pid) && !alive(owner.pid);
+  const info = await stat(dir).catch(() => null);
+  return Boolean(info) && Date.now() - info.mtimeMs > ORPHAN_MS;
+}
+
+// Moves an abandoned lock aside under a unique name, so of several waiters
+// only one takes it, and puts it back if it turned out to be a new owner's.
+async function takeBack(lock, owner) {
+  const aside = `${lock}.reaped-${randomUUID()}`;
+  try {
+    await rename(lock, aside);
+  } catch {
+    return;
+  }
+  const found = await readOwner(aside);
+  const same = owner ? found?.token === owner.token : !found && await abandoned(aside, null);
+  if (!same) {
+    await rename(aside, lock).catch(() => {});
+    return;
+  }
+  await rm(aside, { recursive: true, force: true });
+}
+
+async function acquire(repo) {
+  const lock = lockPath(repo);
+  const token = randomUUID();
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
     try {
       await mkdir(lock);
-      break;
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
-      const info = await stat(lock).catch(() => null);
-      if (info && Date.now() - info.mtimeMs > LOCK_STALE_MS) {
-        await rmdir(lock).catch(() => {});
+      const owner = await readOwner(lock);
+      if (await abandoned(lock, owner)) {
+        await takeBack(lock, owner);
         continue;
       }
-      if (attempt > 200) throw new Error("Ledger is locked by another process");
+      if (Date.now() > deadline) {
+        const who = owner ? `process ${owner.pid} on ${owner.host}` : "an unknown process";
+        throw new Error(`Ledger is locked by ${who}; if it is no longer running, remove ${lock}`);
+      }
       await sleep(25);
+      continue;
     }
+    try {
+      await writeFile(path.join(lock, "owner.json"), JSON.stringify({ pid: process.pid, host: hostname(), token }), { mode: 0o600 });
+    } catch (error) {
+      await rm(lock, { recursive: true, force: true });
+      throw error;
+    }
+    return token;
   }
+}
+
+async function release(repo, token) {
+  const lock = lockPath(repo);
+  if ((await readOwner(lock))?.token !== token) return;
+  await rm(lock, { recursive: true, force: true });
+}
+
+// Runs fn as the only writer of the ledger. Appends inside it reuse the
+// lock, so a caller can read the state, decide and record in one step.
+export async function withLedgerLock(repo, fn) {
+  if (held.getStore() === repo.stateDir) return fn();
+  const token = await acquire(repo);
   try {
-    return await fn();
+    return await held.run(repo.stateDir, fn);
   } finally {
-    await rmdir(lock).catch(() => {});
+    await release(repo, token);
   }
 }
 
@@ -103,7 +182,7 @@ export async function readLedger(repo) {
 }
 
 export async function appendEvent(repo, type, data, { now = new Date() } = {}) {
-  return withLock(repo, async () => {
+  return withLedgerLock(repo, async () => {
     const entries = await readLedger(repo);
     const last = entries.at(-1);
     const entry = { seq: entries.length + 1, at: now.toISOString(), type, data, prev: last?.hash ?? GENESIS };

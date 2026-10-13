@@ -4,7 +4,7 @@
 
 Stops an AI coding agent from claiming "done" on stale evidence, from repeating or stacking side effects whose result is unknown, and from taking permissions out of prompt text.
 
-Status: alpha (`6.0.0-alpha.1`), part of the [V6 roadmap](../../ROADMAP.md). Claude Code is the first host, through the hooks plugin in this package. Start with [Getting started](docs/getting-started.md), or run the [stale-green demo](examples/stale-green/demo.mjs) (`node examples/stale-green/demo.mjs`, about 2 seconds, no Claude needed).
+Status: alpha (`6.0.0-alpha.2`), part of the [V6 roadmap](../../ROADMAP.md). Claude Code is the first host, through the hooks plugin in this package. Start with [Getting started](docs/getting-started.md), or run the [stale-green demo](examples/stale-green/demo.mjs) (`node examples/stale-green/demo.mjs`, about 2 seconds, no Claude needed).
 
 ## What it checks
 
@@ -22,7 +22,7 @@ Status: alpha (`6.0.0-alpha.1`), part of the [V6 roadmap](../../ROADMAP.md). Cla
 | Command | What it does |
 | --- | --- |
 | `bw init` | Writes `.better-workflows/policy.json`. |
-| `bw run --kind test -- npm test` | Runs the command and records evidence. |
+| `bw run --kind test -- npm test` | A person runs the command and records evidence (refused to the agent). |
 | `bw check-completion` | Exits 0 when the required evidence is fresh, 2 otherwise. |
 | `bw check-command "git push origin main"` | Exits 0 for allow, 2 for deny, 3 for ask. |
 | `bw reconcile` | Settles unknown actions by probing the provider. |

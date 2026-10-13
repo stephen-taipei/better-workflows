@@ -4,7 +4,7 @@
 
 Better Workflows Core stops a Claude Code agent from finishing on a test result that no longer matches the files, and from repeating or stacking side effects whose result never came back. This guide takes a clean repository to its first block in a few minutes.
 
-Status: alpha (`6.0.0-alpha.1`). The policy format may still change before beta.
+Status: alpha (`6.0.0-alpha.2`). The policy format may still change before beta.
 
 ## Requirements
 
