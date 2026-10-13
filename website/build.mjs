@@ -385,7 +385,6 @@ async function build(out) {
   await mkdir(out, { recursive: true });
   for (const f of STATIC) await cp(path.join(site, f), path.join(out, f));
   await cp(path.join(root, "docs/html/assets"), path.join(out, "docs/assets"), { recursive: true });
-  await cp(path.join(root, "docs/html/evidence-cinema"), path.join(out, "docs/evidence-cinema"), { recursive: true });
   for (const { code } of locales) {
     const t = copies.get(code);
     const body = header(code, t.shell, locales, v) + mainHtml(code, t, nums, String(locales.length)) + footer(code, t.shell, notes[code]);
