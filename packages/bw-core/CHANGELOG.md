@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **What the hooks stopped is now in the ledger.** When the Claude Code hook refuses a tool call or asks the person about one, it records a `tool.gated` entry with the decision, the reason, the command or file, and the session. Before, only Stop refusals and side effects that went ahead were recorded, so a review had to search the conversation logs for refusals. `bw log` lists the new entries.
+
 ## 6.0.0-alpha.2
 
 ### Fixed

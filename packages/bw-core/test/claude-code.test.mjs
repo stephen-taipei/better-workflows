@@ -279,3 +279,22 @@ test("a subagent stopping is not the session finishing; its own refusals settle 
 
   assert.equal((await hook(root, "Stop", { stop_hook_active: false })).output.decision, "block", "the session itself is still held to the evidence");
 });
+
+test("refusals and questions from PreToolUse are kept in the ledger", async (t) => {
+  const { root } = await fixtureRepo(t);
+  await writePolicy(root, { actions: { rules: { "package-publish": "deny" } } });
+  assert.equal(decision(await bash(root, "npm publish").pre()), "deny");
+  assert.equal(decision(await bash(root, "git push").pre()), "ask");
+  assert.equal(decision(await bash(root, "bw run --kind test -- true").pre()), "deny");
+  assert.equal(decision(await hook(root, "PreToolUse", { tool_name: "Write", tool_input: { file_path: ".better-workflows/policy.json" }, tool_use_id: "toolu_w" })), "deny");
+  assert.equal(decision(await bash(root, "npm run build").pre()), "defer");
+  const { readLedger } = await import("../src/ledger.mjs");
+  const gated = (await readLedger(await openRepo(root))).filter((e) => e.type === "tool.gated").map((e) => e.data);
+  assert.deepEqual(gated.map((g) => [g.decision, g.tool, g.command ?? g.target]), [
+    ["deny", "Bash", "npm publish"],
+    ["ask", "Bash", "git push"],
+    ["deny", "Bash", "bw run --kind test -- true"],
+    ["deny", "Write", ".better-workflows/policy.json"],
+  ]);
+  assert.ok(gated.every((g) => g.session === "s1" && g.host === "claude-code" && g.reason));
+});
