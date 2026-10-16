@@ -29,6 +29,20 @@ const preDecision = (decision, reason) => ({
   hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision, permissionDecisionReason: `Better Workflows: ${reason}` },
 });
 
+// Refusals and questions are kept in the ledger too, so a review can count
+// what the hooks stopped and not only what was let through. The decision
+// stands even when the ledger cannot be written.
+async function gate(repo, input, decision, reason) {
+  const command = input.tool_name === "Bash" ? String(input.tool_input?.command ?? "").slice(0, 500) : null;
+  const target = command === null ? String(input.tool_input?.file_path ?? input.tool_input?.notebook_path ?? "") : null;
+  try {
+    await appendEvent(repo, "tool.gated", { decision, reason, tool: input.tool_name, command, target, host: HOST, session: input.session_id ?? null });
+  } catch {
+    // Refusing without a record is safer than letting the call through.
+  }
+  return preDecision(decision, reason);
+}
+
 function pendingFile(repo, toolUseId) {
   return path.join(repo.stateDir, "pending", `${String(toolUseId).replace(/[^A-Za-z0-9_-]/g, "_")}.json`);
 }
@@ -132,14 +146,14 @@ async function preToolUse(input, repo) {
       physicalPath(path.resolve(input.cwd ?? repo.root, target)), physicalPath(repo.root), physicalPath(repo.gitDir),
     ]);
     if (isInside(absolute, path.join(root, ".better-workflows")) || isInside(absolute, gitDir)) {
-      return preDecision("deny", `${target} is protected; the policy and ledger are changed by a person, not the agent`);
+      return gate(repo, input, "deny", `${target} is protected; the policy and ledger are changed by a person, not the agent`);
     }
     return null;
   }
   if (input.tool_name !== "Bash") return null;
   const command = String(input.tool_input?.command ?? "");
   const protectedReason = protectedBash(command);
-  if (protectedReason) return preDecision("deny", protectedReason);
+  if (protectedReason) return gate(repo, input, "deny", protectedReason);
 
   const policyInfo = await loadPolicy(repo);
   let state = await loadState(repo);
@@ -151,7 +165,7 @@ async function preToolUse(input, repo) {
     state = await loadState(repo);
     evaluation = evaluateCommand({ command, policyInfo, state, head });
   }
-  if (evaluation.decision === "deny") return preDecision("deny", evaluation.reasons.join("; "));
+  if (evaluation.decision === "deny") return gate(repo, input, "deny", evaluation.reasons.join("; "));
 
   const { ignore } = policyInfo.policy.evidence;
   const tree = evaluation.actions.length || evaluation.evidence.length ? await worktreeTree(repo, { ignore }) : null;
@@ -165,7 +179,7 @@ async function preToolUse(input, repo) {
       }
       return latest;
     });
-    if (evaluation.decision === "deny") return preDecision("deny", evaluation.reasons.join("; "));
+    if (evaluation.decision === "deny") return gate(repo, input, "deny", evaluation.reasons.join("; "));
   }
   if (evaluation.evidence.length && input.tool_use_id) {
     const file = pendingFile(repo, input.tool_use_id);
@@ -190,7 +204,7 @@ async function preToolUse(input, repo) {
   }
   // Core only narrows what the host already allows; an allow defers to the
   // host's own permission rules instead of granting anything.
-  return evaluation.decision === "ask" ? preDecision("ask", evaluation.reasons.join("; ")) : null;
+  return evaluation.decision === "ask" ? gate(repo, input, "ask", evaluation.reasons.join("; ")) : null;
 }
 
 // Whether an exact evidence run happened in the directory its rule names.
