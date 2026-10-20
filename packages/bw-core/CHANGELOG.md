@@ -5,6 +5,7 @@
 ### Added
 
 - **What the hooks stopped is now in the ledger.** When the Claude Code hook refuses a tool call or asks the person about one, it records a `tool.gated` entry with the decision, the reason, the command or file, and the session. Before, only Stop refusals and side effects that went ahead were recorded, so a review had to search the conversation logs for refusals. `bw log` lists the new entries.
+- **A guide to building on Core.** [`docs/sdk.md`](docs/sdk.md) (and [`docs/sdk.zh-TW.md`](docs/sdk.zh-TW.md)) explains the model, the CLI exit codes, the JavaScript API and the rules a host adapter must keep. Its example, [`examples/sdk/guarded-run.mjs`](examples/sdk/guarded-run.mjs), decides, records, runs and reports one command through the public API, and the test suite runs it.
 
 ## 6.0.0-alpha.2
 

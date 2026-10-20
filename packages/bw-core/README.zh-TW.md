@@ -4,7 +4,7 @@
 
 防止 AI coding agent 拿過期的證據宣稱「完成」、在結果不明的副作用之後繼續疊加動作，以及從 prompt 文字取得權限。
 
-狀態：alpha（`6.0.0-alpha.2`），屬於 [V6 路線圖](../../docs/ROADMAP.zh-TW.md)。第一個 host 是 Claude Code，透過本套件內的 hooks plugin 接入。請從[快速開始](docs/getting-started.zh-TW.md)入手，或執行 [stale-green demo](examples/stale-green/demo.mjs)（`node examples/stale-green/demo.mjs`，約 2 秒，不需要 Claude）。
+狀態：alpha（`6.0.0-alpha.2`），屬於 [V6 路線圖](../../docs/ROADMAP.zh-TW.md)。第一個 host 是 Claude Code，透過本套件內的 hooks plugin 接入。請從[快速開始](docs/getting-started.zh-TW.md)入手，或執行 [stale-green demo](examples/stale-green/demo.mjs)（`node examples/stale-green/demo.mjs`，約 2 秒，不需要 Claude）。要在自己的 script、工具或 agent host 裡使用 Core，請看[在 Core 之上開發](docs/sdk.zh-TW.md)。
 
 ## 檢查什麼
 
