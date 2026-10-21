@@ -2,7 +2,7 @@
 
 [English](sdk.md)
 
-這份指南寫給想讓自己的工具、script 或 AI agent host 使用和 Claude Code plugin 同一套檢查的開發者：證據新鮮才算完成、副作用要過 policy、結果沒回來的動作要先對帳才能做下一件事。
+這份指南寫給想讓自己的工具、script 或 AI agent host 使用和 Claude Code plugin 同一套檢查的開發者：證據要對得上目前的檔案才算完成、副作用要先經過 policy 判定、結果沒回來的動作要先對帳才能做下一件事。
 
 狀態：alpha（`6.0.0-alpha.2`）。本文所有內容在 beta 前都可能改變。[host adapter 契約](#5-撰寫-host-adapter草案)是草案，文中會標明。
 
@@ -36,13 +36,13 @@ Core 的行為都來自下面五個概念。理解之後，API 讀起來就很�
 
 **Policy。** `.better-workflows/policy.json`，由人撰寫並 commit。它規定完成需要哪些證據（`completion.require`）、哪些指令算哪一種證據（`evidence.kinds`），以及每一種副作用是 `allow`、`ask` 還是 `deny`（`actions`）。agent 可以讀，但不能改。檔案不存在就用預設值；檔案無效則所有副作用一律 deny。
 
-**帳本（ledger）。** 位於 `.git/better-workflows/ledger.jsonl`，只能追加、以 hash 串鏈的紀錄。Core 知道的每一件事都是其中一筆。狀態從不另外存：`loadState(repo)` 每次都從帳本重新歸納出目前的證據與動作。因為放在 `.git/` 底下，帳本永遠不會被 commit。
+**帳本（ledger）。** 位於 `.git/better-workflows/ledger.jsonl`，只能追加、以 hash 串接成鏈的紀錄。Core 知道的每一件事都是其中一筆。狀態從不另外存：`loadState(repo)` 每次都從帳本重新歸納出目前的證據與動作。因為放在 `.git/` 底下，帳本永遠不會被 commit。
 
-**證據（evidence）。** 一筆「某個檢查跑過」的紀錄：種類（`test`、`lint` …）、exit code，以及執行前後工作檔案的 Git tree。只有通過、而且 tree 等於目前 tree 的證據才是 **fresh**。改了一個檔案，之前的通過就變成 **stale**。所有必要種類都是 fresh 時才允許完成。
+**證據（evidence）。** 一筆「某個檢查跑過」的紀錄：種類（`test`、`lint` …）、exit code，以及執行前後工作檔案的 Git tree。只有通過、而且 tree 等於目前 tree 的證據才**有效**（`fresh`）。改了任何一個檔案，之前的通過結果就**過期**了（`stale`）。所有必要種類的證據都有效時，才允許完成。
 
 ```text
-missing ──執行──▶ fresh ──修改檔案──▶ stale ──再執行──▶ fresh
-              └─ failed / unstable / unattributed（不算數）
+missing（沒有）──執行──▶ fresh（有效）──修改檔案──▶ stale（過期）──再執行──▶ fresh（有效）
+                    └─ failed / unstable / unattributed（都不算數）
 ```
 
 **動作（action）。** repository 外部看得到的副作用：`git push`、`gh pr merge`、`npm publish`、`curl -X POST`，或 policy 指名的指令。執行前 Core 寫入 `action.begun`，執行後寫入 `action.ended`。只有 exit code 0 算確定成功。其他情況（包括逾時或當機）都是 **unknown**，因為 push 可能在連線中斷前已經送到 remote。只要還有 pending 或 unknown 的動作，之後所有副作用都會被 deny，直到唯讀 probe 或人把它對帳清楚（`reconcile`）。同一個動作在同一個 commit 上絕不執行兩次。
@@ -58,7 +58,7 @@ begun ──exit 0──▶ success
 
 | 指令 | Exit code | 常見用途 |
 |---|---|---|
-| `bw check-completion [--json]` | 0 必要證據都 fresh，2 不是 | 讓會發佈未測檔案的 CI job 或發佈 script 失敗 |
+| `bw check-completion [--json]` | 0 必要證據都有效，2 還有缺或過期 | 讓會發佈未測檔案的 CI job 或發佈 script 失敗 |
 | `bw check-command <指令列>` | 0 allow、2 deny、3 ask；輸出 JSON | 不執行，只問 Core 這個指令能不能跑 |
 | `bw run --kind <種類> -- <指令…>` | 指令本身的 exit code | 執行檢查並記為證據。給人和 script 用，不給 agent 用 |
 | `bw status [--json]` | 0 | 證據、未結動作、policy 與上一個 session |
@@ -183,13 +183,13 @@ if (!completion.ok) {
 }
 ```
 
-每個 result 的 `status` 是下列其中之一：`fresh`、`stale`、`failed`、`unstable`（執行期間檔案有變）、`unattributed`（見上面的 `excluded`）、`missing`。
+每個 result 的 `status` 是下列其中之一：`fresh`（有效）、`stale`（過期，檔案在那次執行後改過）、`failed`（失敗）、`unstable`（執行期間檔案有變）、`unattributed`（無法歸屬，見上面的 `excluded`）、`missing`（從沒跑過）。
 
 ## 5. 撰寫 host adapter（草案）
 
 > **草案。** 本節描述 Claude Code adapter 目前的做法（`src/adapters/claude-code.mjs`）。加入第二個 host 時會抽出 host 中立的契約，欄位名稱可能和這裡不同。目前 adapter 都放在本套件內。
 
-像 `guarded-run` 這種包裝器只保護經過它的指令，agent 仍然可以直接執行 `git push`。adapter 不一樣：是 agent host 本身在每次工具呼叫前問 Core 並遵守答案，所以沒有漏網的指令。
+像 `guarded-run` 這種 wrapper 只保護經過它的指令，agent 仍然可以直接執行 `git push`。adapter 不一樣：是 agent host 本身在每次工具呼叫前問 Core 並遵守答案，所以沒有漏網的指令。
 
 ### 5.1 host 必須提供的能力
 
@@ -200,7 +200,7 @@ if (!completion.ok) {
 | 每個 shell 指令**執行前**的 hook，能拒絕，而且 host 真的會拒絕（fail closed） | 沒有它，就擋不住重複 push |
 | 指令執行後的**最終 exit code**，或明確表示沒有跑完 | 證據與動作結果都靠它；猜一個 0 比給 `null` 更糟 |
 | 呼叫前後都帶著穩定的 **session id** 與 **tool call id** | 用來把「執行後」事件對回「執行前」記錄的動作 |
-| agent **停止**時的 hook，而且能把它送回去繼續 | 用來在證據 stale 時拒絕「完成了」 |
+| agent **停止**時的 hook，而且能把它送回去繼續 | 用來在證據過期時拒絕「完成了」 |
 | **修改檔案**前的 hook，帶目標路徑 | 讓 agent 碰不到 policy 和帳本 |
 
 有些 host 會把 `ask` 當成 `allow`。遇到這種 host，adapter 必須把 `ask` 改成 `deny`。
@@ -256,7 +256,7 @@ function normalize(input) {
 ### 5.4 測試 adapter
 
 - 從 host 錄下真實事件 JSON 當 fixture（成功、非 0 exit、中斷、被人拒絕、長時間指令），測試以這些為準，不以文件的描述為準。
-- 讓 [stale-green demo](../examples/stale-green/demo.mjs) 的步驟經過你的 adapter 重跑一次：stale 的通過被擋、重複 push 被拒、結果不明的 deploy 擋住下一個副作用。
+- 讓 [stale-green demo](../examples/stale-green/demo.mjs) 的步驟經過你的 adapter 重跑一次：過期的通過結果被擋、重複 push 被拒、結果不明的 deploy 擋住下一個副作用。
 - 證明所有不明確的情況最後都是 `null` 與 `unknown`，絕不會變成通過或成功。
 
 ## 6. 參考
