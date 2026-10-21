@@ -4,7 +4,7 @@
 
 # Better Workflows
 
-**AI coding agent 不能拿過時的綠燈宣稱完成，也不能在副作用結果不明時重複執行或繼續疊加。**
+**AI coding agent 不能拿過期的測試結果（綠燈）宣稱完成，也不能在副作用結果不明時重複執行或繼續疊加。**
 
 [![Core](https://img.shields.io/badge/V6_Core-alpha-B45309?style=flat-square)](../packages/bw-core)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.14.0-3C873A?style=flat-square)](../packages/bw-core/package.json)

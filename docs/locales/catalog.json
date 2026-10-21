@@ -55,7 +55,7 @@
       "status": "V6 Core is in alpha."
     },
     "zh-Hant": {
-      "tagline": "你的 AI 寫程式 agent 不能拿過期的綠燈宣稱完成，也不能重複或疊加它從沒看到結果的副作用。",
+      "tagline": "你的 AI 寫程式 agent 不能拿過期的測試結果（綠燈）宣稱完成，也不能重複或疊加它從沒看到結果的副作用。",
       "stopsHeading": "它擋下什麼",
       "stopsBody": "agent 必須以檔案現在的內容為準，以 provider 實際做了什麼為準。權限只來自 agent 不能修改的 policy 檔，永遠不來自 prompt 文字。",
       "tryHeading": "試試看",
@@ -67,7 +67,7 @@
       "machine": "本頁為機器翻譯，以英文 README 為準。"
     },
     "zh-Hant-TW": {
-      "tagline": "你的 AI 寫程式 agent 不能拿過期的綠燈宣稱完成，也不能重複或疊加它從沒看到結果的副作用。",
+      "tagline": "你的 AI 寫程式 agent 不能拿過期的測試結果（綠燈）宣稱完成，也不能重複或疊加它從沒看到結果的副作用。",
       "stopsHeading": "它擋下什麼",
       "stopsBody": "agent 必須以檔案現在的內容為準，以 provider 實際做了什麼為準。權限只來自 agent 不能修改的 policy 檔，永遠不來自 prompt 文字。",
       "tryHeading": "試試看",

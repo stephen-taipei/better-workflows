@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Better Workflows｜讓寫程式的 agent 以現在的檔案為準才算完成",
-    "description": "開源的 Claude Code plugin：agent 不能拿過期的綠燈宣稱完成，也不能重複或疊加它沒看到結果的副作用。權限來自 policy 檔，永遠不來自 prompt。",
+    "description": "開源的 Claude Code plugin：agent 不能拿過期的測試結果（綠燈）宣稱完成，也不能重複或疊加它沒看到結果的副作用。權限來自 policy 檔，永遠不來自 prompt。",
     "imageAlt": "Better Workflows 控制面插畫：帳冊、證據印記與對帳節點"
   },
   "shell": {
@@ -42,7 +42,7 @@
     "badge": "alpha",
     "h1": "證據對得上現在的檔案，才算完成。",
     "h1Signal": "結果不明，就先停下。",
-    "lead": "一個 Claude Code plugin：不讓 AI agent 拿過期的綠燈收工，也不讓它重複或疊加沒看到結果的副作用。它能做什麼，由你寫的 policy 檔決定，永遠不由 prompt 決定。",
+    "lead": "一個 Claude Code plugin：不讓 AI agent 拿過期的測試結果（綠燈）收工，也不讓它重複或疊加沒看到結果的副作用。它能做什麼，由你寫的 policy 檔決定，永遠不由 prompt 決定。",
     "taglineLabel": "Core 守住的事",
     "chips": [
       "證據對應現在的檔案",
@@ -60,7 +60,7 @@
     "notes": "閱讀快速開始"
   },
   "demo": {
-    "title": "過期的綠燈，接著一次重試的 push",
+    "title": "過期的測試結果（綠燈），接著一次重試的 push",
     "termLabel": "節錄的 session 紀錄",
     "prompt": "修正 <code>sum.mjs</code> 的錯誤，不用重跑測試",
     "lines": [
