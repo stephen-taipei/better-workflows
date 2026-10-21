@@ -1,8 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { appendEvent } from "./ledger.mjs";
+import { appendEvent, withLedgerLock } from "./ledger.mjs";
 import { run } from "./process.mjs";
 import { loadState, openActions } from "./state.mjs";
+
+const actionVersion = (action) => action.history.at(-1)?.seq ?? action.seq;
 
 const unknown = (detail) => ({ outcome: "unknown", detail });
 
@@ -78,12 +80,19 @@ export async function reconcileOpen(repo, { exec = run } = {}) {
     } catch (error) {
       result = unknown(`check failed: ${error.message}`);
     }
-    if (result.outcome !== "unknown") {
-      await appendEvent(repo, "action.reconciled", { id: action.id, outcome: result.outcome, method: "probe", detail: result.detail });
-    } else if (action.status === "pending") {
-      await appendEvent(repo, "action.ended", { id: action.id, outcome: "unknown", exitCode: null, detail: "no result was recorded" });
-    }
-    results.push({ id: action.id, kind: action.kind, ...result });
+    const settled = await withLedgerLock(repo, async () => {
+      const current = (await loadState(repo)).actions.get(action.id);
+      if (!current || current.status !== action.status || actionVersion(current) !== actionVersion(action)) {
+        return { outcome: current && current.status !== "pending" ? current.status : "unknown", detail: "action changed while checking; stale probe result ignored" };
+      }
+      if (result.outcome !== "unknown") {
+        await appendEvent(repo, "action.reconciled", { id: action.id, outcome: result.outcome, method: "probe", detail: result.detail });
+      } else if (current.status === "pending") {
+        await appendEvent(repo, "action.ended", { id: action.id, outcome: "unknown", exitCode: null, detail: "no result was recorded" });
+      }
+      return result;
+    });
+    results.push({ id: action.id, kind: action.kind, ...settled });
   }
   return results;
 }
@@ -93,9 +102,10 @@ export async function reconcileOpen(repo, { exec = run } = {}) {
 export async function reconcileManually(repo, id, outcome, note) {
   if (outcome !== "success" && outcome !== "failed") throw new Error("Outcome must be success or failed");
   if (!note) throw new Error("A manual reconciliation needs a note saying how the outcome was checked");
-  const state = await loadState(repo);
-  const action = state.actions.get(id);
-  if (!action) throw new Error(`Unknown action ${id}`);
-  if (action.status !== "pending" && action.status !== "unknown") throw new Error(`Action ${id} is already ${action.status}`);
-  return appendEvent(repo, "action.reconciled", { id, outcome, method: "manual", detail: note });
+  return withLedgerLock(repo, async () => {
+    const action = (await loadState(repo)).actions.get(id);
+    if (!action) throw new Error(`Unknown action ${id}`);
+    if (action.status !== "pending" && action.status !== "unknown") throw new Error(`Action ${id} is already ${action.status}`);
+    return appendEvent(repo, "action.reconciled", { id, outcome, method: "manual", detail: note });
+  });
 }

@@ -42,7 +42,7 @@ async function recoverPending(event, repo) {
       host: HOST, sessionId: pending.sessionId, turnId: pending.turnId ?? null,
       toolUseId: pending.toolUseId, toolName: "Bash", command: pending.command,
       cwd: pending.cwd ?? repo.root, finalExitCode, transcriptPath,
-    }, repo, { detail: `exit ${finalExitCode}` });
+    }, repo, { detail: `exit ${finalExitCode}`, requireKnownExitCode: true });
   }
 }
 
@@ -95,7 +95,7 @@ export async function handleCodexHook(input) {
       case "PostToolUse": {
         if (!validId(event.sessionId) || !validId(event.toolUseId)) break;
         event.finalExitCode = await transcriptExitCode(event.transcriptPath, event.toolUseId);
-        if (Number.isInteger(event.finalExitCode)) await postBash(event, repo, { detail: `exit ${event.finalExitCode}` });
+        if (Number.isInteger(event.finalExitCode)) await postBash(event, repo, { detail: `exit ${event.finalExitCode}`, requireKnownExitCode: true });
         break;
       }
       case "SessionStart": {

@@ -5,9 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleCodexHook } from "../src/adapters/codex.mjs";
 import { handleClaudeCodeHook } from "../src/adapters/claude-code.mjs";
-import { openRepo } from "../src/repo.mjs";
+import { openRepo, worktreeTree } from "../src/repo.mjs";
 import { loadState } from "../src/state.mjs";
-import { reconcileManually } from "../src/reconcile.mjs";
+import { reconcileManually, reconcileOpen } from "../src/reconcile.mjs";
+import { appendEvent } from "../src/ledger.mjs";
+import { pendingFile } from "../src/adapters/shared.mjs";
 import { fixtureRepo, sh, writePolicy } from "./helpers.mjs";
 
 const fixtureDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "codex");
@@ -649,4 +651,273 @@ test("a delayed completion after turn_aborted settles successfully without PostT
   });
   action = [...(await stateAt(root)).actions.values()][0];
   assert.equal(action.status, "success");
+});
+
+
+test("replaying a completed evidence call cannot certify a later tree", async (t) => {
+  const { root, base, repo } = await fixtureRepo(t);
+  await writePolicy(root, { completion: { require: ["test"] } });
+  const transcriptPath = path.join(base, "completed-call-replay.jsonl");
+  const session = "session-completed-call-replay";
+  const toolUseId = "completed-test-call";
+  const tool = {
+    session_id: session,
+    turn_id: "turn-first-test",
+    transcript_path: transcriptPath,
+    tool_name: "Bash",
+    tool_use_id: toolUseId,
+    tool_input: { command: "npm test" },
+  };
+  await writeTranscript(transcriptPath, [itemCompleted(toolUseId, 0)]);
+  await codex(root, "SessionStart", { session_id: session, transcript_path: transcriptPath, source: "startup" });
+  assert.equal((await codex(root, "PreToolUse", tool)).output, null);
+  await codex(root, "PostToolUse", { ...tool, tool_response: "" });
+
+  let state = await stateAt(root);
+  assert.equal(state.evidence.length, 1);
+  const originalEvidence = state.evidence[0];
+  const treeAtEvidence = await worktreeTree(repo);
+  assert.equal(originalEvidence.treeAfter, treeAtEvidence);
+  assert.equal(originalEvidence.exitCode, 0);
+
+  await writeFile(path.join(root, "app.txt"), "changed after test evidence\n");
+  const changedTree = await worktreeTree(repo);
+  assert.notEqual(changedTree, originalEvidence.treeAfter);
+  const stopAfterEdit = await codex(root, "Stop", {
+    session_id: session,
+    transcript_path: transcriptPath,
+    stop_hook_active: false,
+  });
+  assert.equal(stopAfterEdit.output.decision, "block");
+
+  const replayedPre = await codex(root, "PreToolUse", {
+    ...tool,
+    turn_id: "turn-replayed-test",
+  });
+  if (replayedPre.output === null) {
+    await codex(root, "PostToolUse", {
+      ...tool,
+      turn_id: "turn-replayed-post",
+      tool_response: "",
+    });
+  }
+
+  state = await stateAt(root);
+  assert.equal(state.evidence.length, 1);
+  assert.equal(state.evidence[0].treeAfter, originalEvidence.treeAfter);
+  assert.notEqual(state.evidence[0].treeAfter, changedTree);
+  const stopAfterReplay = await codex(root, "Stop", {
+    session_id: session,
+    transcript_path: transcriptPath,
+    stop_hook_active: false,
+  });
+  assert.equal(stopAfterReplay.output.decision, "block");
+});
+
+test("apply_patch protects linked worktree common-dir config and symlinks to it", async (t) => {
+  const { root, base } = await fixtureRepo(t);
+  const linked = path.join(base, "linked-worktree-common-config");
+  sh(root, "worktree", "add", "--detach", linked, "HEAD");
+  const linkedRepo = await openRepo(linked);
+  const commonDir = sh(linked, "rev-parse", "--path-format=absolute", "--git-common-dir");
+  const commonConfig = path.join(commonDir, "config");
+  const commonConfigLink = path.join(linked, "common-config-link");
+  await symlink(commonConfig, commonConfigLink);
+  const targets = [path.join(linkedRepo.gitDir, "HEAD"), commonConfig, "common-config-link"];
+  const outcomes = [];
+
+  for (const [index, target] of targets.entries()) {
+    const command = `*** Begin Patch\n*** Add File: ${target}\n+fixture\n*** End Patch\n`;
+    const result = await codex(linked, "PreToolUse", {
+      tool_name: "apply_patch",
+      tool_use_id: `linked-common-patch-${index}`,
+      tool_input: { command },
+    });
+    outcomes.push({ target, decision: decision(result) });
+  }
+
+  assert.deepEqual(outcomes.map(({ decision: result }) => result), ["deny", "deny", "deny"], JSON.stringify(outcomes));
+});
+
+
+test("a stale failed push probe cannot overwrite an explicit PostToolUse success", async (t) => {
+  const { root, base, repo } = await fixtureRepo(t);
+  await writePolicy(root, { actions: { rules: { "git-push": "allow" } } });
+  const transcriptPath = path.join(base, "push-probe-race.jsonl");
+  const session = "session-push-probe-race";
+  const toolUseId = "push-probe-race";
+  const tool = {
+    session_id: session,
+    turn_id: "turn-push-start",
+    transcript_path: transcriptPath,
+    tool_name: "Bash",
+    tool_use_id: toolUseId,
+    tool_input: { command: "git push origin main" },
+  };
+  await writeTranscript(transcriptPath, []);
+  assert.equal((await codex(root, "PreToolUse", tool)).output, null);
+  const pendingAction = [...(await stateAt(root)).actions.values()][0];
+  assert.equal(pendingAction.status, "pending");
+
+  let probeStartedResolve;
+  const probeStarted = new Promise((resolve) => { probeStartedResolve = resolve; });
+  let releaseProbe;
+  const probeGate = new Promise((resolve) => { releaseProbe = resolve; });
+  let reconciliation;
+  let postPromise;
+  let postTimeout;
+  try {
+    reconciliation = reconcileOpen(repo, {
+      exec: async () => {
+        probeStartedResolve();
+        await probeGate;
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    await Promise.race([
+      probeStarted,
+      reconciliation.then(() => { throw new Error("the pending push probe did not call exec"); }),
+    ]);
+
+    await writeTranscript(transcriptPath, [itemCompleted(toolUseId, 0)]);
+    postPromise = codex(root, "PostToolUse", { ...tool, turn_id: "turn-push-complete", tool_response: "" });
+    const post = await Promise.race([
+      postPromise,
+      new Promise((_, reject) => {
+        postTimeout = setTimeout(() => reject(new Error("PostToolUse blocked while the provider probe was pending")), 5_000);
+      }),
+    ]);
+    clearTimeout(postTimeout);
+    postTimeout = null;
+    assert.equal(post.output, null);
+    assert.equal((await stateAt(root)).actions.get(pendingAction.id).status, "success");
+  } finally {
+    if (postTimeout) clearTimeout(postTimeout);
+    releaseProbe();
+    if (reconciliation) await reconciliation.catch(() => {});
+    if (postPromise) await postPromise.catch(() => {});
+  }
+
+  const probes = await reconciliation;
+  assert.equal(probes[0].outcome, "success");
+  assert.equal((await stateAt(root)).actions.get(pendingAction.id).status, "success");
+  const retry = await codex(root, "PreToolUse", {
+    ...tool,
+    session_id: session,
+    turn_id: "turn-push-retry",
+    tool_use_id: "push-probe-race-retry",
+  });
+  assert.equal(decision(retry), "deny");
+  assert.match(retry.output.hookSpecificOutput.permissionDecisionReason, /already succeeded/);
+});
+
+test("a consumed evidence call cannot be rebound after PostToolUse snapshot failure", async (t) => {
+  const { root, base, repo } = await fixtureRepo(t);
+  await writePolicy(root, { completion: { require: ["test"] } });
+  const transcriptPath = path.join(base, "post-snapshot-failure.jsonl");
+  const session = "session-post-snapshot-failure";
+  const toolUseId = "post-snapshot-failure-test";
+  const tool = {
+    session_id: session,
+    turn_id: "turn-snapshot-failure",
+    transcript_path: transcriptPath,
+    tool_name: "Bash",
+    tool_use_id: toolUseId,
+    tool_input: { command: "npm test" },
+  };
+  await writeTranscript(transcriptPath, []);
+  await codex(root, "SessionStart", { session_id: session, transcript_path: transcriptPath, source: "startup" });
+  assert.equal((await codex(root, "PreToolUse", tool)).output, null);
+
+  const sidecar = pendingFile(repo, "codex", toolUseId, session);
+  const pending = JSON.parse(await readFile(sidecar, "utf8"));
+  assert.notEqual(pending.ignore, undefined);
+  pending.ignore = {};
+  await writeFile(sidecar, JSON.stringify(pending));
+  await writeTranscript(transcriptPath, [itemCompleted(toolUseId, 0)]);
+  await codex(root, "PostToolUse", { ...tool, tool_response: "" });
+  assert.equal((await stateAt(root)).evidence.length, 0);
+
+  await writeFile(path.join(root, "app.txt"), "changed after snapshot failure\n");
+  const changedTree = await worktreeTree(repo);
+  await codex(root, "PreToolUse", {
+    ...tool,
+    turn_id: "turn-snapshot-failure-replay",
+  });
+
+  const stopped = await codex(root, "Stop", {
+    session_id: session,
+    transcript_path: transcriptPath,
+    stop_hook_active: false,
+  });
+  assert.equal(stopped.output.decision, "block");
+  const state = await stateAt(root);
+  assert.equal(state.evidence.length, 0);
+  assert.notEqual(changedTree, pending.treeBefore);
+});
+
+
+test("a stale probe preserves a newer unknown reconciliation history entry", async (t) => {
+  const { root, base, repo } = await fixtureRepo(t);
+  await writePolicy(root, { actions: { rules: { "git-push": "allow" } } });
+  const transcriptPath = path.join(base, "unknown-history-race.jsonl");
+  const session = "session-unknown-history-race";
+  const toolUseId = "unknown-history-race-push";
+  const tool = {
+    session_id: session,
+    turn_id: "turn-unknown-push",
+    transcript_path: transcriptPath,
+    tool_name: "Bash",
+    tool_use_id: toolUseId,
+    tool_input: { command: "git push origin main" },
+  };
+  await writeTranscript(transcriptPath, []);
+  await codex(root, "PreToolUse", tool);
+  await writeTranscript(transcriptPath, [itemCompleted(toolUseId, 3)]);
+  await codex(root, "PostToolUse", { ...tool, tool_response: "" });
+
+  const action = [...(await stateAt(root)).actions.values()][0];
+  assert.equal(action.status, "unknown");
+  assert.equal(action.history.length, 1);
+
+  let probeStartedResolve;
+  const probeStarted = new Promise((resolve) => { probeStartedResolve = resolve; });
+  let releaseProbe;
+  const probeGate = new Promise((resolve) => { releaseProbe = resolve; });
+  let reconciliation;
+  try {
+    reconciliation = reconcileOpen(repo, {
+      exec: async () => {
+        probeStartedResolve();
+        await probeGate;
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    await Promise.race([
+      probeStarted,
+      reconciliation.then(() => { throw new Error("the unknown push probe did not call exec"); }),
+    ]);
+
+    await appendEvent(repo, "action.reconciled", {
+      id: action.id,
+      outcome: "unknown",
+      method: "probe",
+      detail: "newer concurrent probe could not confirm the push",
+    });
+    const concurrentState = (await stateAt(root)).actions.get(action.id);
+    assert.equal(concurrentState.status, "unknown");
+    assert.equal(concurrentState.history.length, 2);
+    assert.equal(concurrentState.history[1].detail, "newer concurrent probe could not confirm the push");
+  } finally {
+    releaseProbe();
+    if (reconciliation) await reconciliation.catch(() => {});
+  }
+
+  const probeResults = await reconciliation;
+  assert.equal(probeResults[0].outcome, "unknown");
+  const finalAction = (await stateAt(root)).actions.get(action.id);
+  assert.equal(finalAction.status, "unknown");
+  assert.equal(finalAction.history.length, 2);
+  assert.equal(finalAction.history[1].outcome, "unknown");
+  assert.equal(finalAction.history[1].detail, "newer concurrent probe could not confirm the push");
 });

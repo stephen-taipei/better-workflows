@@ -32,7 +32,7 @@
 
 Core 的行為都來自下面五個概念。理解之後，API 讀起來就很直覺。
 
-**Repository。** Core 在單一 Git work tree 裡運作。`openRepo(cwd)` 會找到它並回傳 `{ root, gitDir, stateDir }`。不在 Git work tree 裡時回傳 `null`，這時任何介接都應該什麼都不做。
+**Repository。** Core 在單一 Git work tree 裡運作。`openRepo(cwd)` 會找到它並回傳 `{ root, gitDir, commonDir, stateDir }`。不在 Git work tree 裡時回傳 `null`，這時任何介接都應該什麼都不做。
 
 **Policy。** `.better-workflows/policy.json`，由人撰寫並 commit。它規定完成需要哪些證據（`completion.require`）、哪些指令算哪一種證據（`evidence.kinds`），以及每一種副作用是 `allow`、`ask` 還是 `deny`（`actions`）。agent 可以讀，但不能改。檔案不存在就用預設值；檔案無效則所有副作用一律 deny。
 
@@ -265,7 +265,7 @@ function normalize(input) {
 
 | Export | 簽章（節錄） | 回傳 |
 |---|---|---|
-| `openRepo` | `(cwd)` | `{ root, gitDir, stateDir }` 或 `null` |
+| `openRepo` | `(cwd)` | `{ root, gitDir, commonDir, stateDir }` 或 `null` |
 | `headCommit`、`currentBranch` | `(repo)` | commit id／branch 名稱，或 `null` |
 | `worktreeTree` | `(repo, { ignore })` | 工作檔案（含 untracked）的 Git tree id；不會動到使用者的 index |
 | `subtreeDigests` | `(repo, tree, paths)` | `{ 路徑: id 或 null }` |
@@ -292,7 +292,7 @@ function normalize(input) {
 | `appendEvent` | `(repo, type, data)` | 在鎖內追加一筆 |
 | `readLedger`、`verifyLedger`、`ledgerPath` | `(repo)` | 紀錄陣列（鏈損毀時 throw）／`{ ok, entries, head }` 或 `{ ok: false, error }`／檔案路徑 |
 | `withLedgerLock` | `(repo, fn)` | 以唯一寫入者身分執行 `fn`；其中的追加會沿用同一把鎖 |
-| `loadState`、`reduceEntries` | `(repo)`、`(entries)` | `{ evidence, actions, sessions }` |
+| `loadState`、`reduceEntries` | `(repo)`、`(entries)` | `{ evidence, actions, sessions, hostSessions, consumedTools }` |
 | `openActions`、`latestSession` | `(state)` | 仍為 `pending` 或 `unknown` 的動作／最後一個 session |
 | `canonicalJson`、`digest`、`sha256` | | 帳本共用的穩定 JSON 與 hash |
 
@@ -308,9 +308,10 @@ function normalize(input) {
 | `action.ended` | 執行後，或證明從未執行 | `id`、`outcome`、`exitCode`、`detail` |
 | `action.reconciled` | probe 或人完成對帳 | `id`、`outcome`、`method`（`probe` 或 `manual`）、`detail` |
 | `completion.blocked` | agent 停止時被送回 | `session`、`missing`、`tree` |
+| `tool.consumed` | host 呼叫在結果入帳前標記為已消耗 | `host`、`session`、`toolUseId`；不代表成功 |
 | `tool.gated` | hook deny 或 ask 某次呼叫 | `decision`、`reason`、`tool`、`command`、`target`、`host`、`session` |
 
-紀錄沿用既有未編版號的 schema。Claude Code 與 Codex 使用相同紀錄類型；新增的 host/session 關聯欄位可省略，舊紀錄仍可讀取。不相容的 schema 變更必須先提供版本號與遷移方式。
+紀錄沿用既有未編版號的 schema。Claude Code 與 Codex 使用相同紀錄類型；新增的 host/session 關聯欄位可省略，舊紀錄仍可讀取。新增的 `tool.consumed` 紀錄阻止已完成呼叫重播；舊版 Core 不會執行這項防護。不相容的 schema 變更必須先提供版本號與遷移方式。
 
 ### 6.3 穩定度
 

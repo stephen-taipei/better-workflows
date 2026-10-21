@@ -7,7 +7,7 @@ import { appendEvent, withLedgerLock } from "../ledger.mjs";
 import { loadPolicy } from "../policy.mjs";
 import { ghFailure, reconcileOpen } from "../reconcile.mjs";
 import { headCommit, subtreeDigests, worktreeTree } from "../repo.mjs";
-import { loadState, openActions, sessionFor } from "../state.mjs";
+import { loadState, openActions, sessionFor, toolCallKey } from "../state.mjs";
 import { splitCommand } from "../command.mjs";
 import { run } from "../process.mjs";
 
@@ -37,6 +37,7 @@ export function pendingFile(repo, host, toolUseId, sessionId = null) {
   return path.join(repo.stateDir, "pending", `${hostPart(host)}-${digest([sessionId, toolUseId])}.json`);
 }
 
+const matchesAction = (action, event) => action.host === event.host && action.session === (event.sessionId ?? null) && action.toolUseId === event.toolUseId;
 const sameCall = (record, event) => record.host === event.host && record.sessionId === (event.sessionId ?? null) && record.toolUseId === event.toolUseId;
 
 // Sidecars cover checks as well as side effects. Action metadata is enough
@@ -51,7 +52,8 @@ export async function pendingBash(event, repo) {
       if (record.host === event.host && record.sessionId === (event.sessionId ?? null) && record.toolUseId) pending.set(record.toolUseId, record);
     } catch { /* Unreadable evidence cannot be reconstructed or counted. */ }
   }
-  for (const action of openActions(await loadState(repo))) {
+  const state = await loadState(repo);
+  for (const action of openActions(state)) {
     if (action.status !== "pending" || action.host !== event.host || action.session !== (event.sessionId ?? null) || !action.toolUseId) continue;
     if (!pending.has(action.toolUseId)) pending.set(action.toolUseId, {
       host: action.host, sessionId: action.session, turnId: action.turnId ?? null, toolUseId: action.toolUseId,
@@ -61,7 +63,7 @@ export async function pendingBash(event, repo) {
     record.actionIds ??= [];
     if (!record.actionIds.includes(action.id)) record.actionIds.push(action.id);
   }
-  return [...pending.values()];
+  return [...pending.values()].filter((record) => !state.consumedTools.has(toolCallKey(record.host, record.sessionId, record.toolUseId)));
 }
 
 // Resolves symlinks in the longest existing prefix, so a path reached
@@ -114,7 +116,7 @@ export async function protectedPath(event, repo, target) {
   const requested = path.isAbsolute(target) ? target : `${event.cwd ?? repo.root}${path.sep}${target}`;
   const lexical = path.resolve(requested);
   const markers = [path.join(repo.root, ".git"), path.join(repo.root, ".better-workflows")];
-  const [absolute, ...protectedRoots] = await Promise.all([physicalPath(requested), ...[...markers, repo.gitDir].map(physicalPath)]);
+  const [absolute, ...protectedRoots] = await Promise.all([physicalPath(requested), ...[...markers, repo.gitDir, repo.commonDir ?? repo.gitDir].map(physicalPath)]);
   if (markers.some((root) => isInside(lexical, root)) || protectedRoots.some((root) => isInside(absolute, root))) {
     return gate(repo, event, "deny", `${target} is protected; the policy and ledger are changed by a person, not the agent`, { target });
   }
@@ -127,6 +129,13 @@ function applyDecisionMap(evaluation, mapEvaluation) {
   return mapped && typeof mapped === "object" ? { ...evaluation, ...mapped } : evaluation;
 }
 
+function replayReason(state, event) {
+  if (!event.toolUseId) return null;
+  if (state.consumedTools.has(toolCallKey(event.host, event.sessionId, event.toolUseId))) return "this host/session/tool call was already consumed; a replay cannot record a new run";
+  if ([...state.actions.values()].some((action) => matchesAction(action, event))) return "this host/session/tool call already reserved an action; it cannot be reserved again";
+  return null;
+}
+
 // The policy, initial evaluation, reconciliation and locked reevaluation all
 // happen here. Hosts may map semantic decisions before any action is begun.
 export async function preBash(event, repo, { beforeEvaluate, mapEvaluation } = {}) {
@@ -137,6 +146,10 @@ export async function preBash(event, repo, { beforeEvaluate, mapEvaluation } = {
   const policyInfo = await loadPolicy(repo);
   let state = await loadState(repo);
   if (beforeEvaluate && await beforeEvaluate(state)) state = await loadState(repo);
+  if (event.toolUseId) {
+    const reason = await withLedgerLock(repo, async () => replayReason(await loadState(repo), event));
+    if (reason) return gate(repo, event, "deny", reason);
+  }
   const head = await headCommit(repo);
   let evaluation = applyDecisionMap(evaluateCommand({ command, policyInfo, state, head }), mapEvaluation);
   if ((evaluation.actions.length || evaluation.opaque) && openActions(state).length) {
@@ -148,13 +161,16 @@ export async function preBash(event, repo, { beforeEvaluate, mapEvaluation } = {
 
   const { ignore } = policyInfo.policy.evidence;
   const tree = evaluation.actions.length || evaluation.evidence.length ? await worktreeTree(repo, { ignore }) : null;
-  if (evaluation.actions.length || evaluation.evidence.length) {
+  if (event.toolUseId || evaluation.actions.length || evaluation.evidence.length) {
     evaluation = await withLedgerLock(repo, async () => {
+      const latestState = await loadState(repo);
+      const reason = replayReason(latestState, event);
+      if (reason) return { ...evaluation, decision: "deny", reasons: [reason] };
       const latest = applyDecisionMap(
-        evaluateCommand({ command, policyInfo, state: await loadState(repo), head: await headCommit(repo) }),
+        evaluateCommand({ command, policyInfo, state: latestState, head: await headCommit(repo) }),
         mapEvaluation,
       );
-      if (latest.decision === "deny") return latest;
+      if (latest.decision === "deny" || (!latest.actions.length && !latest.evidence.length)) return latest;
       const actionIds = await beginActions(repo, latest, {
         command, tree, policyDigest: policyInfo.digest, host: event.host, toolUseId: event.toolUseId ?? null,
         session: event.sessionId ?? null, turnId: event.turnId ?? null, cwd: event.cwd ?? repo.root, transcriptPath: event.transcriptPath ?? null,
@@ -206,21 +222,24 @@ async function ranWhereRequired(evidence, event, repo) {
   return ran === wanted;
 }
 
-export async function postBash(event, repo, { detail } = {}) {
+export async function postBash(event, repo, { detail, requireKnownExitCode = false } = {}) {
   if (event.toolName !== "Bash" || !event.toolUseId) return null;
   const exitCode = Number.isInteger(event.finalExitCode) ? event.finalExitCode : null;
+  if (requireKnownExitCode && exitCode === null) return null;
   return withLedgerLock(repo, async () => {
     const file = pendingFile(repo, event.host, event.toolUseId, event.sessionId ?? null);
     let pending;
     try { pending = JSON.parse(await readFile(file, "utf8")); } catch { pending = null; }
     if (pending && !sameCall(pending, event)) return null;
     const state = await loadState(repo);
+    if (state.consumedTools.has(toolCallKey(event.host, event.sessionId, event.toolUseId))) return null;
     const reserved = pending ? new Set(pending.actionIds ?? []) : null;
     const ids = [...state.actions.values()]
-      .filter((a) => a.host === event.host && a.session === (event.sessionId ?? null) && a.toolUseId === event.toolUseId && a.status === "pending" && (!reserved || reserved.has(a.id)))
+      .filter((a) => matchesAction(a, event) && a.status === "pending" && (!reserved || reserved.has(a.id)))
       .map((a) => a.id);
-    // Consume once under the same lock as the finish. A concurrent or late
-    // Post cannot count evidence twice or overwrite a reconciled action.
+    // The durable marker is deliberately before sidecar removal and evidence:
+    // a later I/O failure can lose a result, but cannot bind this id to a new tree.
+    await appendEvent(repo, "tool.consumed", { host: event.host, session: event.sessionId ?? null, toolUseId: event.toolUseId });
     if (pending) await rm(file, { force: true });
     if (ids.length) await endActions(repo, ids, { exitCode, detail: exitCode === 0 ? null : String(detail ?? "interrupted").slice(0, 500) });
     if (!pending?.kinds?.length) return null;

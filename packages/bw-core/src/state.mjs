@@ -2,6 +2,8 @@ import { readLedger } from "./ledger.mjs";
 
 const sessionKey = (host, session) => JSON.stringify([host ?? null, session ?? null]);
 
+export const toolCallKey = (host, session, toolUseId) => JSON.stringify([host ?? null, session ?? null, toolUseId ?? null]);
+
 const OPEN = new Set(["pending", "unknown"]);
 
 // Folds the ledger into current evidence and action state.
@@ -10,8 +12,10 @@ export function reduceEntries(entries) {
   const actions = new Map();
   const sessions = new Map();
   const hostSessions = new Map();
+  const consumedTools = new Set();
   for (const { type, data, at, seq } of entries) {
     if (type === "evidence.recorded") evidence.push({ ...data, at, seq });
+    else if (type === "tool.consumed") consumedTools.add(toolCallKey(data.host, data.session, data.toolUseId));
     else if (type === "session.started") {
       const key = sessionKey(data.host, data.session);
       if (!hostSessions.has(key)) hostSessions.set(key, { ...data, at, seq, blocks: 0 });
@@ -28,7 +32,7 @@ export function reduceEntries(entries) {
       action.history.push({ type, ...data, at, seq });
     }
   }
-  return { evidence, actions, sessions, hostSessions };
+  return { evidence, actions, sessions, hostSessions, consumedTools };
 }
 
 export async function loadState(repo) {

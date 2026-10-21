@@ -32,7 +32,7 @@ Start with the smallest one that does the job. The CLI already covers most check
 
 Everything Core does follows from five ideas. Once they are clear, the API reads naturally.
 
-**Repository.** Core works inside one Git work tree. `openRepo(cwd)` finds it and returns `{ root, gitDir, stateDir }`. Outside a Git work tree it returns `null`, and every integration should then do nothing.
+**Repository.** Core works inside one Git work tree. `openRepo(cwd)` finds it and returns `{ root, gitDir, commonDir, stateDir }`. Outside a Git work tree it returns `null`, and every integration should then do nothing.
 
 **Policy.** `.better-workflows/policy.json`, written and committed by a person. It says which evidence completion needs (`completion.require`), which commands count as which evidence (`evidence.kinds`), and whether each kind of side effect is `allow`, `ask` or `deny` (`actions`). The agent may read it but never change it. A missing file means defaults; an invalid file means every side effect is denied.
 
@@ -266,7 +266,7 @@ function normalize(input) {
 
 | Export | Signature (abridged) | Returns |
 |---|---|---|
-| `openRepo` | `(cwd)` | `{ root, gitDir, stateDir }` or `null` |
+| `openRepo` | `(cwd)` | `{ root, gitDir, commonDir, stateDir }` or `null` |
 | `headCommit`, `currentBranch` | `(repo)` | commit id / branch name, or `null` |
 | `worktreeTree` | `(repo, { ignore })` | Git tree id of the working files, untracked included; never touches the person's index |
 | `subtreeDigests` | `(repo, tree, paths)` | `{ path: id or null }` |
@@ -293,7 +293,7 @@ function normalize(input) {
 | `appendEvent` | `(repo, type, data)` | appends one entry under the lock |
 | `readLedger`, `verifyLedger`, `ledgerPath` | `(repo)` | entries (throws on a broken chain) / `{ ok, entries, head }` or `{ ok: false, error }` / the file path |
 | `withLedgerLock` | `(repo, fn)` | runs `fn` as the only writer; appends inside reuse the lock |
-| `loadState`, `reduceEntries` | `(repo)`, `(entries)` | `{ evidence, actions, sessions }` |
+| `loadState`, `reduceEntries` | `(repo)`, `(entries)` | `{ evidence, actions, sessions, hostSessions, consumedTools }` |
 | `openActions`, `latestSession` | `(state)` | actions still `pending` or `unknown` / the last session |
 | `canonicalJson`, `digest`, `sha256` | | stable JSON and hashes used across the ledger |
 
@@ -309,9 +309,10 @@ Each line is `{ seq, at, type, data, prev, hash }`. `hash` covers the entry and 
 | `action.ended` | After it ran, or proven never run | `id`, `outcome`, `exitCode`, `detail` |
 | `action.reconciled` | A probe or a person settled it | `id`, `outcome`, `method` (`probe` or `manual`), `detail` |
 | `completion.blocked` | The agent was sent back at stop | `session`, `missing`, `tree` |
+| `tool.consumed` | A host call is consumed before result accounting | `host`, `session`, `toolUseId`; not proof of success |
 | `tool.gated` | A hook denied or asked about a call | `decision`, `reason`, `tool`, `command`, `target`, `host`, `session` |
 
-Entries retain the existing unversioned schema. Claude Code and Codex use the same entry types; new host/session correlation fields are optional and old entries remain readable. Versioning and migration are required before an incompatible schema change.
+Entries retain the existing unversioned schema. Claude Code and Codex use the same entry types; new host/session correlation fields are optional and old entries remain readable. The additive `tool.consumed` entry prevents completed-call replays; older Core versions do not enforce that guard. Versioning and migration are required before an incompatible schema change.
 
 ### 6.3 Stability
 
