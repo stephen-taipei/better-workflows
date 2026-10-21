@@ -40,7 +40,7 @@
   },
   "hero": {
     "badge": "alpha",
-    "h1": "證據要新，才算完成。",
+    "h1": "證據對得上現在的檔案，才算完成。",
     "h1Signal": "結果不明，就先停下。",
     "lead": "一個 Claude Code plugin：不讓 AI agent 拿過期的綠燈收工，也不讓它重複或疊加沒看到結果的副作用。它能做什麼，由你寫的 policy 檔決定，永遠不由 prompt 決定。",
     "taglineLabel": "Core 守住的事",

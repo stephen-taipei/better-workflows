@@ -56,7 +56,7 @@ bw init
 | `SessionStart` | 記錄起始 tree，並告訴 agent 完成需要哪些證據、哪些副作用仍未結案。 |
 | `PreToolUse` | 對 Bash 指令執行 action gate。`deny` 擋下，`ask` 交給權限提示，`allow` 交回 Claude Code 自己的權限規則，絕不多給權限。修改 `.better-workflows/`、`.git/` 以及 `bw init`／`bw reconcile <id>` 一律拒絕。 |
 | `PostToolUse`、`PostToolUseFailure` | 記錄 exit code：0 為成功，其他或中斷為 `unknown`。test、lint、typecheck、build 指令同時記錄證據。 |
-| `Stop` | session 內檔案有變更但必要證據不新鮮時，把 agent 退回一次並說明缺什麼；第二次只警告。 |
+| `Stop` | session 內檔案有變更但必要證據缺少、失敗或已過期時，把 agent 退回一次並說明缺什麼；第二次只警告。 |
 | `SubagentStop` | 結案 subagent 執行期間被人拒絕的副作用。不會退回 subagent：它和主 agent 共用 session，由主 agent 的 `Stop` 把關。 |
 
 在權限提示被拒絕的副作用沒有執行，也不會觸發 `PostToolUse`。只有 session transcript 顯示 Claude Code 的拒絕訊息是該工具的結果時，adapter 才會把它結案為 `failed`；其他缺少結果的情況（包含中斷）一律維持 `unknown`。
