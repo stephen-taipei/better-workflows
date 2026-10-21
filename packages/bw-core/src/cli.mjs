@@ -9,6 +9,7 @@ import { reconcileManually, reconcileOpen } from "./reconcile.mjs";
 import { openRepo, headCommit, subtreeDigests, treeState, worktreeTree } from "./repo.mjs";
 import { latestSession, loadState, openActions } from "./state.mjs";
 import { handleClaudeCodeHook } from "./adapters/claude-code.mjs";
+import { handleCodexHook } from "./adapters/codex.mjs";
 
 const USAGE = `Usage: bw <command>
 
@@ -22,7 +23,8 @@ const USAGE = `Usage: bw <command>
                                  Settle an action by hand after checking it yourself
   verify                         Verify the ledger hash chain
   log [--limit n]                Print recent ledger entries
-  hook claude-code               Claude Code hook entrypoint (reads the event JSON on stdin)`;
+  hook claude-code               Claude Code hook entrypoint (reads the event JSON on stdin)
+  hook codex                     Codex hook entrypoint (reads the event JSON on stdin)`;
 
 class UsageError extends Error {}
 
@@ -62,8 +64,12 @@ const COMMANDS = {
     const completion = completionStatus(state, policyInfo.policy, await snapshot(repo, policyInfo.policy, tree));
     const open = openActions(state).map(({ id, kind, status, command }) => ({ id, kind, status, command }));
     const session = latestSession(state);
-    const summaries = session ? completion.results.map((r) => sessionSummary(state, session.session, r.kind)) : [];
-    const result = { head, tree, policy: { source: policyInfo.source, error: policyInfo.error }, completion, openActions: open, session: session && { id: session.session, blocks: session.blocks, evidence: summaries } };
+    const sessionsByHost = Object.create(null);
+    for (const { type, data, at } of await readLedger(repo)) {
+      if (type === "session.started" && data.host) sessionsByHost[data.host] = { id: data.session, at };
+    }
+    const summaries = session ? completion.results.map((r) => sessionSummary(state, session.session, r.kind, session.host)) : [];
+    const result = { head, tree, policy: { source: policyInfo.source, error: policyInfo.error }, completion, openActions: open, sessionsByHost, session: session && { id: session.session, blocks: session.blocks, evidence: summaries } };
     if (json) return print(io, result, true), 0;
     const lines = [`HEAD ${head ?? "(none)"}  tree ${tree}`, `policy: ${policyInfo.source}${policyInfo.error ? ` (${policyInfo.error})` : ""}`];
     lines.push(completion.results.length ? "completion evidence:" : "completion evidence: none required");
@@ -73,6 +79,7 @@ const COMMANDS = {
     }
     lines.push(open.length ? "open actions:" : "open actions: none");
     for (const action of open) lines.push(`  ${action.id} ${action.kind} ${action.status}: ${action.command}`);
+    for (const [host, last] of Object.entries(sessionsByHost)) lines.push(`last session for ${host}: ${last.at} (${last.id ?? "unknown"})`);
     const history = summaries.map(describeSession).filter(Boolean);
     if (session && (history.length || session.blocks)) {
       lines.push(`last session (${session.session ?? "unknown"}): sent back ${session.blocks} time${session.blocks === 1 ? "" : "s"}`);
@@ -173,14 +180,15 @@ async function readStdin(stream) {
 }
 
 COMMANDS.hook = async (args, { io }) => {
-  if (args[0] !== "claude-code") throw new UsageError("hook supports: claude-code");
+  const handler = new Map([["claude-code", handleClaudeCodeHook], ["codex", handleCodexHook]]).get(args[0]);
+  if (!handler) throw new UsageError("hook supports: claude-code, codex");
   let input;
   try {
     input = JSON.parse(await readStdin(io.stdin ?? process.stdin));
   } catch {
     throw new UsageError("hook expects the event JSON on stdin");
   }
-  const { output, exitCode } = await handleClaudeCodeHook(input);
+  const { output, exitCode } = await handler(input);
   if (output) io.stdout.write(`${JSON.stringify(output)}\n`);
   return exitCode;
 };

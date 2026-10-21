@@ -79,8 +79,8 @@ export function describeEvidence(result) {
 
 // How one session has gone for a kind. Core only counts; whether the run
 // is converging or going in circles is the agent's call, or the person's.
-export function sessionSummary(state, session, kind) {
-  const runs = state.evidence.filter((r) => r.session === session && r.kind === kind && r.attributed !== false);
+export function sessionSummary(state, session, kind, host) {
+  const runs = state.evidence.filter((r) => r.session === session && r.kind === kind && (host === undefined || r.host === host) && r.attributed !== false);
   let failing = 0;
   for (const run of runs.slice().reverse()) {
     if (run.exitCode === 0) break;

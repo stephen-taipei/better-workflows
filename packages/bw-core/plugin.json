@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "better-workflows-core",
+  "version": "6.0.0-alpha.2",
+  "description": "Evidence binding, action gate and provider reconciliation for AI coding agents.",
+  "extensions": {
+    "com.openai": {
+      "hooks": "./hooks/codex.json"
+    }
+  }
+}

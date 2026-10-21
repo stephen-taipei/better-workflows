@@ -187,7 +187,7 @@ if (!completion.ok) {
 
 ## 5. 撰寫 host adapter（草案）
 
-> **草案。** 本節描述 Claude Code adapter 目前的做法（`src/adapters/claude-code.mjs`）。加入第二個 host 時會抽出 host 中立的契約，欄位名稱可能和這裡不同。目前 adapter 都放在本套件內。
+> **草案。** Claude Code 與實驗中的 [Codex adapter](codex.md) 共用 `src/adapters/shared.mjs` 的 host 中立生命週期邏輯。各 adapter 正規化事件並組裝 host 回應；原始 host payload 不會進入 shared。這個內部契約在 beta 前仍可能調整。
 
 像 `guarded-run` 這種 wrapper 只保護經過它的指令，agent 仍然可以直接執行 `git push`。adapter 不一樣：是 agent host 本身在每次工具呼叫前問 Core 並遵守答案，所以沒有漏網的指令。
 
@@ -310,7 +310,7 @@ function normalize(input) {
 | `completion.blocked` | agent 停止時被送回 | `session`、`missing`、`tree` |
 | `tool.gated` | hook deny 或 ask 某次呼叫 | `decision`、`reason`、`tool`、`command`、`target`、`host`、`session` |
 
-紀錄目前還沒有 schema 版本號。在第二個 host 寫入同一本帳之前會加上。
+紀錄沿用既有未編版號的 schema。Claude Code 與 Codex 使用相同紀錄類型；新增的 host/session 關聯欄位可省略，舊紀錄仍可讀取。不相容的 schema 變更必須先提供版本號與遷移方式。
 
 ### 6.3 穩定度
 
@@ -319,7 +319,7 @@ function normalize(input) {
 | Policy 檔（`version: 1`） | Alpha；beta 時凍結 |
 | CLI 指令、exit code、`--json` 輸出 | Alpha；beta 時凍結 |
 | 6.1 的 JavaScript exports | Alpha；beta 前可能改變 |
-| 帳本紀錄 | Alpha；第二個 host 之前加版本號 |
+| 帳本紀錄 | Alpha；新增 host 欄位維持相容，不相容變更前加版本號 |
 | Host adapter 契約（第 5 節） | 草案 |
 
 ## 7. 守住保證的規則

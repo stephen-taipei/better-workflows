@@ -1,12 +1,13 @@
-import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { digest } from "../canonical.mjs";
 import { beginActions, endActions, evaluateCommand } from "../actions.mjs";
 import { completionStatus, describeEvidence, describeSession, recordEvidence, scopeDigests, scopeFor, sessionSummary, snapshot } from "../evidence.mjs";
 import { appendEvent, withLedgerLock } from "../ledger.mjs";
 import { loadPolicy } from "../policy.mjs";
 import { ghFailure, reconcileOpen } from "../reconcile.mjs";
 import { headCommit, subtreeDigests, worktreeTree } from "../repo.mjs";
-import { loadState, openActions } from "../state.mjs";
+import { loadState, openActions, sessionFor } from "../state.mjs";
 import { splitCommand } from "../command.mjs";
 import { run } from "../process.mjs";
 
@@ -30,10 +31,37 @@ function gate(repo, event, decision, reason, { target = null } = {}) {
   }
 }
 
-export function pendingFile(repo, host, toolUseId) {
-  const hostPart = String(host ?? "").replace(/[^A-Za-z0-9_-]/g, "_") || "unknown";
-  const idPart = String(toolUseId).replace(/[^A-Za-z0-9_-]/g, "_");
-  return path.join(repo.stateDir, "pending", `${hostPart}-${idPart}.json`);
+const hostPart = (host) => String(host ?? "").replace(/[^A-Za-z0-9_-]/g, "_") || "unknown";
+
+export function pendingFile(repo, host, toolUseId, sessionId = null) {
+  return path.join(repo.stateDir, "pending", `${hostPart(host)}-${digest([sessionId, toolUseId])}.json`);
+}
+
+const sameCall = (record, event) => record.host === event.host && record.sessionId === (event.sessionId ?? null) && record.toolUseId === event.toolUseId;
+
+// Sidecars cover checks as well as side effects. Action metadata is enough
+// to recover a side effect if writing its sidecar failed after reservation.
+export async function pendingBash(event, repo) {
+  const pending = new Map();
+  const dir = path.join(repo.stateDir, "pending");
+  const files = await readdir(dir).catch((error) => { if (error.code === "ENOENT") return []; throw error; });
+  for (const file of files.filter((name) => name.startsWith(`${hostPart(event.host)}-`) && name.endsWith(".json"))) {
+    try {
+      const record = JSON.parse(await readFile(path.join(dir, file), "utf8"));
+      if (record.host === event.host && record.sessionId === (event.sessionId ?? null) && record.toolUseId) pending.set(record.toolUseId, record);
+    } catch { /* Unreadable evidence cannot be reconstructed or counted. */ }
+  }
+  for (const action of openActions(await loadState(repo))) {
+    if (action.status !== "pending" || action.host !== event.host || action.session !== (event.sessionId ?? null) || !action.toolUseId) continue;
+    if (!pending.has(action.toolUseId)) pending.set(action.toolUseId, {
+      host: action.host, sessionId: action.session, turnId: action.turnId ?? null, toolUseId: action.toolUseId,
+      command: action.command, cwd: action.cwd, transcriptPath: action.transcriptPath, actionIds: [],
+    });
+    const record = pending.get(action.toolUseId);
+    record.actionIds ??= [];
+    if (!record.actionIds.includes(action.id)) record.actionIds.push(action.id);
+  }
+  return [...pending.values()];
 }
 
 // Resolves symlinks in the longest existing prefix, so a path reached
@@ -44,7 +72,8 @@ async function physicalPath(target) {
   for (;;) {
     try {
       return path.join(await realpath(existing), ...rest);
-    } catch {
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
       const parent = path.dirname(existing);
       if (parent === existing) return target;
       rest.unshift(path.basename(existing));
@@ -55,7 +84,7 @@ async function physicalPath(target) {
 
 function isInside(child, parent) {
   const relative = path.relative(parent, child);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
 // The policy, the ledger and manual reconciliation belong to the person.
@@ -82,10 +111,11 @@ function protectedBash(command) {
 // `target` is host-derived detail kept outside the normalized event.
 export async function protectedPath(event, repo, target) {
   if (!target) return null;
-  const [absolute, root, gitDir] = await Promise.all([
-    physicalPath(path.resolve(event.cwd ?? repo.root, target)), physicalPath(repo.root), physicalPath(repo.gitDir),
-  ]);
-  if (isInside(absolute, path.join(root, ".better-workflows")) || isInside(absolute, gitDir)) {
+  const requested = path.isAbsolute(target) ? target : `${event.cwd ?? repo.root}${path.sep}${target}`;
+  const lexical = path.resolve(requested);
+  const markers = [path.join(repo.root, ".git"), path.join(repo.root, ".better-workflows")];
+  const [absolute, ...protectedRoots] = await Promise.all([physicalPath(requested), ...[...markers, repo.gitDir].map(physicalPath)]);
+  if (markers.some((root) => isInside(lexical, root)) || protectedRoots.some((root) => isInside(absolute, root))) {
     return gate(repo, event, "deny", `${target} is protected; the policy and ledger are changed by a person, not the agent`, { target });
   }
   return null;
@@ -118,45 +148,51 @@ export async function preBash(event, repo, { beforeEvaluate, mapEvaluation } = {
 
   const { ignore } = policyInfo.policy.evidence;
   const tree = evaluation.actions.length || evaluation.evidence.length ? await worktreeTree(repo, { ignore }) : null;
-  if (evaluation.actions.length) {
-    // Decide again and record under the ledger lock, so two sessions cannot
-    // both be let through for the same push before either has recorded it.
+  if (evaluation.actions.length || evaluation.evidence.length) {
     evaluation = await withLedgerLock(repo, async () => {
       const latest = applyDecisionMap(
         evaluateCommand({ command, policyInfo, state: await loadState(repo), head: await headCommit(repo) }),
         mapEvaluation,
       );
-      if (latest.decision !== "deny") {
-        await beginActions(repo, latest, { command, tree, policyDigest: policyInfo.digest, host: event.host, toolUseId: event.toolUseId ?? null });
-      }
+      if (latest.decision === "deny") return latest;
+      const actionIds = await beginActions(repo, latest, {
+        command, tree, policyDigest: policyInfo.digest, host: event.host, toolUseId: event.toolUseId ?? null,
+        session: event.sessionId ?? null, turnId: event.turnId ?? null, cwd: event.cwd ?? repo.root, transcriptPath: event.transcriptPath ?? null,
+      });
+      if (event.toolUseId) await savePending(event, repo, latest, { actionIds, command, tree, ignore, policy: policyInfo.policy });
       return latest;
     });
     if (evaluation.decision === "deny") return gate(repo, event, "deny", evaluation.reasons.join("; "));
   }
-  if (evaluation.evidence.length && event.toolUseId) {
-    const file = pendingFile(repo, event.host, event.toolUseId);
-    await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-    const kinds = [...new Set(evaluation.evidence.map((e) => e.kind))];
-    const placed = await Promise.all(evaluation.evidence.map((e) => ranWhereRequired(e, event, repo)));
-    // Per kind, the reason none of its runs can count, if any: one that ran
-    // where the policy says and decides the line's exit code is enough.
-    const excluded = {};
-    for (const kind of kinds) {
-      const runs = evaluation.evidence.map((e, i) => ({ ...e, placed: placed[i] })).filter((e) => e.kind === kind);
-      if (runs.some((e) => e.placed && e.attributable)) continue;
-      excluded[kind] = runs.some((e) => e.placed) ? "exit-code" : "directory";
-    }
-    const before = await snapshot(repo, policyInfo.policy, tree);
-    const scopes = {};
-    for (const kind of kinds) {
-      const scope = scopeFor(policyInfo.policy, kind);
-      if (scope) scopes[kind] = { scope, before: scopeDigests(scope, before.digests) };
-    }
-    await writeFile(file, JSON.stringify({ kinds, excluded, command, treeBefore: tree, ignore, scopes }), { mode: 0o600 });
-  }
   // Core only narrows what the host already allows; an allow defers to the
   // host's own permission rules instead of granting anything.
   return evaluation.decision === "ask" ? gate(repo, event, "ask", evaluation.reasons.join("; ")) : null;
+}
+
+async function savePending(event, repo, evaluation, { actionIds, command, tree, ignore, policy }) {
+  const file = pendingFile(repo, event.host, event.toolUseId, event.sessionId ?? null);
+  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+  const kinds = [...new Set(evaluation.evidence.map((e) => e.kind))];
+  const placed = await Promise.all(evaluation.evidence.map((e) => ranWhereRequired(e, event, repo)));
+  const excluded = {};
+  for (const kind of kinds) {
+    const runs = evaluation.evidence.map((e, i) => ({ ...e, placed: placed[i] })).filter((e) => e.kind === kind);
+    if (runs.some((e) => e.placed && e.attributable)) continue;
+    excluded[kind] = runs.some((e) => e.placed) ? "exit-code" : "directory";
+  }
+  const before = await snapshot(repo, policy, tree);
+  const scopes = {};
+  for (const kind of kinds) {
+    const scope = scopeFor(policy, kind);
+    if (scope) scopes[kind] = { scope, before: scopeDigests(scope, before.digests) };
+  }
+  const pending = {
+    host: event.host, sessionId: event.sessionId ?? null, turnId: event.turnId ?? null, toolUseId: event.toolUseId,
+    cwd: event.cwd ?? repo.root, transcriptPath: event.transcriptPath ?? null, actionIds,
+    kinds, excluded, command, treeBefore: tree, ignore, scopes,
+  };
+  // A replayed PreToolUse must preserve the original tree and transcript.
+  await writeFile(file, JSON.stringify(pending), { mode: 0o600, flag: "wx" }).catch((error) => { if (error.code !== "EEXIST") throw error; });
 }
 
 // Whether an exact evidence run happened in the directory its rule names.
@@ -172,33 +208,35 @@ async function ranWhereRequired(evidence, event, repo) {
 
 export async function postBash(event, repo, { detail } = {}) {
   if (event.toolName !== "Bash" || !event.toolUseId) return null;
-  const exitCode = event.finalExitCode;
-  const state = await loadState(repo);
-  const ids = [...state.actions.values()]
-    .filter((a) => a.host === event.host && a.toolUseId === event.toolUseId && a.status === "pending")
-    .map((a) => a.id);
-  if (ids.length) await endActions(repo, ids, { exitCode, detail: exitCode === 0 ? null : String(detail ?? "interrupted").slice(0, 500) });
-
-  const file = pendingFile(repo, event.host, event.toolUseId);
-  let pending;
-  try {
-    pending = JSON.parse(await readFile(file, "utf8"));
-  } catch {
+  const exitCode = Number.isInteger(event.finalExitCode) ? event.finalExitCode : null;
+  return withLedgerLock(repo, async () => {
+    const file = pendingFile(repo, event.host, event.toolUseId, event.sessionId ?? null);
+    let pending;
+    try { pending = JSON.parse(await readFile(file, "utf8")); } catch { pending = null; }
+    if (pending && !sameCall(pending, event)) return null;
+    const state = await loadState(repo);
+    const reserved = pending ? new Set(pending.actionIds ?? []) : null;
+    const ids = [...state.actions.values()]
+      .filter((a) => a.host === event.host && a.session === (event.sessionId ?? null) && a.toolUseId === event.toolUseId && a.status === "pending" && (!reserved || reserved.has(a.id)))
+      .map((a) => a.id);
+    // Consume once under the same lock as the finish. A concurrent or late
+    // Post cannot count evidence twice or overwrite a reconciled action.
+    if (pending) await rm(file, { force: true });
+    if (ids.length) await endActions(repo, ids, { exitCode, detail: exitCode === 0 ? null : String(detail ?? "interrupted").slice(0, 500) });
+    if (!pending?.kinds?.length) return null;
+    const [treeAfter, head] = await Promise.all([worktreeTree(repo, { ignore: pending.ignore ?? [] }), headCommit(repo)]);
+    const scopes = pending.scopes ?? {};
+    const after = await subtreeDigests(repo, treeAfter, [...new Set(Object.values(scopes).flatMap((s) => s.scope))]);
+    for (const kind of pending.kinds) {
+      const excluded = pending.excluded?.[kind] ?? null;
+      const scoped = scopes[kind] ? { scope: scopes[kind].scope, scopeBefore: scopes[kind].before, scopeAfter: scopeDigests(scopes[kind].scope, after) } : {};
+      await recordEvidence(repo, {
+        kind, command: pending.command, exitCode, excluded, treeBefore: pending.treeBefore, treeAfter, head,
+        host: event.host, session: event.sessionId ?? null, ...scoped,
+      });
+    }
     return null;
-  }
-  await rm(file, { force: true });
-  const [treeAfter, head] = await Promise.all([worktreeTree(repo, { ignore: pending.ignore ?? [] }), headCommit(repo)]);
-  const scopes = pending.scopes ?? {};
-  const after = await subtreeDigests(repo, treeAfter, [...new Set(Object.values(scopes).flatMap((s) => s.scope))]);
-  for (const kind of pending.kinds) {
-    const excluded = pending.excluded?.[kind] ?? null;
-    const scoped = scopes[kind] ? { scope: scopes[kind].scope, scopeBefore: scopes[kind].before, scopeAfter: scopeDigests(scopes[kind].scope, after) } : {};
-    await recordEvidence(repo, {
-      kind, command: pending.command, exitCode, excluded, treeBefore: pending.treeBefore, treeAfter, head,
-      host: event.host, session: event.sessionId ?? null, ...scoped,
-    });
-  }
-  return null;
+  });
 }
 
 // Whether the policy or the ledger needs `gh`, so a missing or logged-out
@@ -238,7 +276,7 @@ export async function stopSession(event, repo, { stopHookActive = false, beforeC
   if (!policyInfo.policy.completion.require.length) return null;
   const [state, tree] = await Promise.all([loadState(repo), worktreeTree(repo, { ignore: policyInfo.policy.evidence.ignore })]);
   const session = event.sessionId ?? null;
-  const started = state.sessions.get(session);
+  const started = sessionFor(state, session, event.host);
   if (started && started.tree === tree) return null; // nothing changed in this session
   const completion = completionStatus(state, policyInfo.policy, await snapshot(repo, policyInfo.policy, tree));
   if (completion.ok) return null;
@@ -246,13 +284,13 @@ export async function stopSession(event, repo, { stopHookActive = false, beforeC
   const lines = missing.map(describeEvidence);
   // Counts for the agent to judge whether it is converging; Core does not
   // decide that, and a person extends authority, never the agent.
-  const history = missing.map((r) => describeSession(sessionSummary(state, session, r.kind))).filter(Boolean);
+  const history = missing.map((r) => describeSession(sessionSummary(state, session, r.kind, event.host))).filter(Boolean);
   if (started?.blocks) history.push(`this session was already sent back ${started.blocks} time${started.blocks === 1 ? "" : "s"}`);
   const trend = history.length ? ` So far: ${history.join("; ")}.` : "";
   if (stopHookActive) {
     return { type: "message", message: `Better Workflows: the agent stopped without fresh evidence. ${lines.join("; ")}.${trend}` };
   }
-  await appendEvent(repo, "completion.blocked", { session, missing: missing.map((r) => r.kind), tree });
+  await appendEvent(repo, "completion.blocked", { session, host: event.host, missing: missing.map((r) => r.kind), tree });
   return {
     type: "block",
     reason: `Better Workflows: the files changed and the required evidence does not match them yet. ${lines.join("; ")}.${trend} Run the checks on the current files, fix any failure, then finish. If the same failure keeps coming back, stop and say plainly which check is failing and why, instead of trying again.`,

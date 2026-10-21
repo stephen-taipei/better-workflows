@@ -187,7 +187,7 @@ Each result's `status` is one of `fresh`, `stale`, `failed`, `unstable` (files c
 
 ## 5. Writing a host adapter (draft)
 
-> **Draft.** This section describes how the Claude Code adapter works today (`src/adapters/claude-code.mjs`). A host-neutral contract will be extracted when a second host is added, and its field names may differ from what is shown here. Adapters for now live inside this package.
+> **Draft.** Claude Code and the experimental [Codex adapter](codex.md) share host-neutral lifecycle logic in `src/adapters/shared.mjs`. Adapters normalize events and format host responses; raw host payloads do not enter the shared layer. This internal contract may change before beta.
 
 A wrapper like `guarded-run` only protects commands sent through it; the agent can still run `git push` directly. An adapter is different: the agent host itself calls Core before every tool call and obeys the answer, so nothing slips past.
 
@@ -311,7 +311,7 @@ Each line is `{ seq, at, type, data, prev, hash }`. `hash` covers the entry and 
 | `completion.blocked` | The agent was sent back at stop | `session`, `missing`, `tree` |
 | `tool.gated` | A hook denied or asked about a call | `decision`, `reason`, `tool`, `command`, `target`, `host`, `session` |
 
-Entries do not carry a schema version yet. One will be added before a second host writes to the same ledger.
+Entries retain the existing unversioned schema. Claude Code and Codex use the same entry types; new host/session correlation fields are optional and old entries remain readable. Versioning and migration are required before an incompatible schema change.
 
 ### 6.3 Stability
 
@@ -320,7 +320,7 @@ Entries do not carry a schema version yet. One will be added before a second hos
 | Policy file (`version: 1`) | Alpha; frozen at beta |
 | CLI commands, exit codes, `--json` output | Alpha; frozen at beta |
 | JavaScript exports in 6.1 | Alpha; may change before beta |
-| Ledger entries | Alpha; versioned before a second host |
+| Ledger entries | Alpha; additive host metadata, versioning before incompatible changes |
 | Host adapter contract (section 5) | Draft |
 
 ## 7. Rules that keep the guarantees
