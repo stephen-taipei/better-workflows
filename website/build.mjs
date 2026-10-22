@@ -426,9 +426,10 @@ try {
   const problems = await verify(out);
   if (problems.length) {
     for (const p of problems) process.stderr.write(`${p}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+  } else {
+    process.stdout.write(`${check ? "checked" : `wrote ${path.relative(process.cwd(), out)} with`} ${count} locale homepages\n`);
   }
-  process.stdout.write(`${check ? "checked" : `wrote ${path.relative(process.cwd(), out)} with`} ${count} locale homepages\n`);
 } finally {
   if (check) await rm(out, { recursive: true, force: true });
 }
