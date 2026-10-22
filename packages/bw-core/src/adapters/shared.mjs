@@ -3,7 +3,7 @@ import path from "node:path";
 import { digest } from "../canonical.mjs";
 import { beginActions, endActions, evaluateCommand } from "../actions.mjs";
 import { completionStatus, describeEvidence, describeSession, recordEvidence, scopeDigests, scopeFor, sessionSummary, snapshot } from "../evidence.mjs";
-import { appendEvent, withLedgerLock } from "../ledger.mjs";
+import { appendEvent, newerLedgerWarning, withLedgerLock } from "../ledger.mjs";
 import { loadPolicy } from "../policy.mjs";
 import { ghFailure, reconcileOpen } from "../reconcile.mjs";
 import { headCommit, subtreeDigests, worktreeTree } from "../repo.mjs";
@@ -53,6 +53,7 @@ export async function pendingBash(event, repo) {
     } catch { /* Unreadable evidence cannot be reconstructed or counted. */ }
   }
   const state = await loadState(repo);
+  if (state.newerLedger) return [];
   for (const action of openActions(state)) {
     if (action.status !== "pending" || action.host !== event.host || action.session !== (event.sessionId ?? null) || !action.toolUseId) continue;
     if (!pending.has(action.toolUseId)) pending.set(action.toolUseId, {
@@ -145,14 +146,15 @@ export async function preBash(event, repo, { beforeEvaluate, mapEvaluation } = {
 
   const policyInfo = await loadPolicy(repo);
   let state = await loadState(repo);
-  if (beforeEvaluate && await beforeEvaluate(state)) state = await loadState(repo);
-  if (event.toolUseId) {
+  if (!state.newerLedger && beforeEvaluate && await beforeEvaluate(state)) state = await loadState(repo);
+  const head = await headCommit(repo);
+  let evaluation = applyDecisionMap(evaluateCommand({ command, policyInfo, state, head }), mapEvaluation);
+  if (state.newerLedger && evaluation.decision === "deny") return gate(repo, event, "deny", evaluation.reasons.join("; "));
+  if ((evaluation.actions.length || evaluation.evidence.length) && event.toolUseId) {
     const reason = await withLedgerLock(repo, async () => replayReason(await loadState(repo), event));
     if (reason) return gate(repo, event, "deny", reason);
   }
-  const head = await headCommit(repo);
-  let evaluation = applyDecisionMap(evaluateCommand({ command, policyInfo, state, head }), mapEvaluation);
-  if ((evaluation.actions.length || evaluation.opaque) && openActions(state).length) {
+  if (!state.newerLedger && (evaluation.actions.length || evaluation.opaque) && openActions(state).length) {
     await reconcileOpen(repo);
     state = await loadState(repo);
     evaluation = applyDecisionMap(evaluateCommand({ command, policyInfo, state, head }), mapEvaluation);
@@ -161,7 +163,7 @@ export async function preBash(event, repo, { beforeEvaluate, mapEvaluation } = {
 
   const { ignore } = policyInfo.policy.evidence;
   const tree = evaluation.actions.length || evaluation.evidence.length ? await worktreeTree(repo, { ignore }) : null;
-  if (event.toolUseId || evaluation.actions.length || evaluation.evidence.length) {
+  if (evaluation.actions.length || evaluation.evidence.length) {
     evaluation = await withLedgerLock(repo, async () => {
       const latestState = await loadState(repo);
       const reason = replayReason(latestState, event);
@@ -226,17 +228,23 @@ export async function postBash(event, repo, { detail, requireKnownExitCode = fal
   if (event.toolName !== "Bash" || !event.toolUseId) return null;
   const exitCode = Number.isInteger(event.finalExitCode) ? event.finalExitCode : null;
   if (requireKnownExitCode && exitCode === null) return null;
+  const file = pendingFile(repo, event.host, event.toolUseId, event.sessionId ?? null);
+  let queued;
+  try { queued = JSON.parse(await readFile(file, "utf8")); } catch { queued = null; }
+  const initial = await loadState(repo);
+  if (initial.newerLedger || (!queued && ![...initial.actions.values()].some((a) => matchesAction(a, event) && a.status === "pending"))) return null;
   return withLedgerLock(repo, async () => {
-    const file = pendingFile(repo, event.host, event.toolUseId, event.sessionId ?? null);
     let pending;
     try { pending = JSON.parse(await readFile(file, "utf8")); } catch { pending = null; }
     if (pending && !sameCall(pending, event)) return null;
     const state = await loadState(repo);
+    if (state.newerLedger) return null;
     if (state.consumedTools.has(toolCallKey(event.host, event.sessionId, event.toolUseId))) return null;
     const reserved = pending ? new Set(pending.actionIds ?? []) : null;
     const ids = [...state.actions.values()]
       .filter((a) => matchesAction(a, event) && a.status === "pending" && (!reserved || reserved.has(a.id)))
       .map((a) => a.id);
+    if (!pending && !ids.length) return null;
     // The durable marker is deliberately before sidecar removal and evidence:
     // a later I/O failure can lose a result, but cannot bind this id to a new tree.
     await appendEvent(repo, "tool.consumed", { host: event.host, session: event.sessionId ?? null, toolUseId: event.toolUseId });
@@ -273,8 +281,9 @@ export async function sessionStart(event, repo, { source = null, afterRecord } =
   const [tree, head] = await Promise.all([worktreeTree(repo, { ignore: policyInfo.policy.evidence.ignore }), headCommit(repo)]);
   await appendEvent(repo, "session.started", { session: event.sessionId ?? null, source, tree, head, host: event.host });
   let state = await loadState(repo);
-  if (afterRecord && await afterRecord(state)) state = await loadState(repo);
+  if (!state.newerLedger && afterRecord && await afterRecord(state)) state = await loadState(repo);
   const lines = ["Better Workflows is active in this repository."];
+  if (state.newerLedger) lines.push(`Warning: ${newerLedgerWarning(state.newerLedger)}.`);
   if (policyInfo.error) lines.push(`Policy file is invalid, so every side effect will be denied: ${policyInfo.error}`);
   if (policyInfo.policy.completion.require.length) {
     lines.push(`Before you report work as complete, these must pass on the final state of the files: ${policyInfo.policy.completion.require.join(", ")}. A result from before your last edit does not count.`);
@@ -290,10 +299,13 @@ export async function sessionStart(event, repo, { source = null, afterRecord } =
 }
 
 export async function stopSession(event, repo, { stopHookActive = false, beforeCompletion } = {}) {
-  if (beforeCompletion) await beforeCompletion(await loadState(repo));
+  const initial = await loadState(repo);
+  if (initial.newerLedger) return { type: "block", reason: newerLedgerWarning(initial.newerLedger) };
+  if (beforeCompletion) await beforeCompletion(initial);
   const policyInfo = await loadPolicy(repo);
   if (!policyInfo.policy.completion.require.length) return null;
   const [state, tree] = await Promise.all([loadState(repo), worktreeTree(repo, { ignore: policyInfo.policy.evidence.ignore })]);
+  if (state.newerLedger) return { type: "block", reason: newerLedgerWarning(state.newerLedger) };
   const session = event.sessionId ?? null;
   const started = sessionFor(state, session, event.host);
   if (started && started.tree === tree) return null; // nothing changed in this session

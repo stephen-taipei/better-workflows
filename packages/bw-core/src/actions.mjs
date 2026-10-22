@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { digest } from "./canonical.mjs";
 import { classifyCommand } from "./classify.mjs";
-import { appendEvent } from "./ledger.mjs";
+import { appendEvent, newerLedgerWarning } from "./ledger.mjs";
 import { ruleFor } from "./policy.mjs";
 import { currentBranch, headCommit } from "./repo.mjs";
 import { run } from "./process.mjs";
@@ -26,6 +26,9 @@ export function evaluateCommand({ command, policyInfo, state, head, now = new Da
   let decision = "allow";
   const sideEffects = classified.actions.length > 0 || classified.opaque;
 
+  if (sideEffects && state.newerLedger) {
+    return { decision: "deny", reasons: [`${newerLedgerWarning(state.newerLedger)} before running side effects`], ...classified };
+  }
   if (sideEffects && policyInfo.error) {
     return { decision: "deny", reasons: [`policy file is invalid: ${policyInfo.error}`], ...classified };
   }

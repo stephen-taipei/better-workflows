@@ -22,7 +22,7 @@ test("the CLI routes Codex hooks and leaves native approval to Codex", async (t)
   const denied = await cli(root, ["hook", "codex"], pre);
   assert.equal(denied.code, 0);
   assert.equal(JSON.parse(denied.out).hookSpecificOutput.permissionDecision, "deny");
-  assert.match(denied.out, /Codex 不支援 ask/);
+  assert.match(denied.out, /Codex hooks cannot ask; change the policy and retry/);
   assert.equal((await readLedger(repo)).some((e) => e.type === "action.begun"), false);
   const allowed = await cli(root, ["hook", "codex"], { ...pre, tool_input: { command: "git status" } });
   assert.equal(allowed.code, 0);

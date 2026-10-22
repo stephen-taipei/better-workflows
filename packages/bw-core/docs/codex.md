@@ -1,5 +1,7 @@
 # Codex adapter (experimental)
 
+[繁體中文（台灣）](codex.zh-TW.md)
+
 `bw hook codex` reads one Codex hook event as JSON from stdin. Outside a Git
 repository it does nothing. Core shares evidence and action gates with the
 Claude Code adapter in the same worktree ledger; Codex never grants native
@@ -17,7 +19,7 @@ Registered events are `SessionStart`, `PreToolUse` (`Bash|apply_patch`),
 `SubagentStop` registration. A policy `allow` returns no permission decision;
 Codex still applies its own permissions. A policy `ask` becomes `deny` before
 Core reserves an action, with the reason
-“Codex 不支援 ask；請人調整 policy 後重試”.
+`Codex hooks cannot ask; change the policy and retry`.
 
 The manifest and patch payload follow the official
 [plugin packaging](https://developers.openai.com/plugins/build/plugins#bundled-mcp-servers-and-lifecycle-hooks)
@@ -39,10 +41,12 @@ retries pending calls for the same host and session, including evidence-only
 commands. Background commands may finish in a different turn. Correlation uses
 host, session and tool-call ID, not turn ID. Evidence retains its pre-command
 snapshot, so intervening edits cannot turn an older check into a fresh pass.
-Before settling a result, Core durably records `tool.consumed` for that
-host/session/tool ID under the ledger lock. A replay cannot reserve another
-action or bind the old result to a new tree, even if later accounting fails.
-The marker records consumption only; it does not establish successful evidence.
+Core records `tool.consumed` for a host/session/tool ID under the ledger lock
+only when the call has a pending result file or a corresponding pending
+action. A read-only Bash call with no pending work adds no marker. A replay cannot
+reserve another action or bind the old result to a new tree, even if later
+accounting fails. The marker records consumption only; it does not establish
+successful evidence.
 
 An interruption and a refusal at Codex's native prompt are not distinguishable
 from the recorded `turn_aborted` event. Neither is interpreted as “never ran”.
@@ -65,15 +69,23 @@ linked worktree Git markers, per-worktree Git directories and the current
 repository's common Git directory. This is a header scanner, not a patch parser.
 
 Sanitized Bash fixtures come from the 2026-10-21 Codex CLI recording. Tests replay
-them against temporary Git repositories. The `apply_patch` payload and portable
-plugin discovery are based on official documentation and remain **未實測** on a
-live Codex host. No plugin is enabled in `deckhand` or `adorable-git-grpah`.
+them against temporary Git repositories. The `apply_patch` payload, portable
+plugin discovery and `Stop` response are based on official documentation or
+fixtures, and remain **未實測** on a live Codex host. No plugin is enabled in `deckhand` or `adorable-git-grpah`.
 
-Existing unversioned ledger entry types remain readable. New optional host and
-session correlation metadata and the additive `tool.consumed` entry do not
-require rewriting old entries. Older Core versions do not enforce the new
-consumed-call guard. A future
-incompatible ledger change will require explicit versioning and migration.
+Every new ledger entry has the top-level shape
+`{ v, seq, at, type, data, prev, hash }`, and `v` is included in its hash. A missing `v` is interpreted as version 1 and
+verified with the legacy hash, without rewriting the entry. A version that is
+not a positive integer breaks the chain. Core skips entries newer than its
+`LEDGER_VERSION` while folding state, reports the maximum newer version, and
+fails closed for side effects, opaque commands and completion until Core is
+upgraded. `bw verify` still verifies the chain and reports the maximum version.
+When host hooks encounter a newer ledger version, they leave existing pending
+calls pending and do not append ledger records for those calls.
+
+New optional host/session metadata and `tool.consumed` do not require rewriting
+old entries. Older Core versions do not enforce the consumed-call guard.
 Evidence pending files from before host-prefixed filenames were introduced are
 not migrated; rerun unfinished checks after upgrading. Existing action records
-remain available to reconciliation.
+without a `session` cannot be ended by `PostToolUse`; they remain open for
+reconciliation.

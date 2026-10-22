@@ -36,7 +36,7 @@ Everything Core does follows from five ideas. Once they are clear, the API reads
 
 **Policy.** `.better-workflows/policy.json`, written and committed by a person. It says which evidence completion needs (`completion.require`), which commands count as which evidence (`evidence.kinds`), and whether each kind of side effect is `allow`, `ask` or `deny` (`actions`). The agent may read it but never change it. A missing file means defaults; an invalid file means every side effect is denied.
 
-**Ledger.** An append-only, hash-chained log in `.git/better-workflows/ledger.jsonl`. Every fact Core knows is an entry in it. State is never stored separately: `loadState(repo)` folds the ledger into current evidence and actions every time. Because it lives under `.git/`, it is never committed.
+**Ledger.** An append-only, hash-chained log in `.git/better-workflows/ledger.jsonl`. Every new entry has a top-level version (`v: 1`), and `v` is included in its hash. A legacy entry without `v` is read as version 1 and verified using its original hash; Core does not rewrite it. `loadState(repo)` folds supported entries into evidence and actions and reports the highest newer version as `state.newerLedger` (`null` when none exists). It skips entries whose version is newer than `LEDGER_VERSION` but keeps them in the raw ledger. A newer version blocks completion and denies side-effect or opaque commands until Core is upgraded. When host hooks encounter a newer ledger version, they leave existing pending calls pending and do not append ledger records for those calls. Because the ledger lives under `.git/`, it is never committed.
 
 **Evidence.** A record that a check ran: its kind (`test`, `lint` …), exit code, and the Git tree of the working files before and after. Evidence is **fresh** only when it passed and its tree is the current tree. Edit one file and the earlier pass becomes **stale**. Completion is allowed when every required kind is fresh.
 
@@ -61,9 +61,9 @@ Install once: `npm install -g @better-workflows/core@alpha`. Every command works
 | `bw check-completion [--json]` | 0 all required evidence fresh, 2 not | Fail a CI job or a release script that would ship untested files |
 | `bw check-command <command line>` | 0 allow, 2 deny, 3 ask; prints JSON | Ask Core about a command without running it |
 | `bw run --kind <kind> -- <cmd…>` | the command's own exit code | Run a check and record it as evidence. Meant for people and scripts, not for the agent |
-| `bw status [--json]` | 0 | Evidence, open actions, policy and the last session |
+| `bw status [--json]` | 0 | Evidence, open actions, policy and the last session; warns when the ledger contains a newer version |
 | `bw reconcile` | 0 all settled, 2 some still unknown | Let the read-only probes settle open actions |
-| `bw verify` | 0 chain intact, 2 broken | Check the ledger has not been edited |
+| `bw verify` | 0 chain intact, 2 broken | Check the ledger has not been edited; prints the maximum ledger version |
 | `bw log [--limit n]` | 0 | Print recent ledger entries |
 
 Apart from `bw run`, which passes on its command's exit code, exit 1 means a usage error (wrong arguments, not in a Git work tree) and an internal error exits 2 with a `bw:` message on stderr. When 2 could mean either, read stderr.
@@ -124,7 +124,7 @@ const evaluation = evaluateCommand({
 // evaluation.opaque    true when the line uses $(…), eval or a nested shell
 ```
 
-`evaluateCommand` is pure: it reads the state you pass and writes nothing. You can call it as often as you like.
+`evaluateCommand` is pure: it reads the state you pass and writes nothing. You can call it as often as you like. If `state.newerLedger` is not `null`, it denies commands with side effects or marked opaque with `ledger has entries from a newer Better Workflows (ledger v<N>); upgrade @better-workflows/core before running side effects`.
 
 `allow` means Core has no objection. It never grants anything: your tool's own permission rules still apply. `ask` means a person should confirm. `deny` means do not run it.
 
@@ -214,7 +214,7 @@ Some hosts treat an `ask` answer as `allow`. For those, the adapter must turn `a
 | Before a shell command | Deny commands that change protected paths or run `bw init`, `bw run` or `bw reconcile <id>`; then the cycle in [4.2](#42-the-full-cycle-decide-record-run-report) steps 1–2; save the "before" tree for evidence | `PreToolUse` (Bash) |
 | After a shell command | Steps in 4.2 step 4, with the exit code only when the host states it | `PostToolUse`, `PostToolUseFailure` |
 | The person refused the call at the host's own prompt | If the host proves the command never ran, close the action as `failed` (the Claude Code adapter reads the refusal from the transcript); without proof it stays `unknown` | Read from the transcript at the next event |
-| Agent stops | `completionStatus`; if not ok, send it back once with `describeEvidence` lines and record `completion.blocked` | `Stop` |
+| Agent stops | `completionStatus`; if not ok, send it back once with `describeEvidence` lines and record `completion.blocked`. A newer ledger blocks before the unchanged-tree, empty-requirement and already-sent-back shortcuts. | `Stop` |
 
 ### 5.3 Skeleton
 
@@ -275,6 +275,7 @@ function normalize(input) {
 | `normalizePolicy`, `defaultPolicy` | `(raw)`, `()` | normalized policy; `normalizePolicy` throws on invalid input |
 | `ruleFor` | `(policy, kind, now?)` | `{ decision, reason }`, with expired authorizations turned into `ask` |
 | `POLICY_PATH` | | `".better-workflows/policy.json"` |
+| `LEDGER_VERSION` | | `1` |
 | `splitCommand` | `(line)` | `{ commands, attributable, directories, opaque, changesDirectory }` |
 | `classifyCommand` | `(line, policy)` | `{ commands, actions, evidence, opaque, changesDirectory }` |
 | `BUILTIN_ACTION_KINDS` | | `git-push`, `gh-pr-merge`, `gh-pr-create`, `gh-release`, `gh-api-write`, `package-publish`, `http-write` |
@@ -285,21 +286,21 @@ function normalize(input) {
 | `recordEvidence` | `(repo, { kind, command, exitCode, excluded?, treeBefore, treeAfter, head, scope?, scopeBefore?, scopeAfter?, host, session })` | the ledger entry |
 | `snapshot` | `(repo, policy, tree)` | `{ tree, digests }` for every declared evidence scope |
 | `scopeFor`, `scopeDigests` | `(policy, kind)`, `(scope, digests)` | a kind's scope paths or `null`; the digests for those paths |
-| `evidenceStatus`, `completionStatus` | `(state, kind, snap, scope?)`, `(state, policy, snap)` | one result / `{ ok, tree, results }` |
+| `evidenceStatus`, `completionStatus` | `(state, kind, snap, scope?)`, `(state, policy, snap)` | one result / `{ ok, tree, results, newerLedger, reason }`; a newer ledger marks every required kind `missing` with an upgrade reason, even when none are required |
 | `describeEvidence`, `sessionSummary`, `describeSession` | | text and counts for people and agents |
 | `reconcileOpen` | `(repo, { exec? })` | `[{ id, kind, outcome, detail }]`; runs read-only probes |
 | `reconcileManually` | `(repo, id, outcome, note)` | for a person only; an adapter must keep the agent from calling it |
 | `PROBES`, `ghFailure` | | the probe per action kind; a readable reason when `gh` is missing or logged out |
 | `appendEvent` | `(repo, type, data)` | appends one entry under the lock |
-| `readLedger`, `verifyLedger`, `ledgerPath` | `(repo)` | entries (throws on a broken chain) / `{ ok, entries, head }` or `{ ok: false, error }` / the file path |
+| `readLedger`, `verifyLedger`, `ledgerPath` | `(repo)` | raw entries (throws on a broken chain) / `{ ok, entries, head, maxVersion }` or `{ ok: false, error }` / the file path; `maxVersion` is 1 for an empty or legacy-only ledger |
 | `withLedgerLock` | `(repo, fn)` | runs `fn` as the only writer; appends inside reuse the lock |
-| `loadState`, `reduceEntries` | `(repo)`, `(entries)` | `{ evidence, actions, sessions, hostSessions, consumedTools }` |
+| `loadState`, `reduceEntries` | `(repo)`, `(entries)` | `{ evidence, actions, sessions, hostSessions, consumedTools, newerLedger }`; `newerLedger` is `null` or the maximum unsupported version |
 | `openActions`, `latestSession` | `(state)` | actions still `pending` or `unknown` / the last session |
 | `canonicalJson`, `digest`, `sha256` | | stable JSON and hashes used across the ledger |
 
 ### 6.2 Ledger entries
 
-Each line is `{ seq, at, type, data, prev, hash }`. `hash` covers the entry and `prev`, so editing or removing a line breaks the chain and `readLedger` throws.
+Each new line is `{ v, seq, at, type, data, prev, hash }`; `v` is the positive integer ledger version, and the hash covers `v` and the rest of the entry together with `prev`. Editing or removing a line breaks the chain and `readLedger` throws. A line without `v` is interpreted as version 1 and checked with its original hash, without rewriting it. A missing version is the only legacy exception; any present `v` that is not a positive integer breaks the chain.
 
 | `type` | Written when | Key `data` fields |
 |---|---|---|
@@ -312,7 +313,9 @@ Each line is `{ seq, at, type, data, prev, hash }`. `hash` covers the entry and 
 | `tool.consumed` | A host call is consumed before result accounting | `host`, `session`, `toolUseId`; not proof of success |
 | `tool.gated` | A hook denied or asked about a call | `decision`, `reason`, `tool`, `command`, `target`, `host`, `session` |
 
-Entries retain the existing unversioned schema. Claude Code and Codex use the same entry types; new host/session correlation fields are optional and old entries remain readable. The additive `tool.consumed` entry prevents completed-call replays; older Core versions do not enforce that guard. Versioning and migration are required before an incompatible schema change.
+Claude Code and Codex use the same entry types; new host/session correlation fields are optional and old entries remain readable. New entries use `{ v: 1, seq, at, type, data, prev, hash }`, with `v` included in the hash. For an entry without `v`, Core verifies the original legacy hash as version 1 and does not rewrite the entry. `reduceEntries` skips entries with `v` greater than `LEDGER_VERSION` and exposes their maximum as `state.newerLedger`; it does not fold those entries into evidence or actions. A present `v` that is not a positive integer is a broken chain.
+
+When `state.newerLedger` is not `null`, `evaluateCommand` denies commands with side effects or marked opaque with `ledger has entries from a newer Better Workflows (ledger v<N>); upgrade @better-workflows/core before running side effects`. `completionStatus` returns `ok: false`, marks every required kind `missing` with an upgrade reason, and includes `newerLedger` and `reason`, and explains that Core must be upgraded, even when the policy requires no evidence. `bw status --json` includes `newerLedger` and a warning; human-readable `bw status` prints the warning on its first line. `verifyLedger` returns `maxVersion` (1 for an empty or legacy-only ledger), and `bw verify` prints it. When host hooks encounter a newer ledger version, they leave existing pending calls pending and do not append ledger records for those calls. The additive `tool.consumed` entry prevents completed-call replays; older Core versions do not enforce that guard. Future incompatible entry formats require an explicit version and migration plan.
 
 ### 6.3 Stability
 
@@ -321,7 +324,7 @@ Entries retain the existing unversioned schema. Claude Code and Codex use the sa
 | Policy file (`version: 1`) | Alpha; frozen at beta |
 | CLI commands, exit codes, `--json` output | Alpha; frozen at beta |
 | JavaScript exports in 6.1 | Alpha; may change before beta |
-| Ledger entries | Alpha; additive host metadata, versioning before incompatible changes |
+| Ledger entries | Alpha; Core writes version 1, reads legacy entries without `v` as version 1, and fails closed when it encounters a newer version |
 | Host adapter contract (section 5) | Draft |
 
 ## 7. Rules that keep the guarantees

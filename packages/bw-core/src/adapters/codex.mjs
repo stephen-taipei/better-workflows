@@ -75,7 +75,7 @@ async function preToolUse(event, repo) {
   }
   const result = await preBash(event, repo, {
     mapEvaluation: (evaluation) => evaluation.decision === "ask"
-      ? { decision: "deny", reasons: ["Codex 不支援 ask；請人調整 policy 後重試", ...evaluation.reasons] }
+      ? { decision: "deny", reasons: ["Codex hooks cannot ask; change the policy and retry", ...evaluation.reasons] }
       : null,
   });
   return result ? preDecision(result.reason) : null;
@@ -113,6 +113,7 @@ export async function handleCodexHook(input) {
     return { output, exitCode: 0 };
   } catch (error) {
     const message = `Better Workflows hook error: ${error.message}`;
+    if (input?.hook_event_name === "Stop") return { output: { decision: "block", reason: message }, exitCode: 0 };
     return { output: input?.hook_event_name === "PreToolUse" ? preDecision(message) : { systemMessage: message }, exitCode: 0 };
   }
 }

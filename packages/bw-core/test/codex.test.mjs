@@ -310,7 +310,7 @@ test("Codex maps policy ask to deny and protects Better Workflows commands", asy
     tool_input: { command: "./deploy.sh prod" },
   });
   assert.equal(decision(asked), "deny");
-  assert.match(asked.output.hookSpecificOutput.permissionDecisionReason, /Codex 不支援 ask；請人調整 policy 後重試/);
+  assert.match(asked.output.hookSpecificOutput.permissionDecisionReason, /Codex hooks cannot ask; change the policy and retry/);
 
   for (const command of [
     "bw run --kind test -- true",

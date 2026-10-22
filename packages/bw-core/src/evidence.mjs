@@ -1,4 +1,4 @@
-import { appendEvent } from "./ledger.mjs";
+import { appendEvent, newerLedgerWarning } from "./ledger.mjs";
 import { subtreeDigests } from "./repo.mjs";
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -56,11 +56,17 @@ export function evidenceStatus(state, kind, snap, scope = null) {
 
 export function completionStatus(state, policy, snap) {
   if (typeof snap === "string") snap = { tree: snap, digests: {} };
+  if (state.newerLedger) {
+    const reason = newerLedgerWarning(state.newerLedger);
+    const results = policy.completion.require.map((kind) => ({ kind, status: "missing", evidence: null, reason }));
+    return { ok: false, tree: snap.tree, results, newerLedger: state.newerLedger, reason };
+  }
   const results = policy.completion.require.map((kind) => evidenceStatus(state, kind, snap, scopeFor(policy, kind)));
   return { ok: results.every((result) => result.status === "fresh"), tree: snap.tree, results };
 }
 
 export function describeEvidence(result) {
+  if (result.reason) return `${result.kind}: ${result.reason}`;
   switch (result.status) {
     case "fresh": return `${result.kind}: passed on the current files`;
     case "failed": return `${result.kind}: last run on the current files failed (exit ${result.evidence.exitCode})`;

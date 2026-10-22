@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { completionStatus, describeEvidence, describeSession, recordEvidence, scopeDigests, scopeFor, sessionSummary, snapshot } from "./evidence.mjs";
 import { evaluateCommand } from "./actions.mjs";
-import { readLedger, verifyLedger } from "./ledger.mjs";
+import { entryVersion, LEDGER_VERSION, newerLedgerWarning, readLedger, verifyLedger } from "./ledger.mjs";
 import { loadPolicy, POLICY_PATH } from "./policy.mjs";
 import { reconcileManually, reconcileOpen } from "./reconcile.mjs";
 import { openRepo, headCommit, subtreeDigests, treeState, worktreeTree } from "./repo.mjs";
@@ -65,13 +65,17 @@ const COMMANDS = {
     const open = openActions(state).map(({ id, kind, status, command }) => ({ id, kind, status, command }));
     const session = latestSession(state);
     const sessionsByHost = Object.create(null);
-    for (const { type, data, at } of await readLedger(repo)) {
+    for (const entry of await readLedger(repo)) {
+      if (entryVersion(entry) > LEDGER_VERSION) continue;
+      const { type, data, at } = entry;
       if (type === "session.started" && data.host) sessionsByHost[data.host] = { id: data.session, at };
     }
     const summaries = session ? completion.results.map((r) => sessionSummary(state, session.session, r.kind, session.host)) : [];
-    const result = { head, tree, policy: { source: policyInfo.source, error: policyInfo.error }, completion, openActions: open, sessionsByHost, session: session && { id: session.session, blocks: session.blocks, evidence: summaries } };
+    const warning = state.newerLedger ? newerLedgerWarning(state.newerLedger) : null;
+    const result = { newerLedger: state.newerLedger, warning, head, tree, policy: { source: policyInfo.source, error: policyInfo.error }, completion, openActions: open, sessionsByHost, session: session && { id: session.session, blocks: session.blocks, evidence: summaries } };
     if (json) return print(io, result, true), 0;
     const lines = [`HEAD ${head ?? "(none)"}  tree ${tree}`, `policy: ${policyInfo.source}${policyInfo.error ? ` (${policyInfo.error})` : ""}`];
+    if (warning) lines.unshift(`Warning: ${warning}`);
     lines.push(completion.results.length ? "completion evidence:" : "completion evidence: none required");
     for (const item of completion.results) {
       const scope = scopeFor(policyInfo.policy, item.kind);
@@ -130,7 +134,10 @@ const COMMANDS = {
     const [state, tree] = await Promise.all([loadState(repo), worktreeTree(repo, { ignore: policyInfo.policy.evidence.ignore })]);
     const completion = completionStatus(state, policyInfo.policy, await snapshot(repo, policyInfo.policy, tree));
     if (args.includes("--json")) print(io, completion, true);
-    else for (const item of completion.results) print(io, `${item.status === "fresh" ? "✓" : "✗"} ${describeEvidence(item)}`);
+    else {
+      if (completion.reason) print(io, completion.reason);
+      for (const item of completion.results) print(io, `${item.status === "fresh" ? "✓" : "✗"} ${describeEvidence(item)}`);
+    }
     return completion.ok ? 0 : 2;
   },
 
@@ -161,7 +168,7 @@ const COMMANDS = {
 
   async verify(args, { cwd, io }) {
     const result = await verifyLedger(await requireRepo(cwd));
-    print(io, result.ok ? `Ledger OK: ${result.entries} entries, head ${result.head}` : `Ledger BROKEN: ${result.error}`);
+    print(io, result.ok ? `Ledger OK: ${result.entries} entries, head ${result.head}, ledger v${result.maxVersion}` : `Ledger BROKEN: ${result.error}`);
     return result.ok ? 0 : 2;
   },
 

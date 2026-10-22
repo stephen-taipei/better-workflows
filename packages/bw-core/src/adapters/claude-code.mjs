@@ -160,6 +160,7 @@ export async function handleClaudeCodeHook(input) {
     return { output: await handler(input, repo), exitCode: 0 };
   } catch (error) {
     const message = `Better Workflows hook error: ${error.message}`;
+    if (input.hook_event_name === "Stop") return { output: { decision: "block", reason: message }, exitCode: 0 };
     if (input.hook_event_name === "PreToolUse" && input.tool_name === "Bash") {
       const { actions, opaque } = classifyCommand(String(input.tool_input?.command ?? ""), defaultPolicy());
       if (actions.length || opaque) return { output: preDecision("deny", `${message}; side effects are blocked until this is fixed`), exitCode: 0 };

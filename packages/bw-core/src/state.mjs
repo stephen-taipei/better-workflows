@@ -1,4 +1,4 @@
-import { readLedger } from "./ledger.mjs";
+import { entryVersion, LEDGER_VERSION, readLedger } from "./ledger.mjs";
 
 const sessionKey = (host, session) => JSON.stringify([host ?? null, session ?? null]);
 
@@ -13,7 +13,14 @@ export function reduceEntries(entries) {
   const sessions = new Map();
   const hostSessions = new Map();
   const consumedTools = new Set();
-  for (const { type, data, at, seq } of entries) {
+  let newerLedger = null;
+  for (const entry of entries) {
+    const version = entryVersion(entry);
+    if (version > LEDGER_VERSION) {
+      newerLedger = Math.max(newerLedger ?? 0, version);
+      continue; // Future data shapes are unknown, including known event names.
+    }
+    const { type, data, at, seq } = entry;
     if (type === "evidence.recorded") evidence.push({ ...data, at, seq });
     else if (type === "tool.consumed") consumedTools.add(toolCallKey(data.host, data.session, data.toolUseId));
     else if (type === "session.started") {
@@ -32,7 +39,7 @@ export function reduceEntries(entries) {
       action.history.push({ type, ...data, at, seq });
     }
   }
-  return { evidence, actions, sessions, hostSessions, consumedTools };
+  return { evidence, actions, sessions, hostSessions, consumedTools, newerLedger };
 }
 
 export async function loadState(repo) {
