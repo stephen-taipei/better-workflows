@@ -190,3 +190,29 @@ test("both Stop handlers fail closed on an invalid ledger version", async (t) =>
   await appendRaw(repo, { v: "x", type: "note", data: {} });
   for (const [host, handle] of hosts) assert.equal((await handle(input(root, host, "Stop"))).output?.decision, "block");
 });
+
+
+test("Claude SubagentStop preserves pending calls when the ledger has a newer version", async (t) => {
+  const { root, base, repo } = await fixtureRepo(t);
+  const host = "claude-code";
+  await writePolicy(root, { actions: { rules: { "git-push": "allow" } } });
+  const toolUseId = "subagent-refused";
+  await handleClaudeCodeHook(input(root, host, "PreToolUse", {
+    tool_name: "Bash", tool_use_id: toolUseId, tool_input: { command: "git push origin main" },
+  }));
+  const action = [...(await core.loadState(repo)).actions.values()][0];
+  assert.equal(action.status, "pending");
+  const sidecar = pendingFile(repo, host, toolUseId, `${host}-version-test`);
+  const saved = await readFile(sidecar, "utf8");
+  const transcript = path.join(base, "subagent-refusal.jsonl");
+  await writeFile(transcript, JSON.stringify({ message: { content: [{
+    type: "tool_result", tool_use_id: toolUseId, is_error: true, content: "Permission to use Bash has been denied",
+  }] } }) + "\n");
+  await appendRaw(repo, { v: 2, type: "future.result", data: {} });
+  const before = await readFile(core.ledgerPath(repo), "utf8");
+  const result = await handleClaudeCodeHook(input(root, host, "SubagentStop", { agent_transcript_path: transcript }));
+  assert.equal(result.output, null);
+  assert.equal((await core.loadState(repo)).actions.get(action.id).status, "pending");
+  assert.equal(await readFile(sidecar, "utf8"), saved);
+  assert.equal(await readFile(core.ledgerPath(repo), "utf8"), before);
+});

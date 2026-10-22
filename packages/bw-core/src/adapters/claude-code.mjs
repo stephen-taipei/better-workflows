@@ -78,6 +78,7 @@ async function refusedInTranscript(transcriptPath, toolUseIds) {
 }
 
 async function settleRefused(event, repo, state) {
+  if (state.newerLedger) return false;
   const pending = openActions(state).filter((a) => a.status === "pending" && a.host === HOST && a.toolUseId && a.toolUseId !== event.toolUseId);
   if (!pending.length) return false;
   const refused = await refusedInTranscript(event.transcriptPath, new Set(pending.map((a) => a.toolUseId)));
