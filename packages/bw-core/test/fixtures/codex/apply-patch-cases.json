@@ -1,0 +1,77 @@
+{
+  "source": "synthetic; follows the Codex hook documentation field contract and was not captured from a live apply_patch event",
+  "events": [
+    {
+      "label": "add_better_workflows",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "command": "*** Begin Patch\n*** Add File: .better-workflows/policy.json\n+{}\n*** End Patch\n"
+      }
+    },
+    {
+      "label": "update_git_marker",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "command": "*** Begin Patch\n*** Update File: .git\n+fixture\n*** End Patch\n"
+      }
+    },
+    {
+      "label": "update_git_config",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "command": "*** Begin Patch\n*** Update File: .git/config\n+fixture\n*** End Patch\n"
+      }
+    },
+    {
+      "label": "delete_git_config",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "command": "*** Begin Patch\n*** Delete File: .git/config\n*** End Patch\n"
+      }
+    },
+    {
+      "label": "move_to_protected",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "command": "*** Begin Patch\n*** Update File: src/app.ts\n-old\n+new\n*** Move to: .better-workflows/archive.ts\n*** End Patch\n"
+      }
+    },
+    {
+      "label": "symlinked_better_workflows",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "command": "*** Begin Patch\n*** Add File: ../linked/.better-workflows/policy.json\n+{}\n*** End Patch\n"
+      }
+    },
+    {
+      "label": "allowed_source",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "command": "*** Begin Patch\n*** Add File: src/app.ts\n+fixture\n*** End Patch\n"
+      }
+    },
+    {
+      "label": "unrecognized_header",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "command": "*** Begin Patch\n*** Rename File: src/app.ts\n*** End Patch\n"
+      }
+    },
+    {
+      "label": "no_header",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "command": "*** Begin Patch\n+no path header\n*** End Patch\n"
+      }
+    }
+  ]
+}

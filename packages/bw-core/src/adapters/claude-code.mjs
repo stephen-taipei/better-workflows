@@ -78,6 +78,7 @@ async function refusedInTranscript(transcriptPath, toolUseIds) {
 }
 
 async function settleRefused(event, repo, state) {
+  if (state.newerLedger) return false;
   const pending = openActions(state).filter((a) => a.status === "pending" && a.host === HOST && a.toolUseId && a.toolUseId !== event.toolUseId);
   if (!pending.length) return false;
   const refused = await refusedInTranscript(event.transcriptPath, new Set(pending.map((a) => a.toolUseId)));
@@ -160,6 +161,7 @@ export async function handleClaudeCodeHook(input) {
     return { output: await handler(input, repo), exitCode: 0 };
   } catch (error) {
     const message = `Better Workflows hook error: ${error.message}`;
+    if (input.hook_event_name === "Stop") return { output: { decision: "block", reason: message }, exitCode: 0 };
     if (input.hook_event_name === "PreToolUse" && input.tool_name === "Bash") {
       const { actions, opaque } = classifyCommand(String(input.tool_input?.command ?? ""), defaultPolicy());
       if (actions.length || opaque) return { output: preDecision("deny", `${message}; side effects are blocked until this is fixed`), exitCode: 0 };

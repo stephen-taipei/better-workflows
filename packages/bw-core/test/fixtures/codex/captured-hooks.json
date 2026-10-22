@@ -1,0 +1,128 @@
+{
+  "events": [
+    {
+      "session_id": "session_fixture",
+      "turn_id": "turn_fixture_01",
+      "transcript_path": "/tmp/codex-fixture-repo/transcript.jsonl",
+      "cwd": "/tmp/codex-fixture-repo",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm test"
+      },
+      "tool_use_id": "tool_fixture_01"
+    },
+    {
+      "session_id": "session_fixture",
+      "turn_id": "turn_fixture_01",
+      "transcript_path": "/tmp/codex-fixture-repo/transcript.jsonl",
+      "cwd": "/tmp/codex-fixture-repo",
+      "hook_event_name": "PostToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm test"
+      },
+      "tool_use_id": "tool_fixture_01",
+      "tool_response": ""
+    },
+    {
+      "session_id": "session_fixture",
+      "turn_id": "turn_fixture_01",
+      "transcript_path": "/tmp/codex-fixture-repo/transcript.jsonl",
+      "cwd": "/tmp/codex-fixture-repo",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm test"
+      },
+      "tool_use_id": "tool_fixture_02"
+    },
+    {
+      "session_id": "session_fixture",
+      "turn_id": "turn_fixture_01",
+      "transcript_path": "/tmp/codex-fixture-repo/transcript.jsonl",
+      "cwd": "/tmp/codex-fixture-repo",
+      "hook_event_name": "PostToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm test"
+      },
+      "tool_use_id": "tool_fixture_02",
+      "tool_response": ""
+    },
+    {
+      "session_id": "session_fixture",
+      "turn_id": "turn_fixture_01",
+      "transcript_path": "/tmp/codex-fixture-repo/transcript.jsonl",
+      "cwd": "/tmp/codex-fixture-repo",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm test"
+      },
+      "tool_use_id": "tool_fixture_03"
+    },
+    {
+      "session_id": "session_fixture",
+      "turn_id": "turn_fixture_01",
+      "transcript_path": "/tmp/codex-fixture-repo/transcript.jsonl",
+      "cwd": "/tmp/codex-fixture-repo",
+      "hook_event_name": "PostToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm test"
+      },
+      "tool_use_id": "tool_fixture_03",
+      "tool_response": ""
+    },
+    {
+      "session_id": "session_fixture",
+      "turn_id": "turn_fixture_02",
+      "transcript_path": "/tmp/codex-fixture-repo/transcript.jsonl",
+      "cwd": "/tmp/codex-fixture-repo",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm test"
+      },
+      "tool_use_id": "tool_fixture_04"
+    },
+    {
+      "session_id": "session_fixture",
+      "turn_id": "turn_fixture_03",
+      "transcript_path": "/tmp/codex-fixture-repo/transcript.jsonl",
+      "cwd": "/tmp/codex-fixture-repo",
+      "hook_event_name": "PostToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm test"
+      },
+      "tool_use_id": "tool_fixture_04",
+      "tool_response": ""
+    },
+    {
+      "session_id": "session_fixture",
+      "turn_id": "turn_fixture_03",
+      "transcript_path": "/tmp/codex-fixture-repo/transcript.jsonl",
+      "cwd": "/tmp/codex-fixture-repo",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm test"
+      },
+      "tool_use_id": "tool_fixture_05"
+    },
+    {
+      "session_id": "session_fixture",
+      "turn_id": "turn_fixture_04",
+      "transcript_path": "/tmp/codex-fixture-repo/transcript.jsonl",
+      "cwd": "/tmp/codex-fixture-repo",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm test"
+      },
+      "tool_use_id": "tool_fixture_06"
+    }
+  ]
+}

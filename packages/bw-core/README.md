@@ -4,7 +4,7 @@
 
 Stops an AI coding agent from claiming "done" on stale evidence, from repeating or stacking side effects whose result is unknown, and from taking permissions out of prompt text.
 
-Status: alpha (`6.0.0-alpha.2`), part of the [V6 roadmap](../../ROADMAP.md). Claude Code is the first host, through the hooks plugin in this package. Start with [Getting started](docs/getting-started.md), or run the [stale-green demo](examples/stale-green/demo.mjs) (`node examples/stale-green/demo.mjs`, about 2 seconds, no Claude needed). To use Core from your own scripts, tools or agent host, see [Building on Core](docs/sdk.md).
+Status: alpha (`6.0.0-alpha.2`), part of the [V6 roadmap](../../ROADMAP.md). Claude Code is the first host, through the hooks plugin in this package. Start with [Getting started](docs/getting-started.md), or run the [stale-green demo](examples/stale-green/demo.mjs) (`node examples/stale-green/demo.mjs`, about 2 seconds, no Claude needed). To use Core from your own scripts, tools or agent host, see [Building on Core](docs/sdk.md). The experimental Codex adapter is documented in [English](docs/codex.md) and [Traditional Chinese (Taiwan)](docs/codex.zh-TW.md).
 
 ## What it checks
 

@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, realpath, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { run } from "./process.mjs";
@@ -14,12 +14,13 @@ async function git(cwd, args, options = {}) {
 
 // Returns null outside a Git work tree, so callers can stay inert there.
 export async function openRepo(cwd = process.cwd()) {
-  const probe = await run("git", ["rev-parse", "--show-toplevel", "--absolute-git-dir"], { cwd });
+  const probe = await run("git", ["rev-parse", "--show-toplevel", "--absolute-git-dir", "--git-common-dir"], { cwd });
   if (probe.code !== 0) return null;
-  const [root, gitDir] = probe.stdout.trim().split("\n");
+  const [root, gitDir, common] = probe.stdout.trim().split("\n");
+  const commonDir = await realpath(path.isAbsolute(common) ? common : `${cwd}${path.sep}${common}`);
   const stateDir = path.join(gitDir, "better-workflows");
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
-  return { root, gitDir, stateDir };
+  return { root, gitDir, commonDir, stateDir };
 }
 
 export async function headCommit(repo) {

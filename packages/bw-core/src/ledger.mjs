@@ -6,6 +6,16 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { digest } from "./canonical.mjs";
 
+export const LEDGER_VERSION = 1;
+
+export function entryVersion(entry) {
+  const version = entry && Object.hasOwn(entry, "v") ? entry.v : 1;
+  if (!Number.isInteger(version) || version <= 0) throw new Error("Ledger version must be a positive integer");
+  return version;
+}
+
+export const newerLedgerWarning = (version) => `ledger has entries from a newer Better Workflows (ledger v${version}); upgrade @better-workflows/core`;
+
 const GENESIS = "0".repeat(64);
 
 export function ledgerPath(repo) {
@@ -171,6 +181,7 @@ export async function readLedger(repo) {
     } catch {
       throw new Error(`Ledger entry ${index + 1} is not valid JSON`);
     }
+    entryVersion(entry); // Validate without adding v to legacy hash input.
     if (entry.seq !== index + 1 || entry.prev !== prev || entry.hash !== entryHash(entry)) {
       throw new Error(`Ledger hash chain is broken at entry ${index + 1}`);
     }
@@ -185,7 +196,7 @@ export async function appendEvent(repo, type, data, { now = new Date() } = {}) {
   return withLedgerLock(repo, async () => {
     const entries = await readLedger(repo);
     const last = entries.at(-1);
-    const entry = { seq: entries.length + 1, at: now.toISOString(), type, data, prev: last?.hash ?? GENESIS };
+    const entry = { v: LEDGER_VERSION, seq: entries.length + 1, at: now.toISOString(), type, data, prev: last?.hash ?? GENESIS };
     entry.hash = entryHash(entry);
     await appendFile(ledgerPath(repo), `${JSON.stringify(entry)}\n`, { mode: 0o600 });
     await writeHead(repo, entry);
@@ -196,7 +207,8 @@ export async function appendEvent(repo, type, data, { now = new Date() } = {}) {
 export async function verifyLedger(repo) {
   try {
     const entries = await readLedger(repo);
-    return { ok: true, entries: entries.length, head: entries.at(-1)?.hash ?? GENESIS };
+    const maxVersion = entries.reduce((max, entry) => Math.max(max, entryVersion(entry)), LEDGER_VERSION);
+    return { ok: true, entries: entries.length, head: entries.at(-1)?.hash ?? GENESIS, maxVersion };
   } catch (error) {
     return { ok: false, error: error.message };
   }

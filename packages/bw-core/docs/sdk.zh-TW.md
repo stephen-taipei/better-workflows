@@ -32,11 +32,11 @@
 
 Core 的行為都來自下面五個概念。理解之後，API 讀起來就很直覺。
 
-**Repository。** Core 在單一 Git work tree 裡運作。`openRepo(cwd)` 會找到它並回傳 `{ root, gitDir, stateDir }`。不在 Git work tree 裡時回傳 `null`，這時任何介接都應該什麼都不做。
+**Repository。** Core 在單一 Git work tree 裡運作。`openRepo(cwd)` 會找到它並回傳 `{ root, gitDir, commonDir, stateDir }`。不在 Git work tree 裡時回傳 `null`，這時任何介接都應該什麼都不做。
 
 **Policy。** `.better-workflows/policy.json`，由人撰寫並 commit。它規定完成需要哪些證據（`completion.require`）、哪些指令算哪一種證據（`evidence.kinds`），以及每一種副作用是 `allow`、`ask` 還是 `deny`（`actions`）。agent 可以讀，但不能改。檔案不存在就用預設值；檔案無效則所有副作用一律 deny。
 
-**帳本（ledger）。** 位於 `.git/better-workflows/ledger.jsonl`，只能追加、以 hash 串接成鏈的紀錄。Core 知道的每一件事都是其中一筆。狀態從不另外存：`loadState(repo)` 每次都從帳本重新歸納出目前的證據與動作。因為放在 `.git/` 底下，帳本永遠不會被 commit。
+**帳本（ledger）。** 位於 `.git/better-workflows/ledger.jsonl`，只能追加、以 hash 串接成鏈的紀錄。每筆新紀錄的最上層都有版本（`v: 1`），而且 `v` 會納入 hash。沒有 `v` 的舊紀錄會以版本 1 讀取，並依原本的 hash 驗證；Core 不會改寫紀錄。`loadState(repo)` 會把支援的紀錄歸納成 evidence 與 actions，並把最高的不支援版本放在 `state.newerLedger`（沒有較新版本時為 `null`）。版本高於 `LEDGER_VERSION` 的紀錄不會被折入狀態，但仍保留在原始帳本中。遇到較新版本時，Core 會阻擋 completion，並拒絕副作用或 opaque 指令，直到 Core 升級。host hook 遇到較新 ledger 版本時，會保留既有 pending call，不會替這些呼叫追加 ledger 紀錄。帳本放在 `.git/` 底下，不會被 commit。
 
 **證據（evidence）。** 一筆「某個檢查跑過」的紀錄：種類（`test`、`lint` …）、exit code，以及執行前後工作檔案的 Git tree。只有通過、而且 tree 等於目前 tree 的證據才**有效**（`fresh`）。改了任何一個檔案，之前的通過結果就**過期**了（`stale`）。所有必要種類的證據都有效時，才允許完成。
 
@@ -61,9 +61,9 @@ begun ──exit 0──▶ success
 | `bw check-completion [--json]` | 0 必要證據都有效，2 還有缺或過期 | 讓會發佈未測檔案的 CI job 或發佈 script 失敗 |
 | `bw check-command <指令列>` | 0 allow、2 deny、3 ask；輸出 JSON | 不執行，只問 Core 這個指令能不能跑 |
 | `bw run --kind <種類> -- <指令…>` | 指令本身的 exit code | 執行檢查並記為證據。給人和 script 用，不給 agent 用 |
-| `bw status [--json]` | 0 | 證據、未結動作、policy 與上一個 session |
+| `bw status [--json]` | 0 | 證據、未結動作、policy 與上一個 session；帳本版本較新時會警告 |
 | `bw reconcile` | 0 全部對帳完成，2 仍有 unknown | 讓唯讀 probe 對帳未結動作 |
-| `bw verify` | 0 鏈完整，2 已損毀 | 檢查帳本沒被改過 |
+| `bw verify` | 0 鏈完整，2 已損毀 | 檢查帳本沒被改過，並顯示帳本最高版本 |
 | `bw log [--limit n]` | 0 | 印出最近的帳本紀錄 |
 
 除了 `bw run` 會傳回指令本身的 exit code 之外，exit 1 代表用法錯誤（參數錯、不在 Git work tree 裡），內部錯誤則是 exit 2 並在 stderr 印出 `bw:` 開頭的訊息。2 可能有兩種意思時，請看 stderr。
@@ -187,7 +187,7 @@ if (!completion.ok) {
 
 ## 5. 撰寫 host adapter（草案）
 
-> **草案。** 本節描述 Claude Code adapter 目前的做法（`src/adapters/claude-code.mjs`）。加入第二個 host 時會抽出 host 中立的契約，欄位名稱可能和這裡不同。目前 adapter 都放在本套件內。
+> **草案。** Claude Code 與實驗中的 [Codex adapter](codex.md) 共用 `src/adapters/shared.mjs` 的 host 中立生命週期邏輯。各 adapter 正規化事件並組裝 host 回應；原始 host payload 不會進入 shared。這個內部契約在 beta 前仍可能調整。
 
 像 `guarded-run` 這種 wrapper 只保護經過它的指令，agent 仍然可以直接執行 `git push`。adapter 不一樣：是 agent host 本身在每次工具呼叫前問 Core 並遵守答案，所以沒有漏網的指令。
 
@@ -214,7 +214,7 @@ if (!completion.ok) {
 | shell 指令執行前 | deny 會改動受保護路徑、或執行 `bw init`、`bw run`、`bw reconcile <id>` 的指令；接著做 [4.2](#42-完整流程判斷記錄執行回報) 的第 1、2 步；保存執行前的 tree 供證據使用 | `PreToolUse`（Bash） |
 | shell 指令執行後 | 做 4.2 的第 4 步，只有 host 明確給出 exit code 時才帶數字 | `PostToolUse`、`PostToolUseFailure` |
 | 人在 host 的提示中拒絕了這次呼叫 | 若 host 能證明指令沒有執行，把動作結束為 `failed`（Claude Code adapter 從 transcript 讀出拒絕紀錄）；無法證明就維持 `unknown` | 下一個事件時從 transcript 讀取 |
-| Agent 停止 | `completionStatus`；不通過就用 `describeEvidence` 的內容送回一次，並記錄 `completion.blocked` | `Stop` |
+| Agent 停止 | `completionStatus`；不通過就用 `describeEvidence` 的內容送回一次，並記錄 `completion.blocked`。帳本版本較新時，會先阻擋，不套用 tree 未變、沒有必要種類或已送回過的捷徑。 | `Stop` |
 
 ### 5.3 骨架
 
@@ -265,7 +265,7 @@ function normalize(input) {
 
 | Export | 簽章（節錄） | 回傳 |
 |---|---|---|
-| `openRepo` | `(cwd)` | `{ root, gitDir, stateDir }` 或 `null` |
+| `openRepo` | `(cwd)` | `{ root, gitDir, commonDir, stateDir }` 或 `null` |
 | `headCommit`、`currentBranch` | `(repo)` | commit id／branch 名稱，或 `null` |
 | `worktreeTree` | `(repo, { ignore })` | 工作檔案（含 untracked）的 Git tree id；不會動到使用者的 index |
 | `subtreeDigests` | `(repo, tree, paths)` | `{ 路徑: id 或 null }` |
@@ -274,6 +274,7 @@ function normalize(input) {
 | `normalizePolicy`、`defaultPolicy` | `(raw)`、`()` | 正規化後的 policy；`normalizePolicy` 遇到無效輸入會 throw |
 | `ruleFor` | `(policy, kind, now?)` | `{ decision, reason }`；過期的授權會變成 `ask` |
 | `POLICY_PATH` | | `".better-workflows/policy.json"` |
+| `LEDGER_VERSION` | | `1` |
 | `splitCommand` | `(line)` | `{ commands, attributable, directories, opaque, changesDirectory }` |
 | `classifyCommand` | `(line, policy)` | `{ commands, actions, evidence, opaque, changesDirectory }` |
 | `BUILTIN_ACTION_KINDS` | | `git-push`、`gh-pr-merge`、`gh-pr-create`、`gh-release`、`gh-api-write`、`package-publish`、`http-write` |
@@ -284,21 +285,21 @@ function normalize(input) {
 | `recordEvidence` | `(repo, { kind, command, exitCode, excluded?, treeBefore, treeAfter, head, scope?, scopeBefore?, scopeAfter?, host, session })` | 該筆帳本紀錄 |
 | `snapshot` | `(repo, policy, tree)` | 每個宣告的證據 scope 的 `{ tree, digests }` |
 | `scopeFor`、`scopeDigests` | `(policy, kind)`、`(scope, digests)` | 某種類的 scope 路徑或 `null`；這些路徑的 digest |
-| `evidenceStatus`、`completionStatus` | `(state, kind, snap, scope?)`、`(state, policy, snap)` | 單一結果／`{ ok, tree, results }` |
+| `evidenceStatus`、`completionStatus` | `(state, kind, snap, scope?)`、`(state, policy, snap)` | 單一結果／`{ ok, tree, results, newerLedger, reason }`；較新帳本會讓每個必要種類標成 `missing` 並附上升級理由，即使沒有必要種類也一樣 |
 | `describeEvidence`、`sessionSummary`、`describeSession` | | 給人與 agent 看的文字與統計 |
 | `reconcileOpen` | `(repo, { exec? })` | `[{ id, kind, outcome, detail }]`；執行唯讀 probe |
 | `reconcileManually` | `(repo, id, outcome, note)` | 只給人用；adapter 必須擋住 agent 呼叫它 |
 | `PROBES`、`ghFailure` | | 每種動作的 probe；`gh` 沒裝或沒登入時的可讀理由 |
 | `appendEvent` | `(repo, type, data)` | 在鎖內追加一筆 |
-| `readLedger`、`verifyLedger`、`ledgerPath` | `(repo)` | 紀錄陣列（鏈損毀時 throw）／`{ ok, entries, head }` 或 `{ ok: false, error }`／檔案路徑 |
+| `readLedger`、`verifyLedger`、`ledgerPath` | `(repo)` | 原始紀錄（鏈損毀時 throw）／`{ ok, entries, head, maxVersion }` 或 `{ ok: false, error }`／檔案路徑；帳本為空或只有舊格式紀錄時 `maxVersion` 為 1 |
 | `withLedgerLock` | `(repo, fn)` | 以唯一寫入者身分執行 `fn`；其中的追加會沿用同一把鎖 |
-| `loadState`、`reduceEntries` | `(repo)`、`(entries)` | `{ evidence, actions, sessions }` |
+| `loadState`、`reduceEntries` | `(repo)`、`(entries)` | `{ evidence, actions, sessions, hostSessions, consumedTools, newerLedger }`；`newerLedger` 是 `null` 或最高的不支援版本 |
 | `openActions`、`latestSession` | `(state)` | 仍為 `pending` 或 `unknown` 的動作／最後一個 session |
 | `canonicalJson`、`digest`、`sha256` | | 帳本共用的穩定 JSON 與 hash |
 
 ### 6.2 帳本紀錄
 
-每一行是 `{ seq, at, type, data, prev, hash }`。`hash` 涵蓋該筆內容與 `prev`，所以改動或刪除任何一行都會讓鏈斷掉，`readLedger` 會 throw。
+每筆新紀錄是 `{ v, seq, at, type, data, prev, hash }`；`v` 是正整數帳本版本，hash 會涵蓋 `v`、該筆其餘內容與 `prev`。改動或刪除任何一行都會讓鏈斷掉，`readLedger` 會 throw。沒有 `v` 的舊紀錄會視為版本 1，並依原本的 hash 驗證，不會改寫。只有缺少版本號屬於舊格式；只要有 `v` 但不是正整數，hash chain 就會被判定為損毀。
 
 | `type` | 寫入時機 | 主要 `data` 欄位 |
 |---|---|---|
@@ -308,9 +309,12 @@ function normalize(input) {
 | `action.ended` | 執行後，或證明從未執行 | `id`、`outcome`、`exitCode`、`detail` |
 | `action.reconciled` | probe 或人完成對帳 | `id`、`outcome`、`method`（`probe` 或 `manual`）、`detail` |
 | `completion.blocked` | agent 停止時被送回 | `session`、`missing`、`tree` |
+| `tool.consumed` | host 呼叫在結果入帳前標記為已消耗 | `host`、`session`、`toolUseId`；不代表成功 |
 | `tool.gated` | hook deny 或 ask 某次呼叫 | `decision`、`reason`、`tool`、`command`、`target`、`host`、`session` |
 
-紀錄目前還沒有 schema 版本號。在第二個 host 寫入同一本帳之前會加上。
+Claude Code 與 Codex 使用相同紀錄類型；新增的 host/session 關聯欄位可省略，舊紀錄仍可讀取。新紀錄使用 `{ v: 1, seq, at, type, data, prev, hash }`，而且 `v` 會納入 hash。沒有 `v` 的舊紀錄會以版本 1 驗證原本的 hash，不會改寫。`reduceEntries` 會略過 `v` 高於 `LEDGER_VERSION` 的紀錄，並將其中最高版本放在 `state.newerLedger`；那些較新紀錄不會被折入 evidence 或 actions。若有 `v` 但不是正整數，hash chain 就是損毀。
+
+`state.newerLedger` 不是 `null` 時，`evaluateCommand` 會拒絕有副作用或標記為 opaque 的指令，並附上 `ledger has entries from a newer Better Workflows (ledger v<N>); upgrade @better-workflows/core before running side effects`。`completionStatus` 會回傳 `ok: false`，把每個必要種類標為 `missing` 並附上升級理由，且附上 `newerLedger` 與 `reason`，並說明要先升級 Core；即使 policy 沒有必要 evidence 也一樣。`bw status --json` 會提供 `newerLedger` 與 warning；人類可讀的 `bw status` 第一行會顯示警告。`verifyLedger` 會回傳 `maxVersion`（帳本為空或只有舊格式紀錄時為 1），`bw verify` 也會印出該版本。host hook 遇到較新 ledger 版本時，會保留既有 pending call，不會替這些呼叫追加 ledger 紀錄。新增的 `tool.consumed` 紀錄可阻止已完成呼叫重播；舊版 Core 不會執行這項防護。未來若要改成不相容的紀錄格式，必須先明確指定版本並規劃遷移。
 
 ### 6.3 穩定度
 
@@ -319,7 +323,7 @@ function normalize(input) {
 | Policy 檔（`version: 1`） | Alpha；beta 時凍結 |
 | CLI 指令、exit code、`--json` 輸出 | Alpha；beta 時凍結 |
 | 6.1 的 JavaScript exports | Alpha；beta 前可能改變 |
-| 帳本紀錄 | Alpha；第二個 host 之前加版本號 |
+| 帳本紀錄 | Alpha；Core 寫入版本 1，沒有 `v` 的舊紀錄視為版本 1；遇到較新版本時 fail closed |
 | Host adapter 契約（第 5 節） | 草案 |
 
 ## 7. 守住保證的規則

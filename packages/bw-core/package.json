@@ -33,6 +33,7 @@
     "bin",
     "src",
     ".claude-plugin",
+    "plugin.json",
     "hooks",
     "examples",
     "docs",

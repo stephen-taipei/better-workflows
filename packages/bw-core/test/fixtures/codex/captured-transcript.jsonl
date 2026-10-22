@@ -1,0 +1,7 @@
+{"type":"event_msg","payload":{"type":"item_completed","item":{"id":"tool_fixture_01","type":"CommandExecution","status":"completed","exit_code":0}}}
+{"type":"event_msg","payload":{"type":"item_completed","item":{"id":"tool_fixture_02","type":"CommandExecution","status":"failed","exit_code":1}}}
+{"type":"event_msg","payload":{"type":"item_completed","item":{"id":"tool_fixture_03","type":"CommandExecution","status":"failed","exit_code":3}}}
+{"type":"event_msg","payload":{"type":"item_completed","item":{"id":"tool_fixture_04","type":"CommandExecution","status":"completed","exit_code":0}}}
+{"type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}}
+{"type":"event_msg","payload":{"type":"item_completed","item":{"id":"tool_fixture_05","type":"CommandExecution","status":"completed","exit_code":0}}}
+{"type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}}
