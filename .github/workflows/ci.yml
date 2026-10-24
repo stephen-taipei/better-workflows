@@ -1,11 +1,22 @@
-# V6 Core on the two pinned Node versions, on Linux and macOS. V5 is frozen on
-# the frozen/v5 branch together with its own workflows.
+# V6 Core on the two pinned Node versions, on the owner's self-hosted Linux
+# runner. V5 is frozen on the frozen/v5 branch together with its own workflows.
+#
+# Every job runs on the one registered runner, `better-workflows-ci`
+# (self-hosted, Linux, X64, bw-owned-ci, trusted-source), which the owner runs
+# as an unprivileged user on their own host. The repository is public and the
+# runner is labelled `trusted-source`, so a pull request from a fork must never
+# be scheduled on it: every job carries the same-repo guard below. A fork pull
+# request therefore shows its checks as skipped and needs the owner to bring
+# the commits onto a branch of this repository to have them tested.
+#
+# The jobs install nothing beyond the pinned Node version that actions/setup-node
+# places in the runner's tool cache; there is no sudo and no package manager.
 name: CI
 
 on:
   push:
     branches:
-      - '**'
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -14,14 +25,14 @@ permissions:
 
 jobs:
   core:
-    name: Core / ${{ matrix.os }} / Node ${{ matrix.node }}
-    runs-on: ${{ matrix.os }}
+    name: Core / Node ${{ matrix.node }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, bw-owned-ci, trusted-source]
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15]
-        node: ['22.23.3', '24.21.0']
+        node: ['24.21.0', '22.23.4']
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -56,8 +67,8 @@ jobs:
   attribution:
     name: No commit credits an AI assistant
     # Only the commits a pull request adds; main already has older ones.
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, bw-owned-ci, trusted-source]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -77,12 +88,14 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node scripts/check-attribution.mjs "${BASE_SHA}..${HEAD_SHA}"
   test:
+    # The one check branch protection may require. It checks out nothing and
+    # only aggregates the jobs above, so it is skipped for a fork pull request
+    # like them, rather than letting that event reach the runner.
     name: test
     needs: [core, attribution]
-    if: always()
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, Linux, X64, bw-owned-ci, trusted-source]
+    timeout-minutes: 5
     steps:
       - name: Require every Core lane and the attribution check
         shell: bash
@@ -91,5 +104,6 @@ jobs:
           ATTRIBUTION_RESULT: ${{ needs.attribution.result }}
         run: |
           set -euo pipefail
+          echo "core: ${CORE_RESULT}; attribution: ${ATTRIBUTION_RESULT}"
           test "${CORE_RESULT}" = success
           case "${ATTRIBUTION_RESULT}" in success|skipped) ;; *) exit 1 ;; esac

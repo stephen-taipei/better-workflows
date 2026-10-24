@@ -1,0 +1,7 @@
+# actionlint configuration. The CI workflow runs on the owner's self-hosted
+# runner `better-workflows-ci`; these are its custom labels, so actionlint can
+# validate `runs-on` instead of reporting them as unknown.
+self-hosted-runner:
+  labels:
+    - bw-owned-ci
+    - trusted-source
