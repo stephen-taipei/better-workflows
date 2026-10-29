@@ -70,6 +70,7 @@ if (evaluation.actions.length) {
 const before = await snapshot(repo, policyInfo.policy, treeBefore);
 
 // 3. Run. A signal or a spawn error leaves the exit code unknown (null).
+const order = { startedAfterSeq: (await loadState(repo)).seq, completion: null };
 const run = spawnSync("bash", ["-c", command], { stdio: "inherit" });
 const exitCode = run.error || run.signal ? null : run.status;
 
@@ -85,7 +86,7 @@ if (evaluation.evidence.length) {
     const excluded = !placed ? "directory" : runs.some((e) => e.attributable) ? null : "exit-code";
     const scope = scopeFor(policyInfo.policy, kind);
     const scoped = scope ? { scope, scopeBefore: scopeDigests(scope, before.digests), scopeAfter: scopeDigests(scope, after.digests) } : {};
-    await recordEvidence(repo, { kind, command, exitCode, excluded, treeBefore, treeAfter, head, host: HOST, ...scoped });
+    await recordEvidence(repo, { kind, command, exitCode, excluded, treeBefore, treeAfter, head, host: HOST, order, ...scoped });
   }
 }
 process.exit(exitCode ?? 1);

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { appendEvent, withLedgerLock } from "./ledger.mjs";
 import { run } from "./process.mjs";
-import { loadState, openActions } from "./state.mjs";
+import { awaitingCompletion, loadState, openActions } from "./state.mjs";
 
 const actionVersion = (action) => action.history.at(-1)?.seq ?? action.seq;
 
@@ -85,10 +85,15 @@ export async function reconcileOpen(repo, { exec = run } = {}) {
       if (!current || current.status !== action.status || actionVersion(current) !== actionVersion(action)) {
         return { outcome: current && current.status !== "pending" ? current.status : "unknown", detail: "action changed while checking; stale probe result ignored" };
       }
+      // Absence now is not a final failure while the command may still run.
+      // Positive provider evidence keeps the existing success semantics.
+      if (awaitingCompletion(current) && result.outcome !== "success") {
+        result = unknown(`completion is still unconfirmed; ${result.detail}`);
+      }
       if (result.outcome !== "unknown") {
         await appendEvent(repo, "action.reconciled", { id: action.id, outcome: result.outcome, method: "probe", detail: result.detail });
       } else if (current.status === "pending") {
-        await appendEvent(repo, "action.ended", { id: action.id, outcome: "unknown", exitCode: null, detail: "no result was recorded" });
+        await appendEvent(repo, "action.ended", { id: action.id, outcome: "unknown", exitCode: null, detail: "no result was recorded", awaitingCompletion: true });
       }
       return result;
     });

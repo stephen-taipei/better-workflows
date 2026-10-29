@@ -163,11 +163,19 @@ evaluation = await withLedgerLock(repo, async () => {
 
 **3. Run the command.** Take the tree before it (`worktreeTree`) so evidence can prove which files it ran on.
 
+Capture the ledger fence **before** starting the command, then pass it back
+unchanged. Do not manufacture a fence when importing a delayed result.
+
+```js
+const order = { startedAfterSeq: (await loadState(repo)).seq, completion: null };
+// Start the command only after capturing order.
+```
+
 **4. Report what happened.** Pass the real exit code, or `null` when you do not know it (killed by a signal, the process vanished). Core turns anything but 0 into `unknown`.
 
 ```js
 if (ids.length) await endActions(repo, ids, { exitCode, detail });
-await recordEvidence(repo, { kind, command, exitCode, excluded, treeBefore, treeAfter, head, host: HOST });
+await recordEvidence(repo, { kind, command, exitCode, excluded, treeBefore, treeAfter, head, host: HOST, order });
 ```
 
 `excluded` says why a run cannot count even if it exited 0: `"exit-code"` when the line's exit code belongs to another command (`npm test | tail`), `"directory"` when an exact rule's command ran outside the directory the policy names. Use `evaluation.evidence[i].attributable` and `.where` to work it out; the example shows how.
@@ -294,7 +302,7 @@ function normalize(input) {
 | `appendEvent` | `(repo, type, data)` | appends one entry under the lock |
 | `readLedger`, `verifyLedger`, `ledgerPath` | `(repo)` | raw entries (throws on a broken chain) / `{ ok, entries, head, maxVersion }` or `{ ok: false, error }` / the file path; `maxVersion` is 1 for an empty or legacy-only ledger |
 | `withLedgerLock` | `(repo, fn)` | runs `fn` as the only writer; appends inside reuse the lock |
-| `loadState`, `reduceEntries` | `(repo)`, `(entries)` | `{ evidence, actions, sessions, hostSessions, consumedTools, newerLedger }`; `newerLedger` is `null` or the maximum unsupported version |
+| `loadState`, `reduceEntries` | `(repo)`, `(entries)` | `{ evidence, actions, sessions, hostSessions, consumedTools, newerLedger, seq }`; `newerLedger` is `null` or the maximum unsupported version |
 | `openActions`, `latestSession` | `(state)` | actions still `pending` or `unknown` / the last session |
 | `canonicalJson`, `digest`, `sha256` | | stable JSON and hashes used across the ledger |
 
@@ -305,9 +313,9 @@ Each new line is `{ v, seq, at, type, data, prev, hash }`; `v` is the positive i
 | `type` | Written when | Key `data` fields |
 |---|---|---|
 | `session.started` | A host session starts | `session`, `tree`, `head`, `host` |
-| `evidence.recorded` | A check finished | `kind`, `command`, `exitCode`, `treeBefore`, `treeAfter`, `scope*`, `attributed`, `excluded`, `host`, `session` |
+| `evidence.recorded` | A check finished | `kind`, `command`, `exitCode`, `treeBefore`, `treeAfter`, `scope*`, `attributed`, `excluded`, `host`, `session`, optional `toolUseId` and `order` |
 | `action.begun` | Before a side effect runs | `id`, `kind`, `key`, `argv`, `target`, `head`, `branch`, `tree`, `expect`, `host`, `toolUseId` |
-| `action.ended` | After it ran, or proven never run | `id`, `outcome`, `exitCode`, `detail` |
+| `action.ended` | After it ran, or proven never run | `id`, `outcome`, `exitCode`, `detail`, optional `awaitingCompletion` |
 | `action.reconciled` | A probe or a person settled it | `id`, `outcome`, `method` (`probe` or `manual`), `detail` |
 | `completion.blocked` | The agent was sent back at stop | `session`, `missing`, `tree` |
 | `tool.consumed` | A host call is consumed before result accounting | `host`, `session`, `toolUseId`; not proof of success |
@@ -316,6 +324,14 @@ Each new line is `{ v, seq, at, type, data, prev, hash }`; `v` is the positive i
 Claude Code and Codex use the same entry types; new host/session correlation fields are optional and old entries remain readable. New entries use `{ v: 1, seq, at, type, data, prev, hash }`, with `v` included in the hash. For an entry without `v`, Core verifies the original legacy hash as version 1 and does not rewrite the entry. `reduceEntries` skips entries with `v` greater than `LEDGER_VERSION` and exposes their maximum as `state.newerLedger`; it does not fold those entries into evidence or actions. A present `v` that is not a positive integer is a broken chain.
 
 When `state.newerLedger` is not `null`, `evaluateCommand` denies commands with side effects or marked opaque with `ledger has entries from a newer Better Workflows (ledger v<N>); upgrade @better-workflows/core before running side effects`. `completionStatus` returns `ok: false`, marks every required kind `missing` with an upgrade reason, and includes `newerLedger` and `reason`, and explains that Core must be upgraded, even when the policy requires no evidence. `bw status --json` includes `newerLedger` and a warning; human-readable `bw status` prints the warning on its first line. `verifyLedger` returns `maxVersion` (1 for an empty or legacy-only ledger), and `bw verify` prints it. When host hooks encounter a newer ledger version, they leave existing pending calls pending and do not append ledger records for those calls. The additive `tool.consumed` entry prevents completed-call replays; older Core versions do not enforce that guard. Future incompatible entry formats require an explicit version and migration plan.
+
+A negative probe cannot settle a call as failed while its final completion is
+unconfirmed. Automatic reconciliation records a provisional `unknown` with
+`awaitingCompletion: true`; a matching host completion may end it later. A
+positive provider result still establishes success. Explicit completion and
+manual or terminal reconciliation are not overwritten by a late hook. Older
+provisional records with `detail: "no result was recorded"` remain recoverable;
+already terminal records are not reopened.
 
 ### 6.3 Stability
 

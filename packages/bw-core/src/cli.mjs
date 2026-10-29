@@ -120,10 +120,11 @@ const COMMANDS = {
     const scope = scopeFor(policy, kind);
     const treeBefore = await worktreeTree(repo, { ignore: policy.evidence.ignore });
     const scopeBefore = scope ? scopeDigests(scope, await subtreeDigests(repo, treeBefore, scope)) : null;
+    const order = { startedAfterSeq: (await loadState(repo)).seq, completion: null };
     const exitCode = await runInherited(command, cwd);
     const [treeAfter, head] = await Promise.all([worktreeTree(repo, { ignore: policy.evidence.ignore }), headCommit(repo)]);
     const scopeAfter = scope ? scopeDigests(scope, await subtreeDigests(repo, treeAfter, scope)) : null;
-    await recordEvidence(repo, { kind, command: command.join(" "), exitCode, treeBefore, treeAfter, head, scope, scopeBefore, scopeAfter, host: "cli" });
+    await recordEvidence(repo, { kind, command: command.join(" "), exitCode, treeBefore, treeAfter, head, scope, scopeBefore, scopeAfter, host: "cli", order });
     io.stderr.write(`bw: recorded ${kind} evidence (exit ${exitCode ?? "signal"})${treeBefore !== treeAfter ? "; files changed during the run" : ""}\n`);
     return exitCode ?? 1;
   },

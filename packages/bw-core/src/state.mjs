@@ -6,6 +6,14 @@ export const toolCallKey = (host, session, toolUseId) => JSON.stringify([host ??
 
 const OPEN = new Set(["pending", "unknown"]);
 
+// An automatic probe cannot prove that a call with no final result stopped.
+// Keep old provisional unknown records recoverable after upgrading too.
+export function awaitingCompletion(action) {
+  const last = action.history.at(-1);
+  return action.status === "pending" || (action.status === "unknown" && last?.type === "action.ended"
+    && (last.awaitingCompletion === true || (last.exitCode === null && last.detail === "no result was recorded")));
+}
+
 // Folds the ledger into current evidence and action state.
 export function reduceEntries(entries) {
   const evidence = [];
@@ -34,12 +42,12 @@ export function reduceEntries(entries) {
     else if (type === "action.ended" || type === "action.reconciled") {
       const action = actions.get(data.id);
       if (!action) continue;
-      if (type === "action.ended" && action.status !== "pending") continue;
+      if (type === "action.ended" && !awaitingCompletion(action)) continue;
       action.status = data.outcome;
       action.history.push({ type, ...data, at, seq });
     }
   }
-  return { evidence, actions, sessions, hostSessions, consumedTools, newerLedger };
+  return { evidence, actions, sessions, hostSessions, consumedTools, newerLedger, seq: entries.at(-1)?.seq ?? 0 };
 }
 
 export async function loadState(repo) {

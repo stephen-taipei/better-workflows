@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
+import path from "node:path";
+import { digest, sha256 } from "../canonical.mjs";
 import { openRepo } from "../repo.mjs";
 import { pendingBash, postBash, preBash, protectedPath, sessionStart, stopSession } from "./shared.mjs";
 
@@ -17,32 +19,47 @@ function normalizedEvent(input) {
   };
 }
 
-// An empty tool_response and turn_aborted say nothing about execution.
-// Only the matching completed CommandExecution supplies a final exit code.
-async function transcriptExitCode(transcriptPath, toolUseId) {
-  if (!transcriptPath || !toolUseId) return null;
-  let text;
-  try { text = await readFile(transcriptPath, "utf8"); } catch { return null; }
-  for (const line of text.split("\n").reverse()) {
+// One immutable snapshot supplies both exit codes and completion order.
+// Contradictory results for one call cannot establish a known outcome.
+async function transcriptCompletions(canonicalPath, event, toolUseIds) {
+  const results = new Map();
+  let bytes;
+  try { bytes = await readFile(canonicalPath); } catch { return results; }
+  const snapshotId = digest([HOST, event.sessionId, canonicalPath, sha256(bytes)]);
+  for (const [position, line] of bytes.toString("utf8").split("\n").entries()) {
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
     const item = entry?.payload?.item;
-    if (entry?.type !== "event_msg" || entry?.payload?.type !== "item_completed" || item?.type !== "CommandExecution" || item.id !== toolUseId) continue;
-    return ["completed", "failed"].includes(item.status) && Number.isInteger(item.exit_code) ? item.exit_code : null;
+    if (entry?.type !== "event_msg" || entry?.payload?.type !== "item_completed" || item?.type !== "CommandExecution" || !toolUseIds.has(item.id)) continue;
+    const exitCode = ["completed", "failed"].includes(item.status) && Number.isInteger(item.exit_code) ? item.exit_code : null;
+    if (results.has(item.id)) {
+      if (results.get(item.id)?.exitCode !== exitCode) results.set(item.id, null);
+    } else results.set(item.id, exitCode === null ? null : { exitCode, completion: { snapshotId, position } });
   }
-  return null;
+  return results;
 }
 
 async function recoverPending(event, repo) {
+  const groups = new Map();
   for (const pending of await pendingBash(event, repo)) {
     const transcriptPath = pending.transcriptPath ?? event.transcriptPath;
-    const finalExitCode = await transcriptExitCode(transcriptPath, pending.toolUseId);
-    if (!Number.isInteger(finalExitCode)) continue;
-    await postBash({
-      host: HOST, sessionId: pending.sessionId, turnId: pending.turnId ?? null,
-      toolUseId: pending.toolUseId, toolName: "Bash", command: pending.command,
-      cwd: pending.cwd ?? repo.root, finalExitCode, transcriptPath,
-    }, repo, { detail: `exit ${finalExitCode}`, requireKnownExitCode: true });
+    if (typeof transcriptPath !== "string" || !transcriptPath) continue;
+    let canonicalPath;
+    try { canonicalPath = await realpath(path.resolve(pending.cwd ?? repo.root, transcriptPath)); } catch { continue; }
+    if (!groups.has(canonicalPath)) groups.set(canonicalPath, []);
+    groups.get(canonicalPath).push(pending);
+  }
+  for (const [canonicalPath, pendingCalls] of groups) {
+    const results = await transcriptCompletions(canonicalPath, event, new Set(pendingCalls.map((p) => p.toolUseId)));
+    for (const pending of pendingCalls) {
+      const result = results.get(pending.toolUseId);
+      if (!result) continue;
+      await postBash({
+        host: HOST, sessionId: pending.sessionId, turnId: pending.turnId ?? null,
+        toolUseId: pending.toolUseId, toolName: "Bash", command: pending.command,
+        cwd: pending.cwd ?? repo.root, finalExitCode: result.exitCode, completion: result.completion, transcriptPath: canonicalPath,
+      }, repo, { detail: `exit ${result.exitCode}`, requireKnownExitCode: true });
+    }
   }
 }
 
@@ -92,12 +109,6 @@ export async function handleCodexHook(input) {
     let output = null;
     switch (input?.hook_event_name) {
       case "PreToolUse": output = await preToolUse(event, repo); break;
-      case "PostToolUse": {
-        if (!validId(event.sessionId) || !validId(event.toolUseId)) break;
-        event.finalExitCode = await transcriptExitCode(event.transcriptPath, event.toolUseId);
-        if (Number.isInteger(event.finalExitCode)) await postBash(event, repo, { detail: `exit ${event.finalExitCode}`, requireKnownExitCode: true });
-        break;
-      }
       case "SessionStart": {
         if (!validId(event.sessionId)) throw new Error("SessionStart requires session_id");
         const context = await sessionStart(event, repo, { source: input.source ?? null });

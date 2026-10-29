@@ -7,7 +7,7 @@ import { appendEvent, newerLedgerWarning, withLedgerLock } from "../ledger.mjs";
 import { loadPolicy } from "../policy.mjs";
 import { ghFailure, reconcileOpen } from "../reconcile.mjs";
 import { headCommit, subtreeDigests, worktreeTree } from "../repo.mjs";
-import { loadState, openActions, sessionFor, toolCallKey } from "../state.mjs";
+import { awaitingCompletion, loadState, openActions, sessionFor, toolCallKey } from "../state.mjs";
 import { splitCommand } from "../command.mjs";
 import { run } from "../process.mjs";
 
@@ -55,10 +55,10 @@ export async function pendingBash(event, repo) {
   const state = await loadState(repo);
   if (state.newerLedger) return [];
   for (const action of openActions(state)) {
-    if (action.status !== "pending" || action.host !== event.host || action.session !== (event.sessionId ?? null) || !action.toolUseId) continue;
+    if (!awaitingCompletion(action) || action.host !== event.host || action.session !== (event.sessionId ?? null) || !action.toolUseId) continue;
     if (!pending.has(action.toolUseId)) pending.set(action.toolUseId, {
       host: action.host, sessionId: action.session, turnId: action.turnId ?? null, toolUseId: action.toolUseId,
-      command: action.command, cwd: action.cwd, transcriptPath: action.transcriptPath, actionIds: [],
+      command: action.command, cwd: action.cwd, transcriptPath: action.transcriptPath, startedAfterSeq: action.startedAfterSeq ?? null, actionIds: [],
     });
     const record = pending.get(action.toolUseId);
     record.actionIds ??= [];
@@ -174,10 +174,10 @@ export async function preBash(event, repo, { beforeEvaluate, mapEvaluation } = {
       );
       if (latest.decision === "deny" || (!latest.actions.length && !latest.evidence.length)) return latest;
       const actionIds = await beginActions(repo, latest, {
-        command, tree, policyDigest: policyInfo.digest, host: event.host, toolUseId: event.toolUseId ?? null,
+        command, tree, policyDigest: policyInfo.digest, host: event.host, toolUseId: event.toolUseId ?? null, startedAfterSeq: latestState.seq,
         session: event.sessionId ?? null, turnId: event.turnId ?? null, cwd: event.cwd ?? repo.root, transcriptPath: event.transcriptPath ?? null,
       });
-      if (event.toolUseId) await savePending(event, repo, latest, { actionIds, command, tree, ignore, policy: policyInfo.policy });
+      if (event.toolUseId) await savePending(event, repo, latest, { actionIds, command, tree, ignore, policy: policyInfo.policy, startedAfterSeq: latestState.seq });
       return latest;
     });
     if (evaluation.decision === "deny") return gate(repo, event, "deny", evaluation.reasons.join("; "));
@@ -187,7 +187,7 @@ export async function preBash(event, repo, { beforeEvaluate, mapEvaluation } = {
   return evaluation.decision === "ask" ? gate(repo, event, "ask", evaluation.reasons.join("; ")) : null;
 }
 
-async function savePending(event, repo, evaluation, { actionIds, command, tree, ignore, policy }) {
+async function savePending(event, repo, evaluation, { actionIds, command, tree, ignore, policy, startedAfterSeq }) {
   const file = pendingFile(repo, event.host, event.toolUseId, event.sessionId ?? null);
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   const kinds = [...new Set(evaluation.evidence.map((e) => e.kind))];
@@ -207,7 +207,7 @@ async function savePending(event, repo, evaluation, { actionIds, command, tree, 
   const pending = {
     host: event.host, sessionId: event.sessionId ?? null, turnId: event.turnId ?? null, toolUseId: event.toolUseId,
     cwd: event.cwd ?? repo.root, transcriptPath: event.transcriptPath ?? null, actionIds,
-    kinds, excluded, command, treeBefore: tree, ignore, scopes,
+    kinds, excluded, command, treeBefore: tree, ignore, scopes, startedAfterSeq,
   };
   // A replayed PreToolUse must preserve the original tree and transcript.
   await writeFile(file, JSON.stringify(pending), { mode: 0o600, flag: "wx" }).catch((error) => { if (error.code !== "EEXIST") throw error; });
@@ -232,7 +232,7 @@ export async function postBash(event, repo, { detail, requireKnownExitCode = fal
   let queued;
   try { queued = JSON.parse(await readFile(file, "utf8")); } catch { queued = null; }
   const initial = await loadState(repo);
-  if (initial.newerLedger || (!queued && ![...initial.actions.values()].some((a) => matchesAction(a, event) && a.status === "pending"))) return null;
+  if (initial.newerLedger || (!queued && ![...initial.actions.values()].some((a) => matchesAction(a, event) && awaitingCompletion(a)))) return null;
   return withLedgerLock(repo, async () => {
     let pending;
     try { pending = JSON.parse(await readFile(file, "utf8")); } catch { pending = null; }
@@ -242,7 +242,7 @@ export async function postBash(event, repo, { detail, requireKnownExitCode = fal
     if (state.consumedTools.has(toolCallKey(event.host, event.sessionId, event.toolUseId))) return null;
     const reserved = pending ? new Set(pending.actionIds ?? []) : null;
     const ids = [...state.actions.values()]
-      .filter((a) => matchesAction(a, event) && a.status === "pending" && (!reserved || reserved.has(a.id)))
+      .filter((a) => matchesAction(a, event) && awaitingCompletion(a) && (!reserved || reserved.has(a.id)))
       .map((a) => a.id);
     if (!pending && !ids.length) return null;
     // The durable marker is deliberately before sidecar removal and evidence:
@@ -259,7 +259,8 @@ export async function postBash(event, repo, { detail, requireKnownExitCode = fal
       const scoped = scopes[kind] ? { scope: scopes[kind].scope, scopeBefore: scopes[kind].before, scopeAfter: scopeDigests(scopes[kind].scope, after) } : {};
       await recordEvidence(repo, {
         kind, command: pending.command, exitCode, excluded, treeBefore: pending.treeBefore, treeAfter, head,
-        host: event.host, session: event.sessionId ?? null, ...scoped,
+        host: event.host, session: event.sessionId ?? null, toolUseId: event.toolUseId,
+        order: { startedAfterSeq: pending.startedAfterSeq ?? null, completion: event.completion ?? null }, ...scoped,
       });
     }
     return null;

@@ -163,11 +163,19 @@ evaluation = await withLedgerLock(repo, async () => {
 
 **3. 執行指令。** 執行前先取 tree（`worktreeTree`），證據才能證明它是在哪些檔案上跑的。
 
+必須在指令開始前保存帳本序號，再原樣傳回。匯入延遲結果時，不能以目前的序號
+冒充執行前的序號。
+
+```js
+const order = { startedAfterSeq: (await loadState(repo)).seq, completion: null };
+// 保存 order 之後，才啟動指令。
+```
+
 **4. 回報結果。** 傳入真正的 exit code；不知道時（被 signal 中止、process 消失）傳 `null`。Core 會把非 0 的結果都當成 `unknown`。
 
 ```js
 if (ids.length) await endActions(repo, ids, { exitCode, detail });
-await recordEvidence(repo, { kind, command, exitCode, excluded, treeBefore, treeAfter, head, host: HOST });
+await recordEvidence(repo, { kind, command, exitCode, excluded, treeBefore, treeAfter, head, host: HOST, order });
 ```
 
 `excluded` 說明為什麼即使 exit 0 也不能算數：`"exit-code"` 表示這行的 exit code 屬於另一個指令（`npm test | tail`），`"directory"` 表示 exact 規則的指令沒有在 policy 指定的目錄執行。用 `evaluation.evidence[i].attributable` 和 `.where` 判斷，範例裡有寫法。
@@ -293,7 +301,7 @@ function normalize(input) {
 | `appendEvent` | `(repo, type, data)` | 在鎖內追加一筆 |
 | `readLedger`、`verifyLedger`、`ledgerPath` | `(repo)` | 原始紀錄（鏈損毀時 throw）／`{ ok, entries, head, maxVersion }` 或 `{ ok: false, error }`／檔案路徑；帳本為空或只有舊格式紀錄時 `maxVersion` 為 1 |
 | `withLedgerLock` | `(repo, fn)` | 以唯一寫入者身分執行 `fn`；其中的追加會沿用同一把鎖 |
-| `loadState`、`reduceEntries` | `(repo)`、`(entries)` | `{ evidence, actions, sessions, hostSessions, consumedTools, newerLedger }`；`newerLedger` 是 `null` 或最高的不支援版本 |
+| `loadState`、`reduceEntries` | `(repo)`、`(entries)` | `{ evidence, actions, sessions, hostSessions, consumedTools, newerLedger, seq }`；`newerLedger` 是 `null` 或最高的不支援版本 |
 | `openActions`、`latestSession` | `(state)` | 仍為 `pending` 或 `unknown` 的動作／最後一個 session |
 | `canonicalJson`、`digest`、`sha256` | | 帳本共用的穩定 JSON 與 hash |
 
@@ -304,9 +312,9 @@ function normalize(input) {
 | `type` | 寫入時機 | 主要 `data` 欄位 |
 |---|---|---|
 | `session.started` | host session 開始 | `session`、`tree`、`head`、`host` |
-| `evidence.recorded` | 檢查結束 | `kind`、`command`、`exitCode`、`treeBefore`、`treeAfter`、`scope*`、`attributed`、`excluded`、`host`、`session` |
+| `evidence.recorded` | 檢查結束 | `kind`、`command`、`exitCode`、`treeBefore`、`treeAfter`、`scope*`、`attributed`、`excluded`、`host`、`session`、可省略的 `toolUseId` 與 `order` |
 | `action.begun` | 副作用執行前 | `id`、`kind`、`key`、`argv`、`target`、`head`、`branch`、`tree`、`expect`、`host`、`toolUseId` |
-| `action.ended` | 執行後，或證明從未執行 | `id`、`outcome`、`exitCode`、`detail` |
+| `action.ended` | 執行後，或證明從未執行 | `id`、`outcome`、`exitCode`、`detail`、可省略的 `awaitingCompletion` |
 | `action.reconciled` | probe 或人完成對帳 | `id`、`outcome`、`method`（`probe` 或 `manual`）、`detail` |
 | `completion.blocked` | agent 停止時被送回 | `session`、`missing`、`tree` |
 | `tool.consumed` | host 呼叫在結果入帳前標記為已消耗 | `host`、`session`、`toolUseId`；不代表成功 |
@@ -315,6 +323,12 @@ function normalize(input) {
 Claude Code 與 Codex 使用相同紀錄類型；新增的 host/session 關聯欄位可省略，舊紀錄仍可讀取。新紀錄使用 `{ v: 1, seq, at, type, data, prev, hash }`，而且 `v` 會納入 hash。沒有 `v` 的舊紀錄會以版本 1 驗證原本的 hash，不會改寫。`reduceEntries` 會略過 `v` 高於 `LEDGER_VERSION` 的紀錄，並將其中最高版本放在 `state.newerLedger`；那些較新紀錄不會被折入 evidence 或 actions。若有 `v` 但不是正整數，hash chain 就是損毀。
 
 `state.newerLedger` 不是 `null` 時，`evaluateCommand` 會拒絕有副作用或標記為 opaque 的指令，並附上 `ledger has entries from a newer Better Workflows (ledger v<N>); upgrade @better-workflows/core before running side effects`。`completionStatus` 會回傳 `ok: false`，把每個必要種類標為 `missing` 並附上升級理由，且附上 `newerLedger` 與 `reason`，並說明要先升級 Core；即使 policy 沒有必要 evidence 也一樣。`bw status --json` 會提供 `newerLedger` 與 warning；人類可讀的 `bw status` 第一行會顯示警告。`verifyLedger` 會回傳 `maxVersion`（帳本為空或只有舊格式紀錄時為 1），`bw verify` 也會印出該版本。host hook 遇到較新 ledger 版本時，會保留既有 pending call，不會替這些呼叫追加 ledger 紀錄。新增的 `tool.consumed` 紀錄可阻止已完成呼叫重播；舊版 Core 不會執行這項防護。未來若要改成不相容的紀錄格式，必須先明確指定版本並規劃遷移。
+
+呼叫的最終 completion 尚未確認時，負面 probe 不能把它判定為失敗。自動對帳會
+記錄暫時的 `unknown` 與 `awaitingCompletion: true`，讓相符的 host completion
+稍後完成結算。provider 的正面結果仍可確立成功。晚到 hook 不會覆寫已確認的
+completion、人工結案或 terminal 對帳。舊版 `detail: "no result was recorded"`
+暫時紀錄仍可回填；已成為 terminal 的紀錄不會重開。
 
 ### 6.3 穩定度
 

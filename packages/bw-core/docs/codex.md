@@ -59,6 +59,27 @@ or reconciliation takes precedence; stale probes report the current outcome.
 Manual reconciliation checks and appends under the same ledger lock.
 `bw status` reports the latest session start time for each host.
 
+A negative provider probe is not proof that a command with no final result has
+stopped. Such calls remain unknown and block further side effects; a matching
+late completion can still settle them. Positive provider evidence retains the
+existing success behavior. Manual settlements and terminal records are never
+automatically reopened, including failures settled by older Core versions.
+
+Recovery reads each needed transcript once per hook and indexes matching final
+results. Conflicting final results for the same call remain unknown. Evidence
+keeps `toolUseId` and an `order` with the ledger sequence observed before the
+command started (`startedAfterSeq`). Codex additionally records the completion's
+position in a snapshot identified by the host, session, canonical transcript
+path and full content digest. Results in the same snapshot can be ordered even
+when their hooks arrive late; results from different snapshots are comparable
+only when the earlier result was already in the ledger before the later run.
+Core never orders completions by pending filenames or timestamps. Unordered or
+conflicting candidates block completion; rerun the check after those results
+are recorded. Transcript growth can require this conservative rerun. Existing
+entries are not rewritten, and missing ordering metadata cannot establish a
+newer passing result. Upgrade all participating hosts together: older Core
+versions do not enforce this ordering rule.
+
 ## File protection and validation limits
 
 For `apply_patch`, the adapter reads the patch from `tool_input.command` and

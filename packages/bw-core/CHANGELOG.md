@@ -14,6 +14,12 @@
 - **Read-only Bash calls with no pending work on Claude Code and Codex no longer add ledger markers.** Core writes `tool.consumed` only when a call has a pending result file or a corresponding pending action. Probe results and manual reconciliation now compare and append under the ledger lock, so stale probe results cannot replace newer history.
 - **Codex upgrade handling is explicit.** Pending-file names are host-specific; rerun checks that were in progress when upgrading. `PostToolUse` cannot end older action records without a session field, so those actions remain open for reconciliation. Codex `ask` is denied with `Codex hooks cannot ask; change the policy and retry`.
 
+### Fixed
+
+- **Delayed Codex evidence cannot turn a newer failure into a pass.** Evidence keeps its tool-call identity and a ledger fence captured before execution. Results recovered from one transcript snapshot also retain their completion positions. Only proven ordering supersedes a result; incomparable failures keep completion blocked until a later check establishes fresh evidence.
+- **An unfinished side effect is not a failed side effect.** A negative provider probe leaves calls without a final completion unknown, so it cannot authorize a duplicate. A matching late completion can settle that provisional unknown. Positive provider evidence and manual settlements retain their existing precedence; terminal records are not automatically rewritten.
+- **Pending Codex calls share one transcript read per hook.** Recovery parses each needed transcript once, and an untracked read-only call does not read a transcript. This bounds repeated work without persistent cursors or runtime dependencies.
+
 ## 6.0.0-alpha.2
 
 ### Fixed
