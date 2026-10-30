@@ -11,13 +11,13 @@
 
 ### Changed
 
-- **Read-only Bash calls with no pending work on Claude Code and Codex no longer add ledger markers.** Core writes `tool.consumed` only when a call has a pending result file or a corresponding pending action. Probe results and manual reconciliation now compare and append under the ledger lock, so stale probe results cannot replace newer history.
+- **Read-only Bash calls with no pending work on Claude Code and Codex no longer add ledger markers.** Core writes `tool.consumed` only when a call has a pending result file, a corresponding pending action, or a matching probe-settled failure with a known exit code. Probe results and manual reconciliation now compare and append under the ledger lock, so stale probe results cannot replace newer history.
 - **Codex upgrade handling is explicit.** Pending-file names are host-specific; rerun checks that were in progress when upgrading. `PostToolUse` cannot end older action records without a session field, so those actions remain open for reconciliation. Codex `ask` is denied with `Codex hooks cannot ask; change the policy and retry`.
 
 ### Fixed
 
 - **Delayed Codex evidence cannot turn a newer failure into a pass.** Evidence keeps its tool-call identity and a ledger fence captured before execution. Results recovered from one transcript snapshot also retain their completion positions. Only proven ordering supersedes a result; incomparable failures keep completion blocked until a later check establishes fresh evidence.
-- **Late results settle provisional records.** A matching late completion can settle an action that ended unknown because no result was recorded. A probe that finds the side effect absent still settles it as failed, so a call refused at Codex's prompt does not block every later side effect; a matching late exit 0 raises that failure to success. Manual settlements are never reopened.
+- **Negative probes can release retries for supported built-in actions.** A negative read-only provider probe can settle `git-push`, `gh-pr-merge`, `gh-pr-create`, `gh-release`, or `package-publish` as `failed`, restoring availability when a Codex completion is missing. The probe reports provider state; it does not prove the original command never ran, so retrying while that command is still running can repeat its side effect. This is the accepted availability tradeoff. A matching completion for the same host, session, and tool call upgrades probe-settled `failed` to `success` only on explicit exit 0; non-zero, missing, malformed, or ambiguous results leave it `failed`. Late completion does not overwrite manual reconciliation. Actions without an applicable probe, including custom actions and `http-write`, remain `unknown`.
 - **Pending Codex calls share one transcript read per hook.** Recovery parses each needed transcript once, and an untracked read-only call does not read a transcript. This bounds repeated work without persistent cursors or runtime dependencies.
 
 ## 6.0.0-alpha.2

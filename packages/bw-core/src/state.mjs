@@ -14,10 +14,9 @@ export function awaitingCompletion(action) {
     && (last.awaitingCompletion === true || (last.exitCode === null && last.detail === "no result was recorded")));
 }
 
-// A probe that finds nothing settles the action as failed, so the call can
-// be retried. A later exact exit 0 for that call may still raise it to
-// success: that only blocks more, never less.
-export function lateSuccessAllowed(action) {
+// A provider probe can miss an operation that was still running. Only a
+// matching, explicit success may strengthen that particular failed result.
+export function probeFailed(action) {
   const last = action.history.at(-1);
   return action.status === "failed" && last?.type === "action.reconciled" && last.method === "probe";
 }
@@ -50,7 +49,12 @@ export function reduceEntries(entries) {
     else if (type === "action.ended" || type === "action.reconciled") {
       const action = actions.get(data.id);
       if (!action) continue;
-      if (type === "action.ended" && !awaitingCompletion(action) && !(data.outcome === "success" && lateSuccessAllowed(action))) continue;
+      if (type === "action.ended" && !awaitingCompletion(action)) {
+        const matchingSuccess = probeFailed(action) && data.outcome === "success" && data.exitCode === 0
+          && typeof data.host === "string" && typeof data.session === "string" && typeof data.toolUseId === "string"
+          && data.host === action.host && data.session === action.session && data.toolUseId === action.toolUseId;
+        if (!matchingSuccess) continue;
+      }
       action.status = data.outcome;
       action.history.push({ type, ...data, at, seq });
     }

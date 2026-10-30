@@ -45,11 +45,12 @@ missing ──run──▶ fresh ──edit──▶ stale ──run again──
               └─ failed / unstable / unattributed (does not count)
 ```
 
-**Action.** A side effect someone outside the repository can see: `git push`, `gh pr merge`, `npm publish`, a `curl -X POST`, or a command the policy names. Before it runs, Core records `action.begun`; after, `action.ended`. Only exit code 0 is a known success. Anything else, including a timeout or a crash, is **unknown**, because the push may have reached the remote before the connection dropped. While any action is pending or unknown, every further side effect is denied until a read-only probe or a person settles it (`reconcile`). The same action at the same commit is never run twice.
+**Action.** A side effect someone outside the repository can see: `git push`, `gh pr merge`, `npm publish`, a `curl -X POST`, or a command the policy names. Before it runs, Core records `action.begun`; after, `action.ended`. Only exit code 0 establishes success from a command completion; a positive provider probe can also establish success. Anything else, including a timeout or a crash, is **unknown**, because the push may have reached the remote before the connection dropped. While an action is pending or unknown, every further side effect is denied. A final completion or applicable read-only probe can refine its state, and a person can settle it (`reconcile`). For built-in actions with probes (`git-push`, `gh-pr-merge`, `gh-pr-create`, `gh-release`, and `package-publish`), a negative provider result may settle the action as `failed` and release the gate for a retry. This reports provider state; it does not prove the original command never ran. A retry can overlap an original command that is still running, and this behavior accepts that risk to restore availability after a missing Codex completion. Actions without an applicable probe, including custom actions and `http-write`, remain `unknown`. A successful action at the same commit cannot be repeated; a settled `failed` action may be retried.
 
 ```text
 begun ──exit 0──▶ success
-  └──── other / none ──▶ unknown ──probe or person──▶ success | failed
+  └──── other / none ──▶ unknown ──positive probe, exit-0 completion, or person──▶ success
+                       └─ negative applicable probe or person────────────▶ failed (retry allowed)
 ```
 
 ## 3. Integrating through the CLI
@@ -266,7 +267,7 @@ function normalize(input) {
 
 - Record real event JSON from the host into fixtures (success, non-zero exit, interrupted, refused by the person, a long command). Test against those, not against what the documentation suggests.
 - Replay [the stale-green demo](../examples/stale-green/demo.mjs) steps through your adapter: stale pass blocked, repeated push refused, unknown deploy blocks the next side effect.
-- Prove that every unclear case ends as `null` and `unknown`, never as a pass or a success.
+- Prove that missing, malformed, or ambiguous completion data stays `null` and `unknown` when no applicable provider probe can settle the action; test negative and positive outcomes only for action kinds with documented probes.
 
 ## 6. Reference
 
@@ -325,13 +326,20 @@ Claude Code and Codex use the same entry types; new host/session correlation fie
 
 When `state.newerLedger` is not `null`, `evaluateCommand` denies commands with side effects or marked opaque with `ledger has entries from a newer Better Workflows (ledger v<N>); upgrade @better-workflows/core before running side effects`. `completionStatus` returns `ok: false`, marks every required kind `missing` with an upgrade reason, and includes `newerLedger` and `reason`, and explains that Core must be upgraded, even when the policy requires no evidence. `bw status --json` includes `newerLedger` and a warning; human-readable `bw status` prints the warning on its first line. `verifyLedger` returns `maxVersion` (1 for an empty or legacy-only ledger), and `bw verify` prints it. When host hooks encounter a newer ledger version, they leave existing pending calls pending and do not append ledger records for those calls. The additive `tool.consumed` entry prevents completed-call replays; older Core versions do not enforce that guard. Future incompatible entry formats require an explicit version and migration plan.
 
-A negative probe cannot settle a call as failed while its final completion is
-unconfirmed. Automatic reconciliation records a provisional `unknown` with
-`awaitingCompletion: true`; a matching host completion may end it later. A
-positive provider result still establishes success. Explicit completion and
-manual or terminal reconciliation are not overwritten by a late hook. Older
-provisional records with `detail: "no result was recorded"` remain recoverable;
-already terminal records are not reopened.
+For built-in actions with probes (`git-push`, `gh-pr-merge`, `gh-pr-create`,
+`gh-release`, and `package-publish`), a negative result may be reconciled as
+`failed` while host completion is unconfirmed. It reports current provider state
+and does not prove the command never ran; a retry may overlap the original call
+if it is still running. This is the accepted availability tradeoff. A matching
+completion for the same host, session, and tool call upgrades a probe-settled
+`failed` to `success` only when it reports explicit exit 0. A non-zero, missing,
+malformed, or ambiguous result leaves `failed` unchanged. A late hook does not
+overwrite manual reconciliation. A positive provider result may establish
+`success`, and a matching completion may settle a provisional `unknown` with
+`awaitingCompletion: true`. Actions without an applicable probe, including
+custom actions and `http-write`, remain `unknown` while completion is
+unconfirmed. Older provisional records with `detail: "no result was recorded"`
+remain recoverable.
 
 ### 6.3 Stability
 

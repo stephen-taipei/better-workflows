@@ -45,11 +45,12 @@ missing（沒有）──執行──▶ fresh（有效）──修改檔案─�
                     └─ failed / unstable / unattributed（都不算數）
 ```
 
-**動作（action）。** repository 外部看得到的副作用：`git push`、`gh pr merge`、`npm publish`、`curl -X POST`，或 policy 指名的指令。執行前 Core 寫入 `action.begun`，執行後寫入 `action.ended`。只有 exit code 0 算確定成功。其他情況（包括逾時或當機）都是 **unknown**，因為 push 可能在連線中斷前已經送到 remote。只要還有 pending 或 unknown 的動作，之後所有副作用都會被 deny，直到唯讀 probe 或人把它對帳清楚（`reconcile`）。同一個動作在同一個 commit 上絕不執行兩次。
+**動作（action）。** repository 外部看得到的副作用：`git push`、`gh pr merge`、`npm publish`、`curl -X POST`，或 policy 指名的指令。執行前 Core 寫入 `action.begun`，執行後寫入 `action.ended`。只有 exit code 0 能從指令完成結果確立成功；provider 的正面 probe 也能確立成功。其他情況（包括逾時或當機）都是 **unknown**，因為 push 可能在連線中斷前已經送到 remote。只要動作仍是 pending 或 unknown，之後所有副作用都會被 deny。最終 completion 或適用的唯讀 probe 可以更新狀態；人也可以手動對帳（`reconcile`）。有 probe 的內建動作（`git-push`、`gh-pr-merge`、`gh-pr-create`、`gh-release`、`package-publish`），可由 provider 負面結果結算為 `failed` 並解除 gate，允許重試。這代表 provider 目前狀態，不能證明原指令從未執行。原指令仍在執行時，重試可能造成副作用重複；這項行為接受此風險，以便在 Codex completion 缺少時恢復可用性。沒有適用 probe 的動作，包括 custom action 與 `http-write`，仍維持 `unknown`。同一 commit 上已成功的動作不能重複執行；結算為 `failed` 的動作可以重試。
 
 ```text
 begun ──exit 0──▶ success
-  └──── 其他／沒有結果 ──▶ unknown ──probe 或人──▶ success | failed
+  └──── 其他／沒有結果 ──▶ unknown ──正面 probe、exit 0 completion 或人──▶ success
+                         └─ 適用的負面 probe 或人──────────▶ failed（可重試）
 ```
 
 ## 3. 透過 CLI 介接
@@ -265,7 +266,7 @@ function normalize(input) {
 
 - 從 host 錄下真實事件 JSON 當 fixture（成功、非 0 exit、中斷、被人拒絕、長時間指令），測試以這些為準，不以文件的描述為準。
 - 讓 [stale-green demo](../examples/stale-green/demo.mjs) 的步驟經過你的 adapter 重跑一次：過期的通過結果被擋、重複 push 被拒、結果不明的 deploy 擋住下一個副作用。
-- 證明所有不明確的情況最後都是 `null` 與 `unknown`，絕不會變成通過或成功。
+- 證明缺少、格式錯誤或有歧義的 completion，在沒有適用 provider probe 可結算 action 時，會保留為 `null` 與 `unknown`；只針對文件列出的 probe action 測試負面與正面結果。
 
 ## 6. 參考
 
@@ -324,11 +325,15 @@ Claude Code 與 Codex 使用相同紀錄類型；新增的 host/session 關聯�
 
 `state.newerLedger` 不是 `null` 時，`evaluateCommand` 會拒絕有副作用或標記為 opaque 的指令，並附上 `ledger has entries from a newer Better Workflows (ledger v<N>); upgrade @better-workflows/core before running side effects`。`completionStatus` 會回傳 `ok: false`，把每個必要種類標為 `missing` 並附上升級理由，且附上 `newerLedger` 與 `reason`，並說明要先升級 Core；即使 policy 沒有必要 evidence 也一樣。`bw status --json` 會提供 `newerLedger` 與 warning；人類可讀的 `bw status` 第一行會顯示警告。`verifyLedger` 會回傳 `maxVersion`（帳本為空或只有舊格式紀錄時為 1），`bw verify` 也會印出該版本。host hook 遇到較新 ledger 版本時，會保留既有 pending call，不會替這些呼叫追加 ledger 紀錄。新增的 `tool.consumed` 紀錄可阻止已完成呼叫重播；舊版 Core 不會執行這項防護。未來若要改成不相容的紀錄格式，必須先明確指定版本並規劃遷移。
 
-呼叫的最終 completion 尚未確認時，負面 probe 不能把它判定為失敗。自動對帳會
-記錄暫時的 `unknown` 與 `awaitingCompletion: true`，讓相符的 host completion
-稍後完成結算。provider 的正面結果仍可確立成功。晚到 hook 不會覆寫已確認的
-completion、人工結案或 terminal 對帳。舊版 `detail: "no result was recorded"`
-暫時紀錄仍可回填；已成為 terminal 的紀錄不會重開。
+有 probe 的內建動作（`git-push`、`gh-pr-merge`、`gh-pr-create`、`gh-release`、
+`package-publish`），即使 host completion 尚未確認，負面結果也可以結算為 `failed`。
+這代表 provider 目前狀態，不能證明指令從未執行；原呼叫仍在執行時，重試可能造成副作用
+重複。這是為恢復可用性而接受的取捨。同一 host、session 與 tool call 的相符 completion，
+只有明確回報 exit 0 時，才能將 probe 結算的 `failed` 改為 `success`。非 0、缺少、格式錯誤
+或有歧義的結果都會保留 `failed`。晚到 hook 不會覆寫人工對帳結果。Provider 正面結果仍可
+確立 `success`；相符 completion 也可結算帶有 `awaitingCompletion: true` 的暫時 `unknown`。
+沒有適用 probe 的動作，包括 custom action 與 `http-write`，在 completion 未確認時仍維持
+`unknown`。舊版 `detail: "no result was recorded"` 暫時紀錄仍可回填。
 
 ### 6.3 穩定度
 
