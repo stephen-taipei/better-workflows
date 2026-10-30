@@ -91,7 +91,7 @@ async function pushExpectation(repo, target, branch) {
   return { remote, refs };
 }
 
-export async function beginActions(repo, evaluation, { command, tree, policyDigest, host = null, toolUseId = null, session, turnId, cwd, transcriptPath }) {
+export async function beginActions(repo, evaluation, { command, tree, policyDigest, host = null, toolUseId = null, session, turnId, cwd, transcriptPath, startedAfterSeq }) {
   const [head, branch] = await Promise.all([headCommit(repo), currentBranch(repo)]);
   const ids = [];
   for (const action of evaluation.actions) {
@@ -100,6 +100,7 @@ export async function beginActions(repo, evaluation, { command, tree, policyDige
     await appendEvent(repo, "action.begun", {
       id, kind: action.kind, key: actionKey(action, head), argv: action.argv, target: action.target,
       command, head, branch, tree, expect, policyDigest, host, toolUseId,
+      ...(startedAfterSeq === undefined ? {} : { startedAfterSeq }),
       ...(session === undefined ? {} : { session, turnId: turnId ?? null, cwd: cwd ?? null, transcriptPath: transcriptPath ?? null }),
     });
     ids.push(id);

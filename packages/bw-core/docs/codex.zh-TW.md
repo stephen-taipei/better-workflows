@@ -50,6 +50,23 @@ entry；它只會在同一把 ledger lock 內確認兩者仍符合該 snapshot �
 並行完成或對帳會優先於過期 probe。手動對帳也會在相同 lock 內檢查並追加。
 `bw status` 會顯示每個 host 最近一次 session 的開始時間。
 
+沒有最終結果的呼叫會維持 pending，直到 probe 結算。provider 顯示副作用沒有發生時，
+action 結算為 failed，這個呼叫可以重試。否則在 Codex 核准提示按拒絕（transcript
+無法證明）之後，所有副作用都會被擋，直到有人手動結算。內建 probe 涵蓋的動作，重做
+一次不是效果相同，就是會被 provider 拒絕。同一個呼叫晚到的 exit 0 仍會把 probe 判定的
+failed 升為 success，這個方向只會擋更多；晚到的失敗結果則維持 failed。人工結案不會重開。
+
+每個 hook 對每份需要的 transcript 只讀取一次，並建立最終結果索引。同一個呼叫
+若有互相矛盾的最終結果，會維持 unknown。Evidence 保留 `toolUseId`，並在 `order`
+記錄指令開始前已看到的帳本序號（`startedAfterSeq`）。Codex 另記錄 completion
+在 transcript snapshot 中的位置；snapshot 身分包含 host、session、canonical path
+及完整內容的 digest。同一 snapshot 的結果可依完成位置排序，即使 hook 晚到也一樣。
+不同 snapshot 只有在較早結果已入帳、較晚指令才開始時，才能確立先後。
+Core 不會用 pending 檔名或時間戳排序。無法排序或互相矛盾的候選結果會阻擋完成；
+結果入帳後，必須重新執行檢查。transcript 增長也可能觸發這個保守重跑要求。
+既有紀錄不會改寫；缺少順序資料，不能證明某筆通過結果比較新。所有參與的 host
+應一起升級，因為舊版 Core 不會執行這項順序保護。
+
 ## 檔案保護與驗證限制
 
 對 `apply_patch`，adapter 會從 `tool_input.command` 讀取 patch，並檢查每個

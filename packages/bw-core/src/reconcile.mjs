@@ -88,7 +88,7 @@ export async function reconcileOpen(repo, { exec = run } = {}) {
       if (result.outcome !== "unknown") {
         await appendEvent(repo, "action.reconciled", { id: action.id, outcome: result.outcome, method: "probe", detail: result.detail });
       } else if (current.status === "pending") {
-        await appendEvent(repo, "action.ended", { id: action.id, outcome: "unknown", exitCode: null, detail: "no result was recorded" });
+        await appendEvent(repo, "action.ended", { id: action.id, outcome: "unknown", exitCode: null, detail: "no result was recorded", awaitingCompletion: true });
       }
       return result;
     });
