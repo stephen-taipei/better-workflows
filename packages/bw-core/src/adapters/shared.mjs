@@ -7,7 +7,7 @@ import { appendEvent, newerLedgerWarning, withLedgerLock } from "../ledger.mjs";
 import { loadPolicy } from "../policy.mjs";
 import { ghFailure, reconcileOpen } from "../reconcile.mjs";
 import { headCommit, subtreeDigests, worktreeTree } from "../repo.mjs";
-import { awaitingCompletion, loadState, openActions, sessionFor, toolCallKey } from "../state.mjs";
+import { awaitingCompletion, lateSuccessAllowed, loadState, openActions, sessionFor, toolCallKey } from "../state.mjs";
 import { splitCommand } from "../command.mjs";
 import { run } from "../process.mjs";
 
@@ -231,8 +231,9 @@ export async function postBash(event, repo, { detail, requireKnownExitCode = fal
   const file = pendingFile(repo, event.host, event.toolUseId, event.sessionId ?? null);
   let queued;
   try { queued = JSON.parse(await readFile(file, "utf8")); } catch { queued = null; }
+  const settles = (a) => awaitingCompletion(a) || (exitCode === 0 && lateSuccessAllowed(a));
   const initial = await loadState(repo);
-  if (initial.newerLedger || (!queued && ![...initial.actions.values()].some((a) => matchesAction(a, event) && awaitingCompletion(a)))) return null;
+  if (initial.newerLedger || (!queued && ![...initial.actions.values()].some((a) => matchesAction(a, event) && settles(a)))) return null;
   return withLedgerLock(repo, async () => {
     let pending;
     try { pending = JSON.parse(await readFile(file, "utf8")); } catch { pending = null; }
@@ -242,7 +243,7 @@ export async function postBash(event, repo, { detail, requireKnownExitCode = fal
     if (state.consumedTools.has(toolCallKey(event.host, event.sessionId, event.toolUseId))) return null;
     const reserved = pending ? new Set(pending.actionIds ?? []) : null;
     const ids = [...state.actions.values()]
-      .filter((a) => matchesAction(a, event) && awaitingCompletion(a) && (!reserved || reserved.has(a.id)))
+      .filter((a) => matchesAction(a, event) && settles(a) && (!reserved || reserved.has(a.id)))
       .map((a) => a.id);
     if (!pending && !ids.length) return null;
     // The durable marker is deliberately before sidecar removal and evidence:

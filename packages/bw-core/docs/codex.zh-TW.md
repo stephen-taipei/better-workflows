@@ -50,10 +50,11 @@ entry；它只會在同一把 ledger lock 內確認兩者仍符合該 snapshot �
 並行完成或對帳會優先於過期 probe。手動對帳也會在相同 lock 內檢查並追加。
 `bw status` 會顯示每個 host 最近一次 session 的開始時間。
 
-provider 的負面查詢結果，不能證明尚無最終結果的指令已停止。這類呼叫會維持
-unknown 並阻擋後續副作用；相符的晚到 completion 仍可完成結算。provider 已確認
-成功時，保留既有的成功判定。人工結案與 terminal 紀錄不會自動重開，包含舊版 Core
-已判定失敗的紀錄。
+沒有最終結果的呼叫會維持 pending，直到 probe 結算。provider 顯示副作用沒有發生時，
+action 結算為 failed，這個呼叫可以重試。否則在 Codex 核准提示按拒絕（transcript
+無法證明）之後，所有副作用都會被擋，直到有人手動結算。內建 probe 涵蓋的動作，重做
+一次不是效果相同，就是會被 provider 拒絕。同一個呼叫晚到的 exit 0 仍會把 probe 判定的
+failed 升為 success，這個方向只會擋更多；晚到的失敗結果則維持 failed。人工結案不會重開。
 
 每個 hook 對每份需要的 transcript 只讀取一次，並建立最終結果索引。同一個呼叫
 若有互相矛盾的最終結果，會維持 unknown。Evidence 保留 `toolUseId`，並在 `order`

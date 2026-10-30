@@ -59,11 +59,14 @@ or reconciliation takes precedence; stale probes report the current outcome.
 Manual reconciliation checks and appends under the same ledger lock.
 `bw status` reports the latest session start time for each host.
 
-A negative provider probe is not proof that a command with no final result has
-stopped. Such calls remain unknown and block further side effects; a matching
-late completion can still settle them. Positive provider evidence retains the
-existing success behavior. Manual settlements and terminal records are never
-automatically reopened, including failures settled by older Core versions.
+A call with no final result stays pending until a probe settles it. When the
+provider shows the side effect did not happen, the action is settled as failed
+and the call may be retried; otherwise a refusal at Codex's prompt, which the
+transcript cannot prove, would block every side effect until a person settles
+it. Every built-in probe covers an action whose repeat either has the same
+effect or is rejected by the provider. A matching late exit 0 for that call
+still raises a probe failure to success, which only blocks more. A late
+failure leaves it failed. Manual settlements are never reopened.
 
 Recovery reads each needed transcript once per hook and indexes matching final
 results. Conflicting final results for the same call remain unknown. Evidence

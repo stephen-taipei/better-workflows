@@ -14,6 +14,14 @@ export function awaitingCompletion(action) {
     && (last.awaitingCompletion === true || (last.exitCode === null && last.detail === "no result was recorded")));
 }
 
+// A probe that finds nothing settles the action as failed, so the call can
+// be retried. A later exact exit 0 for that call may still raise it to
+// success: that only blocks more, never less.
+export function lateSuccessAllowed(action) {
+  const last = action.history.at(-1);
+  return action.status === "failed" && last?.type === "action.reconciled" && last.method === "probe";
+}
+
 // Folds the ledger into current evidence and action state.
 export function reduceEntries(entries) {
   const evidence = [];
@@ -42,7 +50,7 @@ export function reduceEntries(entries) {
     else if (type === "action.ended" || type === "action.reconciled") {
       const action = actions.get(data.id);
       if (!action) continue;
-      if (type === "action.ended" && !awaitingCompletion(action)) continue;
+      if (type === "action.ended" && !awaitingCompletion(action) && !(data.outcome === "success" && lateSuccessAllowed(action))) continue;
       action.status = data.outcome;
       action.history.push({ type, ...data, at, seq });
     }

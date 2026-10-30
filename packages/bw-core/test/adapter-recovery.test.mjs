@@ -502,3 +502,47 @@ test("Codex reads one shared transcript at most once for 25 pending calls", asyn
   assert.ok(reads.count() <= 1, "a shared transcript is read once per hook");
 });
 
+
+test("a refused push the probe finds absent can be retried, and a late result settles it", async (t) => {
+  // An empty ls-remote answer: the remote does not have the pushed ref.
+  const absent = async (program, args) => {
+    assert.equal(program, "git");
+    assert.equal(args[0], "ls-remote");
+    return { code: 0, stdout: "", stderr: "", timedOut: false };
+  };
+  for (const host of ["codex", "claude-code"]) {
+    for (const late of [null, 0, 1]) {
+      await t.test(`${host}, late exit ${late}`, async (st) => {
+        const { root, base, repo } = await fixtureRepo(st);
+        await writePolicy(root, { actions: { rules: { "git-push": "allow" } } });
+        const session = `session-refused-${host}-${late}`;
+        const transcript = path.join(base, "refused.jsonl");
+        await writeRows(transcript, []);
+        const push = (id) => hook({ host, root, name: "PreToolUse", session, id, transcript, command: "git push origin main" });
+
+        assert.equal((await push("push-refused")).output, null);
+        const settled = await core.reconcileOpen(repo, { exec: absent });
+        assert.equal(settled[0]?.outcome, "failed");
+        assert.equal(findAction(await core.loadState(repo), "push-refused")?.status, "failed");
+        assert.equal(core.openActions(await core.loadState(repo)).length, 0, "nothing blocks other side effects");
+
+        if (late === null) {
+          assert.equal((await push("push-retry")).output, null, "the push may be retried");
+          return;
+        }
+        if (host === "codex") await writeRows(transcript, [completionRow("push-refused", late)]);
+        await hook({
+          host, root, name: late === 0 ? "PostToolUse" : "PostToolUseFailure", session, id: "push-refused", transcript, command: "git push origin main",
+        });
+        const status = findAction(await core.loadState(repo), "push-refused")?.status;
+        if (late === 0) {
+          assert.equal(status, "success", "a late exit 0 raises the probe failure");
+          assert.equal(decision(await push("push-again")), "deny");
+        } else {
+          assert.equal(status, "failed", "a late failure leaves the probe result");
+          assert.equal((await push("push-retry")).output, null);
+        }
+      });
+    }
+  }
+});
