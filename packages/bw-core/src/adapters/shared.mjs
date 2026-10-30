@@ -7,7 +7,7 @@ import { appendEvent, newerLedgerWarning, withLedgerLock } from "../ledger.mjs";
 import { loadPolicy } from "../policy.mjs";
 import { ghFailure, reconcileOpen } from "../reconcile.mjs";
 import { headCommit, subtreeDigests, worktreeTree } from "../repo.mjs";
-import { awaitingCompletion, loadState, openActions, sessionFor, toolCallKey } from "../state.mjs";
+import { awaitingCompletion, loadState, openActions, probeFailed, sessionFor, toolCallKey } from "../state.mjs";
 import { splitCommand } from "../command.mjs";
 import { run } from "../process.mjs";
 
@@ -54,8 +54,8 @@ export async function pendingBash(event, repo) {
   }
   const state = await loadState(repo);
   if (state.newerLedger) return [];
-  for (const action of openActions(state)) {
-    if (!awaitingCompletion(action) || action.host !== event.host || action.session !== (event.sessionId ?? null) || !action.toolUseId) continue;
+  for (const action of state.actions.values()) {
+    if (!(awaitingCompletion(action) || probeFailed(action)) || action.host !== event.host || action.session !== (event.sessionId ?? null) || !action.toolUseId) continue;
     if (!pending.has(action.toolUseId)) pending.set(action.toolUseId, {
       host: action.host, sessionId: action.session, turnId: action.turnId ?? null, toolUseId: action.toolUseId,
       command: action.command, cwd: action.cwd, transcriptPath: action.transcriptPath, startedAfterSeq: action.startedAfterSeq ?? null, actionIds: [],
@@ -231,8 +231,10 @@ export async function postBash(event, repo, { detail, requireKnownExitCode = fal
   const file = pendingFile(repo, event.host, event.toolUseId, event.sessionId ?? null);
   let queued;
   try { queued = JSON.parse(await readFile(file, "utf8")); } catch { queued = null; }
+  const tracked = (action) => awaitingCompletion(action) || (exitCode !== null && probeFailed(action));
+  const canEnd = (action) => awaitingCompletion(action) || (exitCode === 0 && probeFailed(action));
   const initial = await loadState(repo);
-  if (initial.newerLedger || (!queued && ![...initial.actions.values()].some((a) => matchesAction(a, event) && awaitingCompletion(a)))) return null;
+  if (initial.newerLedger || (!queued && ![...initial.actions.values()].some((a) => matchesAction(a, event) && tracked(a)))) return null;
   return withLedgerLock(repo, async () => {
     let pending;
     try { pending = JSON.parse(await readFile(file, "utf8")); } catch { pending = null; }
@@ -241,15 +243,20 @@ export async function postBash(event, repo, { detail, requireKnownExitCode = fal
     if (state.newerLedger) return null;
     if (state.consumedTools.has(toolCallKey(event.host, event.sessionId, event.toolUseId))) return null;
     const reserved = pending ? new Set(pending.actionIds ?? []) : null;
-    const ids = [...state.actions.values()]
-      .filter((a) => matchesAction(a, event) && awaitingCompletion(a) && (!reserved || reserved.has(a.id)))
-      .map((a) => a.id);
-    if (!pending && !ids.length) return null;
+    const matching = [...state.actions.values()]
+      .filter((a) => matchesAction(a, event) && tracked(a) && (!reserved || reserved.has(a.id)));
+    const actions = matching.filter(canEnd);
+    if (!pending && !matching.length) return null;
     // The durable marker is deliberately before sidecar removal and evidence:
     // a later I/O failure can lose a result, but cannot bind this id to a new tree.
     await appendEvent(repo, "tool.consumed", { host: event.host, session: event.sessionId ?? null, toolUseId: event.toolUseId });
     if (pending) await rm(file, { force: true });
-    if (ids.length) await endActions(repo, ids, { exitCode, detail: exitCode === 0 ? null : String(detail ?? "interrupted").slice(0, 500) });
+    const pendingIds = actions.filter(awaitingCompletion).map((action) => action.id);
+    if (pendingIds.length) await endActions(repo, pendingIds, { exitCode, detail: exitCode === 0 ? null : String(detail ?? "interrupted").slice(0, 500) });
+    for (const action of actions.filter(probeFailed)) {
+      await appendEvent(repo, "action.ended", { id: action.id, outcome: "success", exitCode: 0,
+        host: event.host, session: event.sessionId ?? null, toolUseId: event.toolUseId });
+    }
     if (!pending?.kinds?.length) return null;
     const [treeAfter, head] = await Promise.all([worktreeTree(repo, { ignore: pending.ignore ?? [] }), headCommit(repo)]);
     const scopes = pending.scopes ?? {};

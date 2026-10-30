@@ -42,8 +42,9 @@ commands. Background commands may finish in a different turn. Correlation uses
 host, session and tool-call ID, not turn ID. Evidence retains its pre-command
 snapshot, so intervening edits cannot turn an older check into a fresh pass.
 Core records `tool.consumed` for a host/session/tool ID under the ledger lock
-only when the call has a pending result file or a corresponding pending
-action. A read-only Bash call with no pending work adds no marker. A replay cannot
+only when the call has a pending result file, a corresponding pending action,
+or a matching probe-settled failure with a known exit code. A read-only Bash
+call with no tracked work adds no marker. A replay cannot
 reserve another action or bind the old result to a new tree, even if later
 accounting fails. The marker records consumption only; it does not establish
 successful evidence.
@@ -59,11 +60,22 @@ or reconciliation takes precedence; stale probes report the current outcome.
 Manual reconciliation checks and appends under the same ledger lock.
 `bw status` reports the latest session start time for each host.
 
-A negative provider probe is not proof that a command with no final result has
-stopped. Such calls remain unknown and block further side effects; a matching
-late completion can still settle them. Positive provider evidence retains the
-existing success behavior. Manual settlements and terminal records are never
-automatically reopened, including failures settled by older Core versions.
+For the built-in actions with read-only probes (`git-push`, `gh-pr-merge`,
+`gh-pr-create`, `gh-release`, and `package-publish`), a negative provider result
+may settle the action as `failed` even when Codex has not supplied a final
+completion. This releases the side-effect gate for a retry. The probe reports
+provider state; it does not prove the original command never ran. A retry can
+overlap an original command that is still running, and this behavior accepts
+that risk to restore availability after a missing Codex completion. Actions
+without an applicable probe, including custom actions and `http-write`, remain
+`unknown` and continue to block side effects.
+
+A matching completion for the same host, session, and tool call can refine a
+probe-settled `failed` action only when it reports explicit exit 0, which changes
+the action to `success`. A non-zero, missing, malformed, or ambiguous result
+does not change `failed`. A late completion does not overwrite a manual
+reconciliation. Positive provider evidence can still establish `success`; a
+matching late completion can also settle a provisional `unknown`.
 
 Recovery reads each needed transcript once per hook and indexes matching final
 results. Conflicting final results for the same call remain unknown. Evidence
