@@ -37,9 +37,9 @@ pending 呼叫，包含只有 evidence 的指令。背景指令可能在不同 t
 host、session 與 tool-call ID，不是 turn ID。Evidence 會保留指令執行前的 snapshot，
 所以中途修改檔案不會讓較早的檢查變成新的通過結果。
 
-只有呼叫有待處理的結果檔，或有對應的 pending action 時，Core 才會在 ledger lock
-內為 host/session/tool ID 寫入 `tool.consumed`。沒有待處理工作的唯讀 Bash 呼叫不會新增
-marker。重播無法再次保留 action，也不能把舊結果綁到新的 tree，即使後續入帳失敗也
+只有呼叫有待處理的結果檔、對應的 pending action，或具有已知 exit code 的相符
+probe 結算失敗 action 時，Core 才會在 ledger lock 內為 host/session/tool ID 寫入
+`tool.consumed`。沒有被追蹤工作的唯讀 Bash 呼叫不會新增 marker。重播無法再次保留 action，也不能把舊結果綁到新的 tree，即使後續入帳失敗也
 一樣。這筆 marker 只代表呼叫已消耗，不代表 evidence 通過。
 
 Codex 原生權限提示中的中斷與拒絕，無法從 `turn_aborted` event 區分。兩者都不會被
@@ -50,11 +50,17 @@ entry；它只會在同一把 ledger lock 內確認兩者仍符合該 snapshot �
 並行完成或對帳會優先於過期 probe。手動對帳也會在相同 lock 內檢查並追加。
 `bw status` 會顯示每個 host 最近一次 session 的開始時間。
 
-沒有最終結果的呼叫會維持 pending，直到 probe 結算。provider 顯示副作用沒有發生時，
-action 結算為 failed，這個呼叫可以重試。否則在 Codex 核准提示按拒絕（transcript
-無法證明）之後，所有副作用都會被擋，直到有人手動結算。內建 probe 涵蓋的動作，重做
-一次不是效果相同，就是會被 provider 拒絕。同一個呼叫晚到的 exit 0 仍會把 probe 判定的
-failed 升為 success，這個方向只會擋更多；晚到的失敗結果則維持 failed。人工結案不會重開。
+有唯讀 probe 的內建動作（`git-push`、`gh-pr-merge`、`gh-pr-create`、
+`gh-release`、`package-publish`），即使 Codex 尚未提供最終 completion，provider
+負面結果也可以將 action 結算為 `failed`，並解除副作用 gate，允許重試。Probe 回報的是
+provider 目前狀態，不能證明原指令從未執行。原指令仍在執行時，重試可能造成副作用重複；
+這項行為接受此風險，以便在 Codex completion 缺少時恢復可用性。沒有適用 probe 的動作，
+包括 custom action 與 `http-write`，仍維持 `unknown` 並阻擋後續副作用。
+
+同一 host、session 與 tool call 的相符 completion，只有明確回報 exit 0 時，才能將 probe
+結算的 `failed` 改為 `success`。非 0、缺少、格式錯誤或有歧義的結果都不會改變 `failed`。
+晚到 completion 不會覆寫人工對帳結果。Provider 正面證據仍可確立 `success`；相符的晚到
+completion 也可結算暫時的 `unknown`。
 
 每個 hook 對每份需要的 transcript 只讀取一次，並建立最終結果索引。同一個呼叫
 若有互相矛盾的最終結果，會維持 unknown。Evidence 保留 `toolUseId`，並在 `order`
