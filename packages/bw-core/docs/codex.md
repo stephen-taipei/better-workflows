@@ -9,10 +9,18 @@ tool permission on the user's behalf.
 
 ## Package and hook contract
 
-The root `plugin.json` uses the portable Agent Plugins schema. Its
-`extensions["com.openai"].hooks` selects `./hooks/codex.json`, replacing the
-default discovery of the Claude-specific `hooks/hooks.json`. Commands resolve
-the packaged CLI through `${PLUGIN_ROOT}`. The Claude manifests are unchanged.
+Codex reads `.codex-plugin/plugin.json`, whose `hooks` field selects
+`./hooks/codex.json`. Claude Code keeps reading `.claude-plugin/plugin.json` and
+`hooks/hooks.json`. Commands resolve the packaged CLI through `${PLUGIN_ROOT}`.
+
+The package has no root `plugin.json`. Codex CLI 0.166.0 reads a root manifest
+before `.codex-plugin/plugin.json`. With the Agent Plugins `$schema`, that
+manifest loaded no hooks; without it, Codex fell back to `hooks/hooks.json` and
+ran the Claude Code adapter. A packaging test keeps the root manifest out.
+
+Codex lists newly installed plugin hooks as untrusted. Review and trust the four
+hooks in `/hooks` before they run. Codex stores a hash for each trusted hook;
+after an update, check `/hooks` again if it lists them as untrusted.
 
 Registered events are `SessionStart`, `PreToolUse` (`Bash|apply_patch`),
 `PostToolUse` (`Bash`), and `Stop`. There is no `PermissionRequest` or
@@ -21,11 +29,11 @@ Codex still applies its own permissions. A policy `ask` becomes `deny` before
 Core reserves an action, with the reason
 `Codex hooks cannot ask; change the policy and retry`.
 
-The manifest and patch payload follow the official
+The hook payloads follow the official
 [plugin packaging](https://developers.openai.com/plugins/build/plugins#bundled-mcp-servers-and-lifecycle-hooks)
 and [hooks](https://learn.chatgpt.com/docs/hooks) documentation, consulted on
-2026-10-21. Codex requires users to review and trust installed hooks. Hooks are
-a guardrail for supported tool paths, not a complete sandbox boundary.
+2026-10-21. Hooks are a guardrail for supported tool paths, not a complete
+sandbox boundary.
 
 ## Completion and uncertain results
 
@@ -101,10 +109,20 @@ checks each `*** Add File:`, `*** Update File:`, `*** Delete File:`, and
 linked worktree Git markers, per-worktree Git directories and the current
 repository's common Git directory. This is a header scanner, not a patch parser.
 
-Sanitized Bash fixtures come from the 2026-10-21 Codex CLI recording. Tests replay
-them against temporary Git repositories. The `apply_patch` payload, portable
-plugin discovery and `Stop` response are based on official documentation or
-fixtures, and remain **未實測** on a live Codex host. No plugin is enabled in `deckhand` or `adorable-git-grpah`.
+Sanitized Bash fixtures come from the 2026-10-21 Codex CLI 0.163.0 recording.
+Tests replay them against temporary Git repositories.
+
+On 2026-11-02, Codex CLI 0.166.0 on macOS ran the adapter in a scratch
+repository with a local copy of the package whose manifest had been corrected
+by hand. These cases behaved as designed: session start, read-only commands
+with no ledger entry, test exit codes 0 and 1, `Stop` blocking and allowing,
+`apply_patch` edits, `apply_patch` denied on the policy file and `.git/config`,
+an agent's `bw run` denied, `ask` denied, a push recorded as `success`, and a
+repeat push at the same commit denied. Refusing Codex's approval prompt and
+interrupting a command with Esc were not tested. The manifest layout in this
+package was checked with Codex CLI 0.166.0 `hooks/list`, which reports the four
+hooks from `hooks/codex.json`; a live session with the published package has
+not been run yet. No plugin is enabled in `deckhand` or `adorable-git-grpah`.
 
 Every new ledger entry has the top-level shape
 `{ v, seq, at, type, data, prev, hash }`, and `v` is included in its hash. A missing `v` is interpreted as version 1 and

@@ -8,10 +8,18 @@ adapter 共用 evidence 與 action gate；Codex adapter 不會代替使用者授
 
 ## 套件與 hook 契約
 
-根目錄的 `plugin.json` 使用可攜式 Agent Plugins schema。它的
-`extensions["com.openai"].hooks` 會選擇 `./hooks/codex.json`，取代預設發現
-Claude 專用 `hooks/hooks.json` 的方式。指令會透過 `${PLUGIN_ROOT}` 找到套件內的
-CLI。Claude manifests 維持不變。
+Codex 讀的是 `.codex-plugin/plugin.json`，它的 `hooks` 欄位指向
+`./hooks/codex.json`。Claude Code 照舊讀 `.claude-plugin/plugin.json` 與
+`hooks/hooks.json`。指令會透過 `${PLUGIN_ROOT}` 找到套件內的 CLI。
+
+套件根目錄沒有 `plugin.json`。Codex CLI 0.166.0 會先讀根目錄的 manifest，再讀
+`.codex-plugin/plugin.json`。根目錄 manifest 帶 Agent Plugins `$schema` 時，Codex
+一個 hook 都沒有載入；拿掉 `$schema` 後，Codex 改讀 `hooks/hooks.json`，執行的是
+Claude Code adapter。套件測試會確保根目錄不再出現這個 manifest。
+
+剛安裝的 plugin hooks 在 Codex 裡是未信任狀態。請先在 `/hooks` 檢查並信任這四個
+hook，它們才會執行。Codex 會記下每個已信任 hook 的 hash；更新套件後，如果
+`/hooks` 又顯示未信任，請再檢查一次。
 
 已註冊的 event 是 `SessionStart`、`PreToolUse`（`Bash|apply_patch`）、
 `PostToolUse`（`Bash`）與 `Stop`。沒有註冊 `PermissionRequest` 或
@@ -19,10 +27,10 @@ CLI。Claude manifests 維持不變。
 自己的權限。Codex hooks 不支援 `ask`，因此 Core 會在保留 action 前將它轉成
 `deny`，理由是 `Codex hooks cannot ask; change the policy and retry`。
 
-manifest 與 patch payload 依據 2026-10-21 查閱的官方
+hook payload 依據 2026-10-21 查閱的官方
 [plugin packaging](https://developers.openai.com/plugins/build/plugins#bundled-mcp-servers-and-lifecycle-hooks)
-與 [hooks](https://learn.chatgpt.com/docs/hooks) 文件。Codex 要求使用者檢查並信任
-已安裝的 hooks。Hooks 只涵蓋支援的工具路徑，不能取代完整的 sandbox 邊界。
+與 [hooks](https://learn.chatgpt.com/docs/hooks) 文件。Hooks 只涵蓋支援的工具路徑，
+不能取代完整的 sandbox 邊界。
 
 ## 完成狀態與不確定結果
 
@@ -81,10 +89,17 @@ Core 不會用 pending 檔名或時間戳排序。無法排序或互相矛盾的
 路徑，範圍包含 symlink、linked worktree 的 Git marker、worktree 專用 Git 目錄及目前
 repository 共用的 Git `commonDir`。這是 header scanner，不是 patch parser。
 
-清理過的 Bash fixtures 取自 2026-10-21 Codex CLI recording。測試會在暫存 Git
-repository 中重播 fixtures。`apply_patch` payload 格式、可攜式 plugin discovery 與
-`Stop` response 依據官方文件或 fixture 撰寫，尚未在 live Codex host 實測。沒有在
-`deckhand` 或 `adorable-git-grpah` 啟用 plugin。
+清理過的 Bash fixtures 取自 2026-10-21 Codex CLI 0.163.0 的紀錄。測試會在暫存 Git
+repository 中重播 fixtures。
+
+2026-11-02 在 macOS 上用 Codex CLI 0.166.0 實測：在暫存 repository 裡，用手動修正
+manifest 的本機套件副本跑 adapter。以下案例都符合設計：session 開始、唯讀指令不寫
+帳本、test exit code 0 與 1、`Stop` 擋下與放行、`apply_patch` 改檔、`apply_patch`
+改 policy 檔與 `.git/config` 被擋、agent 執行 `bw run` 被擋、`ask` 轉成 deny、push
+記成 `success`、同一個 commit 重複 push 被擋。在 Codex 核准提示按拒絕、用 Esc 中斷
+指令，這兩項沒有測。本套件的 manifest 配置另外用 Codex CLI 0.166.0 的 `hooks/list`
+確認，會列出 `hooks/codex.json` 的四個 hook；用正式發佈的套件跑實際 session 還沒做。
+沒有在 `deckhand` 或 `adorable-git-grpah` 啟用 plugin。
 
 每筆新 ledger entry 的最上層格式是
 `{ v, seq, at, type, data, prev, hash }`，`v` 也納入 hash。沒有 `v` 的舊紀錄會以版本
