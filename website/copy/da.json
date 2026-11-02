@@ -150,7 +150,7 @@
       ],
       [
         "CI-spor",
-        "macOS og Linux × Node 22 og 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "sprog",
@@ -287,19 +287,23 @@
     "idx": "Værter",
     "en": "HOSTS",
     "title": "Claude Code først.",
-    "lead": "Core er værtsneutral; hver vært kræver en lille adapter. Claude Code er den første og i dag den eneste understøttede.",
+    "lead": "Core er værtsneutral; hver vært behøver kun en lille adapter. Claude Code understøttes; Codex har en eksperimentel adapter.",
     "caption": "Understøttelse af værter og styresystemer",
     "hostCol": "Vært",
     "supported": "Understøttet, testet i CI",
     "untested": "Ikke testet",
+    "daily": "Understøttet, bruges dagligt",
+    "experimental": "Eksperimentel",
+    "handTested": "Testet manuelt (CLI 0.166.0)",
+    "ciTested": "Testet i CI",
     "v5only": "Kun V5, frosset",
     "planned": "Planlagt",
     "firstHost": "Første vært",
     "matrixNote": "CI kører Core på hver pull request.",
-    "matrixNoteSub": "macOS 15 og Ubuntu 24.04, Node 22.23.3 og 24.21.0.",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "Hvorfor Claude Code først",
     "recoBody": "Dens hooks ser hver kommando, før den kører, og hvert forsøg på at stoppe. Det er præcis der, Core skal sidde.",
-    "recoFoot": "Codex, Gemini CLI og Qwen Code kørte V5, som er frosset ved RC1. De kommer tilbage som adaptere, når Core er stabil."
+    "recoFoot": "Codex har en eksperimentel adapter, testet manuelt med Codex CLI 0.166.0. Gemini CLI og Qwen Code kørte V5, som er frosset ved RC1; adaptere til dem er planlagt efter betaen."
   },
   "install": {
     "idx": "Kom i gang",
@@ -500,7 +504,7 @@
       ],
       [
         "Hvad med Codex, Gemini CLI eller Qwen Code?",
-        "De kørte V5, som er frosset. Core er værtsneutral, og adaptere til dem er planlagt efter beta."
+        "Codex har en eksperimentel adapter: den bruger samme policy og log som Claude Code og er testet manuelt med Codex CLI 0.166.0. Gemini CLI og Qwen Code kørte det frosne V5; adaptere til dem er planlagt efter betaen."
       ]
     ]
   },

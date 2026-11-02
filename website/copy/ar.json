@@ -150,7 +150,7 @@
       ],
       [
         "مسارات CI",
-        "macOS وLinux × Node 22 و24"
+        "Linux × Node 22 / 24"
       ],
       [
         "لغة",
@@ -287,19 +287,23 @@
     "idx": "المضيفات",
     "en": "HOSTS",
     "title": "Claude Code أولًا.",
-    "lead": "Core محايد تجاه المضيف، وكل مضيف يحتاج إلى محوّل صغير. Claude Code هو الأول والوحيد المدعوم حاليًا.",
+    "lead": "Core محايد تجاه المضيف؛ كل مضيف يحتاج إلى محوّل صغير فقط. Claude Code مدعوم، ولـ Codex محوّل تجريبي.",
     "caption": "دعم المضيفات وأنظمة التشغيل",
     "hostCol": "المضيف",
     "supported": "مدعوم ومختبر في CI",
     "untested": "غير مختبر",
+    "daily": "مدعوم، يُستخدم يوميًا",
+    "experimental": "تجريبي",
+    "handTested": "اختُبر يدويًا (CLI 0.166.0)",
+    "ciTested": "مُختبر في CI",
     "v5only": "V5 فقط، مجمّد",
     "planned": "مخطط له",
     "firstHost": "المضيف الأول",
     "matrixNote": "يشغّل CI أداة Core على كل pull request.",
-    "matrixNoteSub": "macOS 15 وUbuntu 24.04، وNode 22.23.3 و24.21.0.",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "لماذا Claude Code أولًا",
     "recoBody": "ترى الـ hooks الخاصة به كل أمر قبل تشغيله وكل محاولة للتوقف. وهذا بالضبط هو المكان الذي يجب أن يكون فيه Core.",
-    "recoFoot": "كانت Codex وGemini CLI وQwen Code تعمل مع V5، المجمّد عند RC1. وستعود كمحوّلات بعد أن يستقر Core."
+    "recoFoot": "لـ Codex محوّل تجريبي اختُبر يدويًا مع Codex CLI 0.166.0. أما Gemini CLI وQwen Code فكانا يعملان على V5 المجمّد عند RC1، ومحوّلاتهما مخطط لها بعد الإصدار beta."
   },
   "install": {
     "idx": "البدء",
@@ -500,7 +504,7 @@
       ],
       [
         "وماذا عن Codex أو Gemini CLI أو Qwen Code؟",
-        "كانت تعمل مع V5، وهو مجمّد. Core محايد تجاه المضيف، ومحوّلاتها مخطط لها بعد مرحلة beta."
+        "لـ Codex محوّل تجريبي: يستخدم نفس policy والسجل اللذين يستخدمهما Claude Code، واختُبر يدويًا مع Codex CLI 0.166.0. أما Gemini CLI وQwen Code فكانا يعملان على V5 المجمّد، ومحوّلاتهما مخطط لها بعد الإصدار beta."
       ]
     ]
   },

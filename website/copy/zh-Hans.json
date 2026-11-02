@@ -150,7 +150,7 @@
       ],
       [
         "条 CI 流水线",
-        "macOS 和 Linux × Node 22、24"
+        "Linux × Node 22 / 24"
       ],
       [
         "种语言",
@@ -287,19 +287,23 @@
     "idx": "支持范围",
     "en": "HOSTS",
     "title": "先支持 Claude Code。",
-    "lead": "Core 本身与 host 无关，每个 host 只需要一层小的适配器。Claude Code 是第一个，也是目前唯一支持的。",
+    "lead": "Core 不绑定特定工具，每个 host 只需要一层小的 adapter。Claude Code 已支持，Codex 有实验性的 adapter。",
     "caption": "支持的 host 与操作系统",
     "hostCol": "Host",
     "supported": "支持，CI 测试",
     "untested": "未测试",
+    "daily": "支持，日常使用",
+    "experimental": "实验性",
+    "handTested": "人工实测（CLI 0.166.0）",
+    "ciTested": "CI 测试",
     "v5only": "仅 V5，已冻结",
     "planned": "计划中",
     "firstHost": "第一个 host",
     "matrixNote": "每个 pull request 都会运行 Core 的 CI。",
-    "matrixNoteSub": "macOS 15 和 Ubuntu 24.04，Node 22.23.3 和 24.21.0。",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "为什么先做 Claude Code",
     "recoBody": "它的 hooks 能在每条命令执行前、每次试图收工时介入，正是 Core 需要守住的位置。",
-    "recoFoot": "Codex、Gemini CLI 和 Qwen Code 运行的是 V5，已冻结在 RC1。等 Core 稳定后，它们会以适配器的形式回归。"
+    "recoFoot": "Codex 已有实验性的 adapter，用 Codex CLI 0.166.0 人工实测。Gemini CLI 与 Qwen Code 运行的是已冻结在 RC1 的 V5，beta 之后会规划它们的 adapter。"
   },
   "install": {
     "idx": "开始使用",
@@ -500,7 +504,7 @@
       ],
       [
         "Codex、Gemini CLI 或 Qwen Code 呢？",
-        "它们运行的是已冻结的 V5。Core 与 host 无关，beta 之后计划为它们开发适配器。"
+        "Codex 已有实验性的 adapter，与 Claude Code 共用同一份 policy 和账本，用 Codex CLI 0.166.0 人工实测。Gemini CLI 与 Qwen Code 运行的是已冻结的 V5，beta 之后会规划它们的 adapter。"
       ]
     ]
   },

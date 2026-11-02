@@ -150,7 +150,7 @@
       ],
       [
         "CI-Lanes",
-        "macOS und Linux × Node 22 und 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "Sprachen",
@@ -287,19 +287,23 @@
     "idx": "Hosts",
     "en": "HOSTS",
     "title": "Claude Code zuerst.",
-    "lead": "Core ist hostneutral; jeder Host braucht einen kleinen Adapter. Claude Code ist der erste und derzeit einzige unterstützte.",
+    "lead": "Core ist hostneutral; jeder Host braucht nur einen kleinen Adapter. Claude Code wird unterstützt; für Codex gibt es einen experimentellen Adapter.",
     "caption": "Unterstützung nach Host und Betriebssystem",
     "hostCol": "Host",
     "supported": "Unterstützt, in CI getestet",
     "untested": "Nicht getestet",
+    "daily": "Unterstützt, täglich im Einsatz",
+    "experimental": "Experimentell",
+    "handTested": "Von Hand getestet (CLI 0.166.0)",
+    "ciTested": "In CI getestet",
     "v5only": "Nur V5, eingefroren",
     "planned": "Geplant",
     "firstHost": "Erster Host",
     "matrixNote": "CI führt Core bei jedem Pull Request aus.",
-    "matrixNoteSub": "macOS 15 und Ubuntu 24.04, Node 22.23.3 und 24.21.0.",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "Warum zuerst Claude Code",
     "recoBody": "Seine Hooks sehen jeden Befehl, bevor er läuft, und jeden Versuch aufzuhören. Genau dort muss Core sitzen.",
-    "recoFoot": "Codex, Gemini CLI und Qwen Code liefen mit V5, das bei RC1 eingefroren ist. Sie kommen als Adapter zurück, sobald Core stabil ist."
+    "recoFoot": "Für Codex gibt es einen experimentellen Adapter, von Hand getestet mit Codex CLI 0.166.0. Gemini CLI und Qwen Code liefen mit V5, das bei RC1 eingefroren ist; Adapter für sie sind nach der Beta geplant."
   },
   "install": {
     "idx": "Erste Schritte",
@@ -500,7 +504,7 @@
       ],
       [
         "Was ist mit Codex, Gemini CLI oder Qwen Code?",
-        "Sie liefen mit V5, das eingefroren ist. Core ist hostneutral, und Adapter für sie sind nach der Beta geplant."
+        "Für Codex gibt es einen experimentellen Adapter: Er nutzt dieselbe Policy und dasselbe Ledger wie Claude Code und wurde mit Codex CLI 0.166.0 von Hand getestet. Gemini CLI und Qwen Code liefen mit dem eingefrorenen V5; Adapter für sie sind nach der Beta geplant."
       ]
     ]
   },

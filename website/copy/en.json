@@ -150,7 +150,7 @@
       ],
       [
         "CI lanes",
-        "macOS and Linux × Node 22 and 24"
+        "Linux × Node 22 and 24"
       ],
       [
         "languages",
@@ -287,19 +287,23 @@
     "idx": "Hosts",
     "en": "HOSTS",
     "title": "Claude Code first.",
-    "lead": "Core is host-neutral; each host needs a small adapter. Claude Code is the first and the only one supported today.",
+    "lead": "Core is host-neutral; each host needs a small adapter. Claude Code is supported; Codex has an experimental adapter.",
     "caption": "Host and operating system support",
     "hostCol": "Host",
     "supported": "Supported, tested in CI",
     "untested": "Not tested",
+    "daily": "Supported, used daily",
+    "experimental": "Experimental",
+    "handTested": "Tested by hand (CLI 0.166.0)",
+    "ciTested": "Tested in CI",
     "v5only": "V5 only, frozen",
     "planned": "Planned",
     "firstHost": "First host",
     "matrixNote": "CI runs Core on every pull request.",
-    "matrixNoteSub": "macOS 15 and Ubuntu 24.04, Node 22.23.3 and 24.21.0.",
+    "matrixNoteSub": "Linux on the project's own runner, Node 22.23.4 and 24.21.0.",
     "recoTitle": "Why Claude Code first",
     "recoBody": "Its hooks see every command before it runs and every attempt to stop. That is exactly where Core has to sit.",
-    "recoFoot": "Codex, Gemini CLI and Qwen Code ran V5, which is frozen at RC1. They will come back as adapters once Core is stable."
+    "recoFoot": "Codex has an experimental adapter, tested by hand with Codex CLI 0.166.0. Gemini CLI and Qwen Code ran V5, which is frozen at RC1; adapters for them are planned after the beta."
   },
   "install": {
     "idx": "Get started",
@@ -500,7 +504,7 @@
       ],
       [
         "What about Codex, Gemini CLI or Qwen Code?",
-        "They ran V5, which is frozen. Core is host-neutral, and adapters for them are planned after the beta."
+        "Codex has an experimental adapter: it uses the same policy and ledger as Claude Code and was tested by hand with Codex CLI 0.166.0. Gemini CLI and Qwen Code ran V5, which is frozen; adapters for them are planned after the beta."
       ]
     ]
   },

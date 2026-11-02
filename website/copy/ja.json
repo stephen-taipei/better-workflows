@@ -150,7 +150,7 @@
       ],
       [
         "本の CI レーン",
-        "macOS と Linux × Node 22 と 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "言語",
@@ -287,19 +287,23 @@
     "idx": "対応ホスト",
     "en": "HOSTS",
     "title": "まず Claude Code から。",
-    "lead": "Core はホストに依存しません。各ホストには小さなアダプターが必要です。Claude Code が最初で、現在サポートされている唯一のホストです。",
+    "lead": "Core はホストに依存しません。各ホストには小さなアダプターが必要です。Claude Code はサポート済みで、Codex には実験的なアダプターがあります。",
     "caption": "ホストと OS のサポート状況",
     "hostCol": "ホスト",
     "supported": "サポート済み、CI でテスト",
     "untested": "未テスト",
+    "daily": "サポート済み、日常的に使用",
+    "experimental": "実験的",
+    "handTested": "手動でテスト（CLI 0.166.0）",
+    "ciTested": "CI でテスト",
     "v5only": "V5 のみ、凍結",
     "planned": "予定",
     "firstHost": "最初のホスト",
     "matrixNote": "CI はすべての pull request で Core を実行します。",
-    "matrixNoteSub": "macOS 15 と Ubuntu 24.04、Node 22.23.3 と 24.21.0。",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "なぜ Claude Code が最初なのか",
     "recoBody": "その hooks は、すべてのコマンドを実行前に、すべての停止の試みを見ることができます。Core が入るべき場所はまさにそこです。",
-    "recoFoot": "Codex、Gemini CLI、Qwen Code は V5 で動いていましたが、V5 は RC1 で凍結されています。Core が安定したら、アダプターとして戻ってきます。"
+    "recoFoot": "Codex には実験的なアダプターがあり、Codex CLI 0.166.0 で手動テストしました。Gemini CLI と Qwen Code は RC1 で凍結された V5 で動いていました。これらのアダプターは beta の後に予定しています。"
   },
   "install": {
     "idx": "はじめに",
@@ -500,7 +504,7 @@
       ],
       [
         "Codex、Gemini CLI、Qwen Code は？",
-        "これらは V5 で動いていましたが、V5 は凍結されています。Core はホストに依存しないので、beta の後にアダプターを予定しています。"
+        "Codex には実験的なアダプターがあります。Claude Code と同じ policy と台帳を使い、Codex CLI 0.166.0 で手動テストしました。Gemini CLI と Qwen Code は凍結された V5 で動いていました。これらのアダプターは beta の後に予定しています。"
       ]
     ]
   },

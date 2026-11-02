@@ -150,7 +150,7 @@
       ],
       [
         "CI lane",
-        "macOS และ Linux × Node 22 และ 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "ภาษา",
@@ -287,19 +287,23 @@
     "idx": "Host",
     "en": "HOSTS",
     "title": "Claude Code มาก่อน",
-    "lead": "Core ไม่ผูกกับ host ใด แต่ละ host ต้องมี adapter เล็ก ๆ Claude Code คือ host แรกและเป็นตัวเดียวที่รองรับในตอนนี้",
+    "lead": "Core ไม่ผูกกับเครื่องมือใด แต่ละ host ต้องการเพียง adapter เล็ก ๆ Claude Code รองรับแล้ว และ Codex มี adapter แบบทดลอง",
     "caption": "การรองรับ host และระบบปฏิบัติการ",
     "hostCol": "Host",
     "supported": "รองรับ ทดสอบใน CI",
     "untested": "ยังไม่ได้ทดสอบ",
+    "daily": "รองรับ ใช้งานทุกวัน",
+    "experimental": "ทดลอง",
+    "handTested": "ทดสอบด้วยมือ (CLI 0.166.0)",
+    "ciTested": "ทดสอบใน CI",
     "v5only": "เฉพาะ V5 ถูกตรึงแล้ว",
     "planned": "มีแผน",
     "firstHost": "host แรก",
     "matrixNote": "CI รัน Core ในทุก pull request",
-    "matrixNoteSub": "macOS 15 และ Ubuntu 24.04, Node 22.23.3 และ 24.21.0",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "ทำไม Claude Code มาก่อน",
     "recoBody": "hook ของมันเห็นทุกคำสั่งก่อนที่จะรัน และเห็นทุกครั้งที่พยายามหยุด นั่นคือจุดที่ Core ต้องอยู่พอดี",
-    "recoFoot": "Codex, Gemini CLI และ Qwen Code เคยใช้ V5 ซึ่งถูกตรึงไว้ที่ RC1 จะกลับมาในรูปแบบ adapter เมื่อ Core เสถียร"
+    "recoFoot": "Codex มี adapter แบบทดลอง ทดสอบด้วยมือกับ Codex CLI 0.166.0 ส่วน Gemini CLI และ Qwen Code ทำงานบน V5 ซึ่งหยุดพัฒนาที่ RC1 และมีแผนทำ adapter ให้หลัง beta"
   },
   "install": {
     "idx": "เริ่มต้นใช้งาน",
@@ -500,7 +504,7 @@
       ],
       [
         "แล้ว Codex, Gemini CLI หรือ Qwen Code ล่ะ",
-        "พวกนั้นเคยใช้ V5 ซึ่งถูกตรึงแล้ว Core ไม่ผูกกับ host ใด และมีแผนทำ adapter ให้หลัง beta"
+        "Codex มี adapter แบบทดลอง ใช้ policy และ ledger ชุดเดียวกับ Claude Code และทดสอบด้วยมือกับ Codex CLI 0.166.0 ส่วน Gemini CLI และ Qwen Code ทำงานบน V5 ที่หยุดพัฒนาแล้ว และมีแผนทำ adapter ให้หลัง beta"
       ]
     ]
   },

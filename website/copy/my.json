@@ -150,7 +150,7 @@
       ],
       [
         "CI lane",
-        "macOS နှင့် Linux × Node 22 နှင့် 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "ဘာသာစကား",
@@ -287,19 +287,23 @@
     "idx": "Host များ",
     "en": "HOSTS",
     "title": "Claude Code အရင်။",
-    "lead": "Core သည် host မရွေး အသုံးပြုနိုင်သည်၊ host တစ်ခုစီတွင် adapter သေးသေးတစ်ခု လိုသည်။ Claude Code သည် ပထမဆုံးဖြစ်ပြီး ယနေ့ ပံ့ပိုးသည့် တစ်ခုတည်းသော host ဖြစ်သည်။",
+    "lead": "Core သည် host မည်သည့်တစ်ခုနှင့်မျှ မချိတ်ပါ၊ host တစ်ခုစီအတွက် adapter အသေးတစ်ခုသာ လိုသည်။ Claude Code ကို ပံ့ပိုးပြီး Codex တွင် စမ်းသပ် adapter ရှိသည်။",
     "caption": "Host နှင့် operating system ပံ့ပိုးမှု",
     "hostCol": "Host",
     "supported": "ပံ့ပိုးသည်၊ CI တွင် စမ်းသပ်ထားသည်",
     "untested": "မစမ်းသပ်ရသေး",
+    "daily": "ပံ့ပိုးသည်၊ နေ့စဉ်သုံးသည်",
+    "experimental": "စမ်းသပ်ဆဲ",
+    "handTested": "လက်ဖြင့် စမ်းသပ်ပြီး (CLI 0.166.0)",
+    "ciTested": "CI တွင် စမ်းသပ်ပြီး",
     "v5only": "V5 သာ၊ ရပ်ဆိုင်းထားသည်",
     "planned": "စီစဉ်ထားသည်",
     "firstHost": "ပထမ host",
     "matrixNote": "CI သည် pull request တိုင်းတွင် Core ကို run သည်။",
-    "matrixNoteSub": "macOS 15 နှင့် Ubuntu 24.04၊ Node 22.23.3 နှင့် 24.21.0။",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "Claude Code ကို ဘာကြောင့် အရင်လုပ်သလဲ",
     "recoBody": "၎င်း၏ hooks များသည် command တိုင်းကို မ run မီ မြင်ရပြီး ရပ်ရန် ကြိုးစားမှုတိုင်းကိုလည်း မြင်ရသည်။ Core ရှိရမည့်နေရာ အတိအကျ ဖြစ်သည်။",
-    "recoFoot": "Codex၊ Gemini CLI နှင့် Qwen Code တို့သည် RC1 တွင် ရပ်ဆိုင်းထားသော V5 ကို run ခဲ့သည်။ Core တည်ငြိမ်လာသည်နှင့် adapter များအဖြစ် ပြန်လာမည်။"
+    "recoFoot": "Codex တွင် စမ်းသပ် adapter ရှိပြီး Codex CLI 0.166.0 ဖြင့် လက်ဖြင့် စမ်းသပ်ပြီးဖြစ်သည်။ Gemini CLI နှင့် Qwen Code သည် RC1 တွင် ရပ်ထားသော V5 ကို သုံးခဲ့ပြီး ၎င်းတို့အတွက် adapter များကို beta ပြီးနောက် စီစဉ်ထားသည်။"
   },
   "install": {
     "idx": "စတင်ရန်",
@@ -500,7 +504,7 @@
       ],
       [
         "Codex၊ Gemini CLI သို့မဟုတ် Qwen Code ကော။",
-        "၎င်းတို့သည် ရပ်ဆိုင်းထားသော V5 ကို run ခဲ့သည်။ Core သည် host မရွေး အသုံးပြုနိုင်ပြီး ၎င်းတို့အတွက် adapter များကို beta ပြီးနောက် စီစဉ်ထားသည်။"
+        "Codex တွင် စမ်းသပ် adapter ရှိသည်။ Claude Code နှင့် တူညီသော policy နှင့် ledger ကို သုံးပြီး Codex CLI 0.166.0 ဖြင့် လက်ဖြင့် စမ်းသပ်ပြီးဖြစ်သည်။ Gemini CLI နှင့် Qwen Code သည် ရပ်ထားသော V5 ကို သုံးခဲ့ပြီး ၎င်းတို့အတွက် adapter များကို beta ပြီးနောက် စီစဉ်ထားသည်။"
       ]
     ]
   },

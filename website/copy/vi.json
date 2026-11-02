@@ -150,7 +150,7 @@
       ],
       [
         "luồng CI",
-        "macOS và Linux × Node 22 và 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "ngôn ngữ",
@@ -287,19 +287,23 @@
     "idx": "Host",
     "en": "HOSTS",
     "title": "Claude Code trước tiên.",
-    "lead": "Core không phụ thuộc host; mỗi host cần một adapter nhỏ. Claude Code là host đầu tiên và là host duy nhất được hỗ trợ hiện nay.",
+    "lead": "Core không phụ thuộc host; mỗi host chỉ cần một adapter nhỏ. Claude Code đã được hỗ trợ; Codex có adapter thử nghiệm.",
     "caption": "Hỗ trợ host và hệ điều hành",
     "hostCol": "Host",
     "supported": "Hỗ trợ, kiểm thử trong CI",
     "untested": "Chưa kiểm thử",
+    "daily": "Hỗ trợ, dùng hằng ngày",
+    "experimental": "Thử nghiệm",
+    "handTested": "Kiểm thử thủ công (CLI 0.166.0)",
+    "ciTested": "Kiểm thử trong CI",
     "v5only": "Chỉ V5, đã đóng băng",
     "planned": "Dự kiến",
     "firstHost": "Host đầu tiên",
     "matrixNote": "CI chạy Core trên mọi pull request.",
-    "matrixNoteSub": "macOS 15 và Ubuntu 24.04, Node 22.23.3 và 24.21.0.",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "Vì sao Claude Code trước tiên",
     "recoBody": "Các hook của nó thấy mọi lệnh trước khi chạy và mọi lần cố dừng. Đó chính là nơi Core cần đứng.",
-    "recoFoot": "Codex, Gemini CLI và Qwen Code đã chạy V5, vốn đã đóng băng ở RC1. Chúng sẽ quay lại dưới dạng adapter khi Core ổn định."
+    "recoFoot": "Codex có adapter thử nghiệm, đã kiểm thử thủ công với Codex CLI 0.166.0. Gemini CLI và Qwen Code chạy V5, đã đóng băng ở RC1; adapter cho chúng được lên kế hoạch sau beta."
   },
   "install": {
     "idx": "Bắt đầu",
@@ -500,7 +504,7 @@
       ],
       [
         "Còn Codex, Gemini CLI hay Qwen Code thì sao?",
-        "Chúng đã chạy V5, vốn đã đóng băng. Core không phụ thuộc host, và adapter cho chúng được dự kiến sau beta."
+        "Codex có adapter thử nghiệm: dùng chung policy và sổ cái với Claude Code, đã kiểm thử thủ công với Codex CLI 0.166.0. Gemini CLI và Qwen Code chạy V5 đã đóng băng; adapter cho chúng được lên kế hoạch sau beta."
       ]
     ]
   },

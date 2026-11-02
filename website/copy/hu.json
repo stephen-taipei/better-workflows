@@ -150,7 +150,7 @@
       ],
       [
         "CI-sáv",
-        "macOS és Linux × Node 22 és 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "nyelv",
@@ -287,19 +287,23 @@
     "idx": "Hostok",
     "en": "HOSTS",
     "title": "Először Claude Code.",
-    "lead": "A Core hostfüggetlen; minden hosthoz egy kis adapter kell. A Claude Code az első, és ma az egyetlen támogatott.",
+    "lead": "A Core nem függ a hoszttól; minden hosztnak csak egy kis adapter kell. A Claude Code támogatott; a Codexhez kísérleti adapter van.",
     "caption": "Host- és operációsrendszer-támogatás",
     "hostCol": "Host",
     "supported": "Támogatott, CI-ban tesztelve",
     "untested": "Nincs tesztelve",
+    "daily": "Támogatott, napi használatban",
+    "experimental": "Kísérleti",
+    "handTested": "Kézzel tesztelve (CLI 0.166.0)",
+    "ciTested": "CI-ben tesztelve",
     "v5only": "Csak V5, befagyasztva",
     "planned": "Tervezett",
     "firstHost": "Első host",
     "matrixNote": "A CI minden pull requesten lefuttatja a Core-t.",
-    "matrixNoteSub": "macOS 15 és Ubuntu 24.04, Node 22.23.3 és 24.21.0.",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "Miért a Claude Code az első",
     "recoBody": "A hookjai minden parancsot látnak, mielőtt lefutna, és minden leállási kísérletet is. Pontosan itt kell a Core-nak lennie.",
-    "recoFoot": "A Codex, a Gemini CLI és a Qwen Code a V5-öt futtatta, amely RC1-nél befagyott. Adapterként térnek vissza, amint a Core stabil lesz."
+    "recoFoot": "A Codexhez kísérleti adapter van, kézzel tesztelve a Codex CLI 0.166.0-val. A Gemini CLI és a Qwen Code a V5-ön futott, amely RC1-en be van fagyasztva; a hozzájuk tartozó adapterek a béta utánra vannak tervezve."
   },
   "install": {
     "idx": "Első lépések",
@@ -500,7 +504,7 @@
       ],
       [
         "Mi a helyzet a Codexszel, a Gemini CLI-jal vagy a Qwen Code-dal?",
-        "Ezek a V5-öt futtatták, amely befagyott. A Core hostfüggetlen, és a beta után adaptereket tervezünk hozzájuk."
+        "A Codexhez kísérleti adapter van: ugyanazt a policyt és naplót használja, mint a Claude Code, és kézzel tesztelték a Codex CLI 0.166.0-val. A Gemini CLI és a Qwen Code a befagyasztott V5-ön futott; a hozzájuk tartozó adapterek a béta utánra vannak tervezve."
       ]
     ]
   },

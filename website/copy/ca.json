@@ -150,7 +150,7 @@
       ],
       [
         "carrils de CI",
-        "macOS i Linux × Node 22 i 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "idiomes",
@@ -287,19 +287,23 @@
     "idx": "Hosts",
     "en": "HOSTS",
     "title": "Primer, Claude Code.",
-    "lead": "Core és independent del host; cada host necessita un petit adaptador. Claude Code és el primer i, ara per ara, l'únic compatible.",
+    "lead": "Core és independent de l'amfitrió; cada amfitrió només necessita un adaptador petit. Claude Code és compatible; Codex té un adaptador experimental.",
     "caption": "Compatibilitat per host i sistema operatiu",
     "hostCol": "Host",
     "supported": "Compatible, provat a CI",
     "untested": "No provat",
+    "daily": "Compatible, en ús diari",
+    "experimental": "Experimental",
+    "handTested": "Provat a mà (CLI 0.166.0)",
+    "ciTested": "Provat a CI",
     "v5only": "Només V5, congelat",
     "planned": "Previst",
     "firstHost": "Primer host",
     "matrixNote": "La CI executa Core a cada pull request.",
-    "matrixNoteSub": "macOS 15 i Ubuntu 24.04, Node 22.23.3 i 24.21.0.",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "Per què primer Claude Code",
     "recoBody": "Els seus hooks veuen cada ordre abans que s'executi i cada intent d'acabar. És just aquí on ha de ser Core.",
-    "recoFoot": "Codex, Gemini CLI i Qwen Code feien servir V5, que està congelat a RC1. Tornaran com a adaptadors quan Core sigui estable."
+    "recoFoot": "Codex té un adaptador experimental, provat a mà amb Codex CLI 0.166.0. Gemini CLI i Qwen Code funcionaven amb V5, congelada a RC1; els seus adaptadors estan previstos després de la beta."
   },
   "install": {
     "idx": "Primers passos",
@@ -500,7 +504,7 @@
       ],
       [
         "I Codex, Gemini CLI o Qwen Code?",
-        "Feien servir V5, que està congelat. Core és independent del host, i hi ha adaptadors per a ells previstos després de la beta."
+        "Codex té un adaptador experimental: fa servir la mateixa policy i el mateix registre que Claude Code i s'ha provat a mà amb Codex CLI 0.166.0. Gemini CLI i Qwen Code funcionaven amb la V5 congelada; els seus adaptadors estan previstos després de la beta."
       ]
     ]
   },
