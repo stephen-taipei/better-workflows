@@ -52,7 +52,7 @@ jobs:
         run: node docs/locales/build.mjs --check
       - name: Check the website builds in every locale with no broken links
         run: node website/build.mjs --check
-      - name: Validate the Claude Code plugin manifests and versions
+      - name: Validate the Claude Code and Codex plugin manifests and versions
         shell: bash
         run: |
           node -e "
@@ -62,6 +62,7 @@ jobs:
           read(core + 'hooks/hooks.json');
           const { version } = read(core + 'package.json');
           if (read(core + '.claude-plugin/plugin.json').version !== version) throw new Error('package.json and plugin.json versions differ');
+          if (read(core + '.codex-plugin/plugin.json').version !== version) throw new Error('package.json and .codex-plugin/plugin.json versions differ');
           if (read('.claude-plugin/marketplace.json').plugins[0].source !== './packages/bw-core') throw new Error('the root marketplace must point at packages/bw-core');
           "
   attribution:
