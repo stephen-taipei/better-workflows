@@ -4,7 +4,7 @@
 
 This guide is for developers who want their own tool, script or AI agent host to use the same checks the Claude Code plugin uses: completion only on fresh evidence, side effects gated by a policy, and results that never came back settled before anything else runs.
 
-Status: alpha (`6.0.0-alpha.2`). Everything here may change before beta. The [host adapter contract](#5-writing-a-host-adapter-draft) is a draft and is marked as such.
+Status: alpha (`6.0.0-alpha.3`). Everything here may change before beta. The [host adapter contract](#5-writing-a-host-adapter-draft) is a draft and is marked as such.
 
 You need Node.js 22.14 or later and Git. Core has no other dependencies.
 

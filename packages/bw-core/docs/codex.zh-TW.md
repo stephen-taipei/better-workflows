@@ -96,10 +96,14 @@ repository 中重播 fixtures。
 manifest 的本機套件副本跑 adapter。以下案例都符合設計：session 開始、唯讀指令不寫
 帳本、test exit code 0 與 1、`Stop` 擋下與放行、`apply_patch` 改檔、`apply_patch`
 改 policy 檔與 `.git/config` 被擋、agent 執行 `bw run` 被擋、`ask` 轉成 deny、push
-記成 `success`、同一個 commit 重複 push 被擋。在 Codex 核准提示按拒絕、用 Esc 中斷
-指令，這兩項沒有測。本套件的 manifest 配置另外用 Codex CLI 0.166.0 的 `hooks/list`
-確認，會列出 `hooks/codex.json` 的四個 hook；用正式發佈的套件跑實際 session 還沒做。
-沒有在 `deckhand` 或 `adorable-git-grpah` 啟用 plugin。
+記成 `success`、同一個 commit 重複 push 被擋。同一天又用本套件原樣的配置開
+session，載入的是 `hooks/codex.json` 的四個 hook，session 開始與測試通過也重測過。
+
+另外手動測了兩個案例。在 Codex 核准提示按拒絕之後，下一次 push 會先查 remote，把被拒絕
+的那次記成 `failed`，然後放行。push 執行中按 Esc，指令其實會繼續跑：原指令還沒結束時
+重試，因為 remote 還是舊的 ref，所以會被放行；原指令晚到的 exit 0 再把它升為
+`success`，重疊的那次重試由 probe 判為 `success`，之後同一個 commit 再 push 就被擋。
+remote 只更新了一次。沒有在 `deckhand` 或 `adorable-git-grpah` 啟用 plugin。
 
 每筆新 ledger entry 的最上層格式是
 `{ v, seq, at, type, data, prev, hash }`，`v` 也納入 hash。沒有 `v` 的舊紀錄會以版本
