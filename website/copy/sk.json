@@ -150,7 +150,7 @@
       ],
       [
         "CI konfigurácií",
-        "macOS a Linux × Node 22 a 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "jazykov",
@@ -287,19 +287,23 @@
     "idx": "Hostitelia",
     "en": "HOSTS",
     "title": "Najprv Claude Code.",
-    "lead": "Core nie je viazaný na hostiteľa; každý hostiteľ potrebuje malý adaptér. Claude Code je prvý a dnes jediný podporovaný.",
+    "lead": "Core nezávisí od hostiteľa; každý hostiteľ potrebuje len malý adaptér. Claude Code je podporovaný; Codex má experimentálny adaptér.",
     "caption": "Podpora hostiteľov a operačných systémov",
     "hostCol": "Hostiteľ",
     "supported": "Podporované, testované v CI",
     "untested": "Netestované",
+    "daily": "Podporované, používané denne",
+    "experimental": "Experimentálne",
+    "handTested": "Ručne otestované (CLI 0.166.0)",
+    "ciTested": "Testované v CI",
     "v5only": "Iba V5, zmrazené",
     "planned": "Plánované",
     "firstHost": "Prvý hostiteľ",
     "matrixNote": "CI spúšťa Core pri každom pull requeste.",
-    "matrixNoteSub": "macOS 15 a Ubuntu 24.04, Node 22.23.3 a 24.21.0.",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "Prečo najprv Claude Code",
     "recoBody": "Jeho hooky vidia každý príkaz pred spustením a každý pokus o zastavenie. Presne tam musí Core stáť.",
-    "recoFoot": "Codex, Gemini CLI a Qwen Code bežali na V5, ktorá je zmrazená na RC1. Vrátia sa ako adaptéry, keď bude Core stabilný."
+    "recoFoot": "Codex má experimentálny adaptér, ručne otestovaný s Codex CLI 0.166.0. Gemini CLI a Qwen Code bežali na V5, ktoré je zmrazené na RC1; adaptéry pre ne sú plánované po bete."
   },
   "install": {
     "idx": "Začíname",
@@ -500,7 +504,7 @@
       ],
       [
         "A čo Codex, Gemini CLI alebo Qwen Code?",
-        "Bežali na V5, ktorá je zmrazená. Core nie je viazaný na hostiteľa a adaptéry pre ne sú plánované po beta."
+        "Codex má experimentálny adaptér: používa rovnakú policy a rovnaký záznam ako Claude Code a bol ručne otestovaný s Codex CLI 0.166.0. Gemini CLI a Qwen Code bežali na zmrazenom V5; adaptéry pre ne sú plánované po bete."
       ]
     ]
   },

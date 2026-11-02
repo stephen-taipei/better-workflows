@@ -150,7 +150,7 @@
       ],
       [
         "CI-lanes",
-        "macOS en Linux × Node 22 en 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "talen",
@@ -287,19 +287,23 @@
     "idx": "Hosts",
     "en": "HOSTS",
     "title": "Eerst Claude Code.",
-    "lead": "Core is host-neutraal; elke host heeft een kleine adapter nodig. Claude Code is de eerste en vandaag de enige ondersteunde.",
+    "lead": "Core is host-neutraal; elke host heeft alleen een kleine adapter nodig. Claude Code wordt ondersteund; Codex heeft een experimentele adapter.",
     "caption": "Ondersteuning voor hosts en besturingssystemen",
     "hostCol": "Host",
     "supported": "Ondersteund, getest in CI",
     "untested": "Niet getest",
+    "daily": "Ondersteund, dagelijks in gebruik",
+    "experimental": "Experimenteel",
+    "handTested": "Handmatig getest (CLI 0.166.0)",
+    "ciTested": "Getest in CI",
     "v5only": "Alleen V5, bevroren",
     "planned": "Gepland",
     "firstHost": "Eerste host",
     "matrixNote": "CI draait Core bij elke pull request.",
-    "matrixNoteSub": "macOS 15 en Ubuntu 24.04, Node 22.23.3 en 24.21.0.",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "Waarom eerst Claude Code",
     "recoBody": "Zijn hooks zien elk commando voordat het draait en elke poging om te stoppen. Precies daar moet Core zitten.",
-    "recoFoot": "Codex, Gemini CLI en Qwen Code draaiden V5, dat bevroren is op RC1. Ze komen terug als adapters zodra Core stabiel is."
+    "recoFoot": "Codex heeft een experimentele adapter, handmatig getest met Codex CLI 0.166.0. Gemini CLI en Qwen Code draaiden op V5, dat bevroren is op RC1; adapters voor hen staan gepland na de bèta."
   },
   "install": {
     "idx": "Aan de slag",
@@ -500,7 +504,7 @@
       ],
       [
         "En Codex, Gemini CLI of Qwen Code?",
-        "Die draaiden V5, dat bevroren is. Core is host-neutraal, en adapters voor hen staan gepland na de beta."
+        "Codex heeft een experimentele adapter: die gebruikt dezelfde policy en hetzelfde logboek als Claude Code en is handmatig getest met Codex CLI 0.166.0. Gemini CLI en Qwen Code draaiden op het bevroren V5; adapters voor hen staan gepland na de bèta."
       ]
     ]
   },

@@ -150,7 +150,7 @@
       ],
       [
         "ផ្លូវ CI",
-        "macOS និង Linux × Node 22 និង 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "ភាសា",
@@ -287,19 +287,23 @@
     "idx": "Host",
     "en": "HOSTS",
     "title": "Claude Code មុនគេ។",
-    "lead": "Core មិនជាប់នឹង host ណាមួយទេ; host នីមួយៗត្រូវការ adapter តូចមួយ។ Claude Code ជា host ដំបូង ហើយជា host តែមួយគត់ដែលគាំទ្រនាពេលនេះ។",
+    "lead": "Core មិនជាប់នឹង host ណាមួយទេ ហើយ host នីមួយៗត្រូវការតែ adapter តូចមួយ។ Claude Code ត្រូវបានគាំទ្រ ហើយ Codex មាន adapter សាកល្បង។",
     "caption": "ការគាំទ្រ host និងប្រព័ន្ធប្រតិបត្តិការ",
     "hostCol": "Host",
     "supported": "គាំទ្រ បានតេស្តក្នុង CI",
     "untested": "មិនទាន់តេស្ត",
+    "daily": "គាំទ្រ ប្រើប្រចាំថ្ងៃ",
+    "experimental": "សាកល្បង",
+    "handTested": "សាកល្បងដោយដៃ (CLI 0.166.0)",
+    "ciTested": "សាកល្បងក្នុង CI",
     "v5only": "តែ V5 បង្កក",
     "planned": "គ្រោងទុក",
     "firstHost": "host ដំបូង",
     "matrixNote": "CI ដំណើរការ Core លើរាល់ pull request។",
-    "matrixNoteSub": "macOS 15 និង Ubuntu 24.04, Node 22.23.3 និង 24.21.0។",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "ហេតុអ្វី Claude Code មុនគេ",
     "recoBody": "hook របស់វាឃើញរាល់ពាក្យបញ្ជា មុនពេលវាដំណើរការ និងរាល់ការព្យាយាមឈប់។ នោះហើយជាកន្លែងដែល Core ត្រូវស្ថិតនៅ។",
-    "recoFoot": "Codex, Gemini CLI និង Qwen Code បានដំណើរការ V5 ដែលត្រូវបានបង្កកនៅ RC1។ ពួកវានឹងត្រឡប់មកវិញជា adapter នៅពេល Core មានស្ថិរភាព។"
+    "recoFoot": "Codex មាន adapter សាកល្បង ដែលបានសាកល្បងដោយដៃជាមួយ Codex CLI 0.166.0។ Gemini CLI និង Qwen Code ដំណើរការលើ V5 ដែលត្រូវបានបង្កកនៅ RC1 ហើយ adapter សម្រាប់ពួកវាត្រូវបានគ្រោងបន្ទាប់ពី beta។"
   },
   "install": {
     "idx": "ចាប់ផ្តើម",
@@ -500,7 +504,7 @@
       ],
       [
         "ចុះ Codex, Gemini CLI ឬ Qwen Code វិញ?",
-        "ពួកវាបានដំណើរការ V5 ដែលត្រូវបានបង្កក។ Core មិនជាប់នឹង host ណាមួយទេ ហើយ adapter សម្រាប់ពួកវាត្រូវបានគ្រោងទុកបន្ទាប់ពី beta។"
+        "Codex មាន adapter សាកល្បង ដែលប្រើ policy និង ledger ដូចគ្នានឹង Claude Code ហើយបានសាកល្បងដោយដៃជាមួយ Codex CLI 0.166.0។ Gemini CLI និង Qwen Code ដំណើរការលើ V5 ដែលត្រូវបានបង្កក ហើយ adapter សម្រាប់ពួកវាត្រូវបានគ្រោងបន្ទាប់ពី beta។"
       ]
     ]
   },

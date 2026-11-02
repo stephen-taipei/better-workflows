@@ -96,7 +96,7 @@ async function facts() {
   const hooks = JSON.parse(await readFile(path.join(root, "packages/bw-core/hooks/hooks.json"), "utf8")).hooks;
   const ci = await readFile(path.join(root, ".github/workflows/ci.yml"), "utf8");
   const list = (key) => (ci.match(new RegExp(`${key}: \\[([^\\]]*)\\]`))?.[1] ?? "").split(",").filter((s) => s.trim()).length;
-  return [lines.toLocaleString("en-US"), String(tests), String(Object.keys(pkg.dependencies ?? {}).length), String(Object.keys(hooks).length), String(list("os") * list("node"))];
+  return [lines.toLocaleString("en-US"), String(tests), String(Object.keys(pkg.dependencies ?? {}).length), String(Object.keys(hooks).length), String((list("os") || 1) * list("node"))];
 }
 
 const secHead = (n, idx, en, id, title, lead) => `<header class="sec-head"><p class="home-eyebrow mono"><span class="idx">${n}</span>${idx}<span class="en">${en}</span></p><h2 id="${id}">${title}</h2>${lead ? `<p class="lead">${lead}</p>` : ""}</header>`;
@@ -110,8 +110,10 @@ function mainHtml(code, t, nums, count) {
   const lines = t.demo.lines.map(([k, text], i) => `<li class="tl" data-step="${i + 1}"><span class="tl-sym" aria-hidden="true">›</span><span class="tl-k">${k}</span><span class="tl-t">${text}</span></li>`).join("");
   const supported = `<td class="c-rc1"><i class="led" aria-hidden="true"></i>${t.hosts.supported}</td>`;
   const planned = `<td class="c-def">${t.hosts.planned}</td>`;
-  const hostRows = `<tr><th scope="row"><b>Claude Code</b><span class="pill pill-sig">${t.hosts.firstHost}</span></th>${supported}${supported}<td class="c-def">${t.hosts.untested}</td></tr>`
-    + ["Codex", "Gemini CLI", "Qwen Code"].map((h) => `<tr><th scope="row"><b>${h}</b><span class="pill pill-line">${t.hosts.v5only}</span></th>${planned}${planned}${planned}</tr>`).join("");
+  const cell = (text, cls = "c-def") => `<td class="${cls}">${cls === "c-rc1" ? '<i class="led" aria-hidden="true"></i>' : ""}${text}</td>`;
+  const hostRows = `<tr><th scope="row"><b>Claude Code</b><span class="pill pill-sig">${t.hosts.firstHost}</span></th>${cell(t.hosts.daily, "c-rc1")}${supported}${cell(t.hosts.untested)}</tr>`
+    + `<tr><th scope="row"><b>Codex</b><span class="pill pill-line">${t.hosts.experimental}</span></th>${cell(t.hosts.handTested)}${cell(t.hosts.ciTested)}${cell(t.hosts.untested)}</tr>`
+    + ["Gemini CLI", "Qwen Code"].map((h) => `<tr><th scope="row"><b>${h}</b><span class="pill pill-line">${t.hosts.v5only}</span></th>${planned}${planned}${planned}</tr>`).join("");
   return `<main id="main" class="home-main">
 <section class="home-hero" id="product" aria-labelledby="home-title">
   <div class="hero-bg" aria-hidden="true"></div>

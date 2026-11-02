@@ -150,7 +150,7 @@
       ],
       [
         "CI-ajolinjaa",
-        "macOS ja Linux × Node 22 ja 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "kieltä",
@@ -287,19 +287,23 @@
     "idx": "Isännät",
     "en": "HOSTS",
     "title": "Claude Code ensin.",
-    "lead": "Core on isännästä riippumaton; jokainen isäntä tarvitsee pienen adapterin. Claude Code on ensimmäinen ja tällä hetkellä ainoa tuettu.",
+    "lead": "Core ei ole sidottu isäntään; jokainen isäntä tarvitsee vain pienen sovittimen. Claude Code on tuettu; Codexille on kokeellinen sovitin.",
     "caption": "Isäntien ja käyttöjärjestelmien tuki",
     "hostCol": "Isäntä",
     "supported": "Tuettu, testattu CI:ssä",
     "untested": "Ei testattu",
+    "daily": "Tuettu, päivittäisessä käytössä",
+    "experimental": "Kokeellinen",
+    "handTested": "Testattu käsin (CLI 0.166.0)",
+    "ciTested": "Testattu CI:ssä",
     "v5only": "Vain V5, jäädytetty",
     "planned": "Suunnitteilla",
     "firstHost": "Ensimmäinen isäntä",
     "matrixNote": "CI ajaa Coren jokaisessa pull requestissa.",
-    "matrixNoteSub": "macOS 15 ja Ubuntu 24.04, Node 22.23.3 ja 24.21.0.",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "Miksi Claude Code ensin",
     "recoBody": "Sen hookit näkevät jokaisen komennon ennen sen ajoa ja jokaisen yrityksen lopettaa. Juuri siinä Coren pitää olla.",
-    "recoFoot": "Codex, Gemini CLI ja Qwen Code käyttivät V5:tä, joka on jäädytetty versioon RC1. Ne palaavat adaptereina, kun Core on vakaa."
+    "recoFoot": "Codexille on kokeellinen sovitin, joka on testattu käsin Codex CLI 0.166.0:lla. Gemini CLI ja Qwen Code toimivat V5:llä, joka on jäädytetty RC1:een; niiden sovittimet on suunniteltu betan jälkeen."
   },
   "install": {
     "idx": "Aloitus",
@@ -500,7 +504,7 @@
       ],
       [
         "Entä Codex, Gemini CLI tai Qwen Code?",
-        "Ne käyttivät V5:tä, joka on jäädytetty. Core on isännästä riippumaton, ja niille on suunniteltu adapterit betan jälkeen."
+        "Codexille on kokeellinen sovitin: se käyttää samaa policyä ja lokia kuin Claude Code, ja se on testattu käsin Codex CLI 0.166.0:lla. Gemini CLI ja Qwen Code toimivat jäädytetyllä V5:llä; niiden sovittimet on suunniteltu betan jälkeen."
       ]
     ]
   },

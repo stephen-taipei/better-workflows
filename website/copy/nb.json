@@ -150,7 +150,7 @@
       ],
       [
         "CI-løp",
-        "macOS og Linux × Node 22 og 24"
+        "Linux × Node 22 / 24"
       ],
       [
         "språk",
@@ -287,19 +287,23 @@
     "idx": "Verter",
     "en": "HOSTS",
     "title": "Claude Code først.",
-    "lead": "Core er vertsnøytral; hver vert trenger en liten adapter. Claude Code er den første og den eneste som støttes i dag.",
+    "lead": "Core er vertsnøytral; hver vert trenger bare en liten adapter. Claude Code støttes; Codex har en eksperimentell adapter.",
     "caption": "Støtte for verter og operativsystemer",
     "hostCol": "Vert",
     "supported": "Støttet, testet i CI",
     "untested": "Ikke testet",
+    "daily": "Støttet, brukes daglig",
+    "experimental": "Eksperimentell",
+    "handTested": "Testet manuelt (CLI 0.166.0)",
+    "ciTested": "Testet i CI",
     "v5only": "Bare V5, fryst",
     "planned": "Planlagt",
     "firstHost": "Første vert",
     "matrixNote": "CI kjører Core på hver pull request.",
-    "matrixNoteSub": "macOS 15 og Ubuntu 24.04, Node 22.23.3 og 24.21.0.",
+    "matrixNoteSub": "Linux, Node 22.23.4 / 24.21.0.",
     "recoTitle": "Hvorfor Claude Code først",
     "recoBody": "Hookene ser hver kommando før den kjører og hvert forsøk på å stoppe. Det er akkurat der Core må sitte.",
-    "recoFoot": "Codex, Gemini CLI og Qwen Code kjørte V5, som er fryst på RC1. De kommer tilbake som adaptere når Core er stabil."
+    "recoFoot": "Codex har en eksperimentell adapter, testet manuelt med Codex CLI 0.166.0. Gemini CLI og Qwen Code kjørte V5, som er frosset ved RC1; adaptere for dem er planlagt etter betaen."
   },
   "install": {
     "idx": "Kom i gang",
@@ -500,7 +504,7 @@
       ],
       [
         "Hva med Codex, Gemini CLI eller Qwen Code?",
-        "De kjørte V5, som er fryst. Core er vertsnøytral, og adaptere for dem er planlagt etter beta."
+        "Codex har en eksperimentell adapter: den bruker samme policy og logg som Claude Code og er testet manuelt med Codex CLI 0.166.0. Gemini CLI og Qwen Code kjørte den frosne V5; adaptere for dem er planlagt etter betaen."
       ]
     ]
   },
