@@ -118,11 +118,17 @@ by hand. These cases behaved as designed: session start, read-only commands
 with no ledger entry, test exit codes 0 and 1, `Stop` blocking and allowing,
 `apply_patch` edits, `apply_patch` denied on the policy file and `.git/config`,
 an agent's `bw run` denied, `ask` denied, a push recorded as `success`, and a
-repeat push at the same commit denied. Refusing Codex's approval prompt and
-interrupting a command with Esc were not tested. The manifest layout in this
-package was checked with Codex CLI 0.166.0 `hooks/list`, which reports the four
-hooks from `hooks/codex.json`; a live session with the published package has
-not been run yet. No plugin is enabled in `deckhand` or `adorable-git-grpah`.
+repeat push at the same commit denied. The same day, a session with this
+package's layout, unmodified, loaded the four hooks from `hooks/codex.json` and
+repeated session start and a passing test.
+
+Two manual cases followed. After a refusal at Codex's approval prompt, the next
+push probed the remote, settled the refused attempt as `failed` and ran. After
+Esc during a push, the command kept running: a retry issued before it finished
+was allowed because the remote still showed the old ref, the original's late
+exit 0 then upgraded it to `success`, the overlapping retry was settled as
+`success` by probe, and a further push at that commit was denied. The remote
+was updated once. No plugin is enabled in `deckhand` or `adorable-git-grpah`.
 
 Every new ledger entry has the top-level shape
 `{ v, seq, at, type, data, prev, hash }`, and `v` is included in its hash. A missing `v` is interpreted as version 1 and

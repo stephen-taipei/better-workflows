@@ -1,12 +1,12 @@
 # Changelog
 
-## Unreleased
+## 6.0.0-alpha.3
 
 ### Added
 
 - **What the hooks stopped is now in the ledger.** When the Claude Code hook refuses a tool call or asks the person about one, it records a `tool.gated` entry with the decision, the reason, the command or file, and the session. Before, only Stop refusals and side effects that went ahead were recorded, so a review had to search the conversation logs for refusals. `bw log` lists the new entries.
 - **A guide to building on Core.** [`docs/sdk.md`](docs/sdk.md) (and [`docs/sdk.zh-TW.md`](docs/sdk.zh-TW.md)) explains the model, the CLI exit codes, the JavaScript API and the rules a host adapter must keep. Its example, [`examples/sdk/guarded-run.mjs`](examples/sdk/guarded-run.mjs), decides, records, runs and reports one command through the public API, and the test suite runs it.
-- **Experimental Codex adapter.** `bw hook codex` connects Codex hooks to the shared evidence, action and ledger checks. Codex reads `.codex-plugin/plugin.json`, which selects `hooks/codex.json`; the package has no root `plugin.json`, because Codex CLI 0.166.0 reads it first and either loaded no hooks (with the Agent Plugins `$schema`) or ran the Claude Code hooks (without it). Codex lists the hooks as untrusted until they are trusted in `/hooks`. A 2026-11-02 run on Codex CLI 0.166.0 confirmed session start, exit codes, `Stop`, `apply_patch` protection, `ask` → deny and one push per commit; refusing Codex's approval prompt and Esc interruption remain untested.
+- **Experimental Codex adapter.** `bw hook codex` connects Codex hooks to the shared evidence, action and ledger checks. Codex reads `.codex-plugin/plugin.json`, which selects `hooks/codex.json`; the package has no root `plugin.json`, because Codex CLI 0.166.0 reads it first and either loaded no hooks (with the Agent Plugins `$schema`) or ran the Claude Code hooks (without it). Codex lists the hooks as untrusted until they are trusted in `/hooks`. A 2026-11-02 run on Codex CLI 0.166.0 with the published layout confirmed hook loading, session start, exit codes, `Stop`, `apply_patch` protection, `ask` → deny, one push per commit, retry after refusing Codex's approval prompt, and reconciliation after Esc. Esc does not stop the running command, so a retry issued before it finishes can repeat the side effect, as described under negative probes below.
 - **Versioned ledger entries.** New entries use ledger version 1. Entries without `v` remain readable and are verified using their original hash; a present `v` that is not a positive integer breaks the chain. Core keeps newer entries raw, exposes the maximum as `state.newerLedger`, blocks side effects, opaque commands and completion until Core is upgraded, warns at the top of `bw status`, and prints the maximum version from `bw verify`. When host hooks encounter a newer ledger version, they leave existing pending calls pending and do not append ledger records for those calls.
 
 ### Changed

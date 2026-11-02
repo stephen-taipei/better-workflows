@@ -4,7 +4,7 @@
 
 這份指南寫給想讓自己的工具、script 或 AI agent host 使用和 Claude Code plugin 同一套檢查的開發者：證據要對得上目前的檔案才算完成、副作用要先經過 policy 判定、結果沒回來的動作要先對帳才能做下一件事。
 
-狀態：alpha（`6.0.0-alpha.2`）。本文所有內容在 beta 前都可能改變。[host adapter 契約](#5-撰寫-host-adapter草案)是草案，文中會標明。
+狀態：alpha（`6.0.0-alpha.3`）。本文所有內容在 beta 前都可能改變。[host adapter 契約](#5-撰寫-host-adapter草案)是草案，文中會標明。
 
 需要 Node.js 22.14 以上與 Git。Core 沒有其他依賴。
 
