@@ -152,3 +152,14 @@ test("gh after a cd into a subdirectory of this repository is still probed here"
   assert.deepEqual(calls[0], ["pr", "view", "56", "--json", "state"]);
   assert.equal(result.outcome, "success");
 });
+
+test("a publish after a cd is not checked against the root package.json", async (t) => {
+  const { root, repo } = await setup(t);
+  await writePolicy(root, { ...ALLOW, actions: { rules: { ...ALLOW.actions.rules, "package-publish": "allow" } } });
+  await mkdir(path.join(root, "packages", "lib"), { recursive: true });
+  await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "root-pkg", version: "1.0.0" }));
+  await attempt(repo, "cd packages/lib && npm publish", 1, repo.root);
+  const exec = async () => { throw new Error("must not look up the root package"); };
+  const [result] = await reconcileOpen(repo, { exec });
+  assert.equal(result.outcome, "unknown");
+});

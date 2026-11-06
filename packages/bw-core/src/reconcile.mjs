@@ -80,7 +80,9 @@ export const PROBES = {
     return { outcome: success ? "success" : "failed", detail: `release ${tag} ${exists ? "exists" : "does not exist"}` };
   },
   async "package-publish"(action, { repo, exec }) {
-    if (action.where && action.location !== repo.root) return elsewhere();
+    // The probe reads the root package.json; after any `cd`, even within this
+    // repository, the published package may be a different one.
+    if (action.where) return elsewhere();
     let manifest;
     try {
       manifest = JSON.parse(await readFile(path.join(repo.root, "package.json"), "utf8"));
