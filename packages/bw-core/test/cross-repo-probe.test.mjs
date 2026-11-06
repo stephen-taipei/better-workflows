@@ -141,3 +141,14 @@ test("the -R value is not read as the pull request number", () => {
   const [plain] = classifyCommand("gh pr merge 43", policy).actions;
   assert.equal(plain.where, undefined, "ordinary actions keep their old keys");
 });
+
+test("gh after a cd into a subdirectory of this repository is still probed here", async (t) => {
+  const { root, repo } = await setup(t);
+  await mkdir(path.join(root, "web"));
+  await attempt(repo, "cd web && gh pr merge 56 --squash", 1, repo.root);
+  const calls = [];
+  const exec = async (file, args) => { calls.push(args); return { code: 0, stdout: JSON.stringify({ state: "MERGED" }), stderr: "" }; };
+  const [result] = await reconcileOpen(repo, { exec });
+  assert.deepEqual(calls[0], ["pr", "view", "56", "--json", "state"]);
+  assert.equal(result.outcome, "success");
+});

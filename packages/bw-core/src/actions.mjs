@@ -125,9 +125,12 @@ export async function beginActions(repo, evaluation, { command, tree, policyDige
   for (const action of evaluation.actions) {
     const id = `act_${randomUUID()}`;
     const expect = action.kind === "git-push" ? await pushTargetExpectation(repo, action, branch, cwd) : null;
+    // The work tree a `cd`-ed or `-C` command resolved to, so a probe can
+    // tell a cd into a subdirectory of this repository from one elsewhere.
+    const location = action.where ? (expect?.cwd ?? await gitDirectoryFor(action, cwd ?? repo.root)) : undefined;
     await appendEvent(repo, "action.begun", {
       id, kind: action.kind, key: actionKey(action, head), argv: action.argv, target: action.target,
-      ...(action.where ? { where: action.where } : {}),
+      ...(action.where ? { where: action.where, location } : {}),
       command, head, branch, tree, expect, policyDigest, host, toolUseId,
       ...(startedAfterSeq === undefined ? {} : { startedAfterSeq }),
       ...(session === undefined ? {} : { session, turnId: turnId ?? null, cwd: cwd ?? null, transcriptPath: transcriptPath ?? null }),
