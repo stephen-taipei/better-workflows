@@ -27,6 +27,31 @@ function positional(args) {
   return args.filter((arg) => !arg.startsWith("-"));
 }
 
+// Like positional, but skips the value of gh's `-R/--repo`, which would
+// otherwise be read as the pull request number or release tag.
+function ghPositional(args) {
+  return positional(args.filter((arg, i) => !(i > 0 && (args[i - 1] === "-R" || args[i - 1] === "--repo"))));
+}
+
+// Where a side effect lands when the command names it rather than taking
+// it from the working directory: `git -C <dir>` (or --git-dir/--work-tree,
+// which no probe resolves) and `gh -R <owner/repo>`.
+function namedLocation(argv) {
+  if (argv[0] === "git") {
+    const location = {};
+    for (let i = 1; i < argv.length && argv[i].startsWith("-"); i += GIT_VALUE_OPTIONS.has(argv[i]) ? 2 : 1) {
+      if (argv[i] === "-C") location.dirs = [...(location.dirs ?? []), argv[i + 1]];
+      if (argv[i] === "--git-dir" || argv[i] === "--work-tree" || argv[i].startsWith("--git-dir=") || argv[i].startsWith("--work-tree=")) location.unresolved = true;
+    }
+    return location;
+  }
+  if (argv[0] === "gh") {
+    const repo = optionValue(argv.slice(1), ["--repo", "-R"]);
+    return repo === undefined ? {} : { repo };
+  }
+  return {};
+}
+
 // Built-in side-effect kinds. Each returns a target description or null.
 const BUILTIN_ACTIONS = [
   {
@@ -41,7 +66,7 @@ const BUILTIN_ACTIONS = [
   },
   {
     kind: "gh-pr-merge",
-    match: (argv) => (argv[0] === "gh" && argv[1] === "pr" && argv[2] === "merge" ? { pr: positional(argv.slice(3))[0] ?? null } : null),
+    match: (argv) => (argv[0] === "gh" && argv[1] === "pr" && argv[2] === "merge" ? { pr: ghPositional(argv.slice(3))[0] ?? null } : null),
   },
   {
     kind: "gh-pr-create",
@@ -50,7 +75,7 @@ const BUILTIN_ACTIONS = [
   {
     kind: "gh-release",
     match: (argv) => (argv[0] === "gh" && argv[1] === "release" && ["create", "delete", "edit", "upload"].includes(argv[2])
-      ? { operation: argv[2], tag: positional(argv.slice(3))[0] ?? null } : null),
+      ? { operation: argv[2], tag: ghPositional(argv.slice(3))[0] ?? null } : null),
   },
   {
     kind: "gh-api-write",
@@ -95,7 +120,11 @@ export function classifyCommand(line, policy) {
   for (const [i, argv] of commands.entries()) {
     for (const rule of BUILTIN_ACTIONS) {
       const target = rule.match(argv);
-      if (target) actions.push({ kind: rule.kind, argv, target });
+      if (!target) continue;
+      // Only recorded when the action may land outside the repository the
+      // hook runs in, so keys of ordinary actions stay as they were.
+      const where = { ...(directories[i]?.length === 0 ? {} : { cd: directories[i] }), ...namedLocation(argv) };
+      actions.push({ kind: rule.kind, argv, target, ...(Object.keys(where).length ? { where } : {}) });
     }
     for (const rule of policy.actions.custom) {
       if (rule.argv.some((prefix) => matchesPrefix(argv, prefix))) actions.push({ kind: rule.kind, argv, target: {} });

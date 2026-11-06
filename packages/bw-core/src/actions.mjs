@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import { digest } from "./canonical.mjs";
 import { classifyCommand } from "./classify.mjs";
 import { appendEvent, newerLedgerWarning } from "./ledger.mjs";
@@ -13,8 +14,10 @@ function strongest(a, b) {
   return RANK[b] > RANK[a] ? b : a;
 }
 
+// `where` joins the key only when the command points somewhere else, so the
+// same push from another clone is not mistaken for one already done here.
 export function actionKey(action, head) {
-  return digest({ kind: action.kind, argv: action.argv, head });
+  return digest({ kind: action.kind, argv: action.argv, head, ...(action.where ? { where: action.where } : {}) });
 }
 
 // Decides whether a command line may run. Pure with respect to the ledger:
@@ -63,20 +66,34 @@ export function evaluateCommand({ command, policyInfo, state, head, now = new Da
   return { decision, reasons, ...classified };
 }
 
-async function revParse(repo, rev) {
-  const result = await run("git", ["rev-parse", "--verify", "-q", `${rev}^{commit}`], { cwd: repo.root });
+async function revParse(dir, rev) {
+  const result = await run("git", ["rev-parse", "--verify", "-q", `${rev}^{commit}`], { cwd: dir });
   return result.code === 0 ? result.stdout.trim() : null;
 }
 
-async function upstreamRemote(repo, branch) {
+async function upstreamRemote(dir, branch) {
   if (!branch) return "origin";
-  const result = await run("git", ["config", "--get", `branch.${branch}.remote`], { cwd: repo.root });
+  const result = await run("git", ["config", "--get", `branch.${branch}.remote`], { cwd: dir });
   return result.code === 0 && result.stdout.trim() ? result.stdout.trim() : "origin";
 }
 
-// What a push should have produced, captured before it runs.
-async function pushExpectation(repo, target, branch) {
-  const remote = target.remote ?? await upstreamRemote(repo, branch);
+// The work tree a git command runs in after its `cd`s and `-C`s, or null
+// when that cannot be known without running the shell.
+export async function gitDirectoryFor(action, base) {
+  const where = action.where;
+  if (!where) return null;
+  if (where.unresolved || where.cd === null) return null;
+  const steps = [...(where.cd ?? []), ...(where.dirs ?? [])];
+  if (steps.some((step) => typeof step !== "string" || /^~|\$/.test(step))) return null;
+  const result = await run("git", ["rev-parse", "--show-toplevel"], { cwd: path.resolve(base, ...steps) });
+  return result.code === 0 ? result.stdout.trim() : null;
+}
+
+// What a push should have produced, captured before it runs. A ref whose
+// commit cannot be resolved makes the whole expectation unknown: a missing
+// sha must never compare equal to a missing remote ref.
+async function pushExpectation(dir, target, branch) {
+  const remote = target.remote ?? await upstreamRemote(dir, branch);
   const specs = target.refspecs.length ? target.refspecs : [branch ?? "HEAD"];
   const refs = [];
   for (const spec of specs) {
@@ -85,10 +102,21 @@ async function pushExpectation(repo, target, branch) {
     const dst = rawDst ?? src;
     if (!dst || dst.includes("*")) return { remote, refs: null };
     const ref = dst.startsWith("refs/") ? dst : `refs/heads/${dst}`;
-    const sha = target.delete || rawSrc === "" ? null : await revParse(repo, rawSrc === "HEAD" ? "HEAD" : rawSrc);
+    const deleting = target.delete || rawSrc === "";
+    const sha = deleting ? null : await revParse(dir, rawSrc === "HEAD" ? "HEAD" : rawSrc);
+    if (!deleting && !sha) return { remote, refs: null };
     refs.push({ ref, sha });
   }
   return { remote, refs };
+}
+
+async function pushTargetExpectation(repo, action, branch, cwd) {
+  if (!action.where) return pushExpectation(repo.root, action.target, branch);
+  const dir = await gitDirectoryFor(action, cwd ?? repo.root);
+  if (!dir) return { remote: action.target.remote ?? null, refs: null, cwd: null };
+  const result = await run("git", ["symbolic-ref", "-q", "--short", "HEAD"], { cwd: dir });
+  const dirBranch = result.code === 0 ? result.stdout.trim() : null;
+  return { ...(await pushExpectation(dir, action.target, dirBranch)), cwd: dir };
 }
 
 export async function beginActions(repo, evaluation, { command, tree, policyDigest, host = null, toolUseId = null, session, turnId, cwd, transcriptPath, startedAfterSeq }) {
@@ -96,9 +124,13 @@ export async function beginActions(repo, evaluation, { command, tree, policyDige
   const ids = [];
   for (const action of evaluation.actions) {
     const id = `act_${randomUUID()}`;
-    const expect = action.kind === "git-push" ? await pushExpectation(repo, action.target, branch) : null;
+    const expect = action.kind === "git-push" ? await pushTargetExpectation(repo, action, branch, cwd) : null;
+    // The work tree a `cd`-ed or `-C` command resolved to, so a probe can
+    // tell a cd into a subdirectory of this repository from one elsewhere.
+    const location = action.where ? (expect?.cwd ?? await gitDirectoryFor(action, cwd ?? repo.root)) : undefined;
     await appendEvent(repo, "action.begun", {
       id, kind: action.kind, key: actionKey(action, head), argv: action.argv, target: action.target,
+      ...(action.where ? { where: action.where, location } : {}),
       command, head, branch, tree, expect, policyDigest, host, toolUseId,
       ...(startedAfterSeq === undefined ? {} : { startedAfterSeq }),
       ...(session === undefined ? {} : { session, turnId: turnId ?? null, cwd: cwd ?? null, transcriptPath: transcriptPath ?? null }),
