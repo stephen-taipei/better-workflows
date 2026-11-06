@@ -16,14 +16,30 @@ export function ghFailure(result, what) {
   return `${what} failed: ${result.stderr.trim() || "timed out"}`;
 }
 
+// `gh` resolves its repository from the directory it runs in unless `-R`
+// names one. After a `cd` or `git -C`, the hook's repository says nothing
+// about where the call landed, so a probe there could confirm the wrong
+// pull request; such actions stay unknown for a person to settle.
+function ghRepoArgs(action) {
+  if (action.where?.repo) return ["-R", action.where.repo];
+  if (action.where) return null;
+  return [];
+}
+
+const elsewhere = () => unknown("the command ran against another repository than this one; reconcile manually");
+
 // Read-only probes. Each answers "did the side effect happen?" from the
 // provider itself, never from the agent's account of it.
 export const PROBES = {
   async "git-push"(action, { repo, exec }) {
     const expect = action.expect;
     if (!expect?.refs) return unknown("push target could not be determined; reconcile manually");
+    // An action that names another directory carries the one it resolved;
+    // without it the push cannot be checked from here.
+    if (action.where && !expect.cwd) return elsewhere();
+    const cwd = expect.cwd ?? repo.root;
     for (const { ref, sha } of expect.refs) {
-      const result = await exec("git", ["ls-remote", "--", expect.remote, ref], { cwd: repo.root, timeoutMs: 30_000 });
+      const result = await exec("git", ["ls-remote", "--", expect.remote, ref], { cwd, timeoutMs: 30_000 });
       if (result.code !== 0) return unknown(`git ls-remote failed: ${result.stderr.trim() || "timed out"}`);
       const remoteSha = result.stdout.split("\n").find((line) => line.endsWith(`\t${ref}`))?.split("\t")[0] ?? null;
       if (remoteSha !== sha) return { outcome: "failed", detail: `${expect.remote} ${ref} is ${remoteSha ?? "absent"}, expected ${sha ?? "absent"}` };
@@ -31,16 +47,23 @@ export const PROBES = {
     return { outcome: "success", detail: `${expect.remote} has the expected refs` };
   },
   async "gh-pr-merge"(action, { repo, exec }) {
-    const args = ["pr", "view", ...(action.target.pr ? [action.target.pr] : []), "--json", "state"];
+    const repoArgs = ghRepoArgs(action);
+    if (!repoArgs) return elsewhere();
+    if (repoArgs.length && !action.target.pr) return unknown("pull request number is unknown; reconcile manually");
+    const args = ["pr", "view", ...(action.target.pr ? [action.target.pr] : []), ...repoArgs, "--json", "state"];
     const result = await exec("gh", args, { cwd: repo.root, timeoutMs: 30_000 });
     if (result.code !== 0) return unknown(ghFailure(result, "gh pr view"));
     const state = JSON.parse(result.stdout).state;
     return state === "MERGED" ? { outcome: "success", detail: "pull request is merged" } : { outcome: "failed", detail: `pull request is ${state}` };
   },
   async "gh-pr-create"(action, { repo, exec }) {
-    const head = action.target.head ?? action.branch;
+    const repoArgs = ghRepoArgs(action);
+    if (!repoArgs) return elsewhere();
+    // The hook's branch only names the head when the pull request is opened
+    // from this repository.
+    const head = action.target.head ?? (action.where ? null : action.branch);
     if (!head) return unknown("pull request head branch is unknown");
-    const result = await exec("gh", ["pr", "list", "--head", head, "--state", "all", "--json", "number", "--limit", "1"], { cwd: repo.root, timeoutMs: 30_000 });
+    const result = await exec("gh", ["pr", "list", "--head", head, ...repoArgs, "--state", "all", "--json", "number", "--limit", "1"], { cwd: repo.root, timeoutMs: 30_000 });
     if (result.code !== 0) return unknown(ghFailure(result, "gh pr list"));
     const found = JSON.parse(result.stdout);
     return found.length ? { outcome: "success", detail: `pull request #${found[0].number} exists` } : { outcome: "failed", detail: "no pull request for that branch" };
@@ -48,13 +71,16 @@ export const PROBES = {
   async "gh-release"(action, { repo, exec }) {
     const { operation, tag } = action.target;
     if (!tag || (operation !== "create" && operation !== "delete")) return unknown(`release ${operation} needs manual reconciliation`);
-    const result = await exec("gh", ["release", "view", tag, "--json", "tagName"], { cwd: repo.root, timeoutMs: 30_000 });
+    const repoArgs = ghRepoArgs(action);
+    if (!repoArgs) return elsewhere();
+    const result = await exec("gh", ["release", "view", tag, ...repoArgs, "--json", "tagName"], { cwd: repo.root, timeoutMs: 30_000 });
     const exists = result.code === 0;
     if (!exists && !/release not found/i.test(result.stderr)) return unknown(ghFailure(result, "gh release view"));
     const success = operation === "create" ? exists : !exists;
     return { outcome: success ? "success" : "failed", detail: `release ${tag} ${exists ? "exists" : "does not exist"}` };
   },
   async "package-publish"(action, { repo, exec }) {
+    if (action.where) return elsewhere();
     let manifest;
     try {
       manifest = JSON.parse(await readFile(path.join(repo.root, "package.json"), "utf8"));

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Probes no longer confirm actions that ran in another repository.** A session opened in one repository can push or merge in another through `cd`, `git -C` or `gh -R`. The `git-push`, `gh-pr-merge`, `gh-pr-create`, `gh-release` and `package-publish` probes always checked the hook's own repository, so a failed push from another clone was confirmed by this repository's `origin`, and `gh pr merge 43 -R owner/other` was confirmed by this repository's #43. The gate then refused the real retry as "already succeeded". Actions now record where they point (`where` on `action.begun`). A push is checked in the work tree it ran in, `gh` probes pass `-R`, and a `gh` call after a `cd` with no `-R`, or a target that cannot be resolved, stays `unknown` for a person to settle. Such actions also get their own key, so the same command in another clone is not mistaken for one already done here. Actions without `cd`, `-C` or `-R` keep their keys.
+- **A push whose commit could not be resolved matched an absent remote branch.** The expected sha was `null`, which the probe compared equal to a missing remote ref and reported as success. The expectation is now unknown, so the action stays `unknown`.
+- **`gh pr merge -R owner/repo 43` read `owner/repo` as the pull request.** The `-R/--repo` value is skipped when reading the pull request number and release tag.
+
 ## 6.0.0-alpha.3
 
 ### Added
