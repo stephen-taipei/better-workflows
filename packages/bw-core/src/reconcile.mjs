@@ -21,6 +21,7 @@ export function ghFailure(result, what) {
 // about where the call landed, so a probe there could confirm the wrong
 // pull request; such actions stay unknown for a person to settle.
 function ghRepoArgs(action, repo) {
+  if (action.where?.unresolved) return null;
   if (action.where?.repo) return ["-R", action.where.repo];
   if (action.where && action.location !== repo.root) return null;
   return [];

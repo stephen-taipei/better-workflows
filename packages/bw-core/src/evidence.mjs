@@ -22,7 +22,8 @@ export function scopeDigests(scope, digests) {
 
 // `excluded` names why a run cannot count as a pass: "exit-code" when the
 // line's exit code belongs to another command (`npm test | tail`), and
-// "directory" when an exact rule's command ran outside its directory.
+// "directory" when an exact rule's command ran outside its directory, and
+// "background" when the host returned before the command finished.
 export async function recordEvidence(repo, {
   kind, command, exitCode, excluded = null, treeBefore, treeAfter, head,
   scope = null, scopeBefore = null, scopeAfter = null, outputDigest = null, host = null, session = null, toolUseId, order,
@@ -140,6 +141,7 @@ export function describeEvidence(result) {
     case "fresh": return `${result.kind}: passed on the current files`;
     case "failed": return `${result.kind}: last run on the current files failed (exit ${result.evidence.exitCode})`;
     case "unattributed":
+      if (result.evidence.excluded === "background") return `${result.kind}: the last run (\`${result.evidence.command}\`) was started in the background, so its result was not seen; run it in the foreground`;
       return result.evidence.excluded === "directory"
         ? `${result.kind}: the last run (\`${result.evidence.command}\`) was not in the directory the policy names for it, so it checked only part of the repository`
         : `${result.kind}: the last run's exit code came from another command on the same line (\`${result.evidence.command}\`); run it alone or join commands with &&`;
