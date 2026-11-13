@@ -72,13 +72,24 @@ function tokenize(line) {
   return { tokens, opaque };
 }
 
+// Reserved words that sit in front of a command: `then git push`, `do gh pr
+// merge 4`, `{ npm publish; }`, `! git push`.
+const KEYWORDS = new Set(["if", "then", "elif", "else", "while", "until", "do", "{", "!"]);
+
+// Drops assignments and wrappers in front of the program. `unreadable` is
+// set when a wrapper took an option: its value (`sudo -u deploy`, `env -C
+// dir`, `timeout -s KILL`) would be read as the program.
 function stripPrefix(argv) {
   let rest = argv;
+  let unreadable = false;
   for (;;) {
     while (rest.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(rest[0])) rest = rest.slice(1);
-    if (!rest.length || !WRAPPERS.has(rest[0])) return rest;
+    if (!rest.length || !WRAPPERS.has(rest[0])) return { argv: rest, unreadable };
     rest = rest.slice(1);
-    while (rest.length && (rest[0].startsWith("-") || /^\d+[smhd]?$/.test(rest[0]))) rest = rest.slice(1);
+    while (rest.length && (rest[0].startsWith("-") || /^\d+[smhd]?$/.test(rest[0]))) {
+      if (rest[0].startsWith("-")) unreadable = true;
+      rest = rest.slice(1);
+    }
   }
 }
 
@@ -152,20 +163,27 @@ export function splitCommand(line) {
   // Directory changes made earlier on the line, per open parenthesis; null
   // once one cannot be read without running the shell (`cd`, `cd -`, `cd $X`).
   const scopes = [[]];
-  for (const [i, raw] of commands.entries()) {
+  for (const [i, whole] of commands.entries()) {
     for (const paren of groups[i]) {
       if (paren === "(") scopes.push(scopes.at(-1) && [...scopes.at(-1)]);
       else if (scopes.length > 1) scopes.pop();
     }
-    const argv = stripPrefix(raw);
+    // The command behind a reserved word is still read, so a side effect in
+    // a branch or loop is seen; its exit code is the construct's, not its own.
+    let raw = whole;
+    while (raw.length && KEYWORDS.has(raw[0])) raw = raw.slice(1);
+    const keyword = raw.length !== whole.length;
+    const { argv, unreadable } = stripPrefix(raw);
     if (!argv.length) continue;
     const program = argv[0].split("/").at(-1);
+    // A program held in a variable, or hidden behind a wrapper's option.
+    if (unreadable || argv[0].startsWith("$")) opaque = true;
     if (program === "eval" || program === "xargs" || program === "source" || program === ".") opaque = true;
     if (NESTED_SHELLS.has(program) && argv.includes("-c")) opaque = true;
     if (program === "cd" || program === "pushd" || program === "popd") changesDirectory = true;
     if (program === "set" && argv.includes("pipefail")) pipefail = true;
     argvs.push([program, ...argv.slice(1)]);
-    attributable.push(exitAttributable(separators, i, pipefail));
+    attributable.push(!keyword && exitAttributable(separators, i, pipefail));
     directories.push(scopes.at(-1) && [...scopes.at(-1)]);
     if (program === "pushd" || program === "popd") scopes[scopes.length - 1] = null;
     // `env cd x` or `sudo cd x` runs no builtin, so the shell stays put; rather

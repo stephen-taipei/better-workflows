@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A push that failed after `git commit && git push` was settled as done.** The expected sha is read before the line runs, so the remote still holding the old commit matched it. When other commands run before a push on the same line, the probe now compares with the branch as it is at the time of the check: the remote holding the new commit is success, the remote still holding the old one is `failed`, anything else stays `unknown`.
+- **`git push --tags` was checked against the current branch.** With `--tags`, `--all`, `--branches`, `--mirror` or `--follow-tags` the refs are not on the command line, so the action now stays `unknown` rather than being confirmed by a branch that was already up to date (after which the retry was refused as already done). A push whose source is not a local branch, such as `git push origin v1.0.0`, is left `unknown` as well; it used to be looked up under `refs/heads` and settled as `failed`.
+- **Side effects behind a shell reserved word went ungated.** In `if …; then git push; fi`, `for n in 1 2; do gh pr merge $n; done`, `{ npm publish; }` and `! git push` the reserved word was read as the program, so the line was allowed with no action recorded. The command behind `if`, `then`, `elif`, `else`, `while`, `until`, `do`, `{` and `!` is now classified like any other. A check in that position is recorded but never counts as a pass, since the exit code belongs to the construct.
+- **`sudo -u deploy git push`, `env -C dir git push` and `$GIT push` were allowed unseen.** The option's value, or the variable, was read as the program. A wrapper (`sudo`, `env`, `timeout`, `nice`, `exec`, `command`, `nohup`, `time`) followed by an option, and a program named by a variable, now make the line opaque, which the policy answers (`ask` by default). Wrappers without options, such as `timeout 600 npm test`, are read as before.
+- **`gh pr -R owner/repo merge 4` was not recognised.** `gh` accepts `-R/--repo` between its words; the built-in kinds now read past it.
+
 ## 6.0.0-alpha.4
 
 ### Fixed
