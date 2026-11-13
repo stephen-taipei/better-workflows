@@ -129,7 +129,10 @@ export function classifyCommand(line, policy) {
       // Only recorded when the action may land outside the repository the
       // hook runs in, so keys of ordinary actions stay as they were.
       const where = { ...(directories[i]?.length === 0 ? {} : { cd: directories[i] }), ...namedLocation(argv), ...retargeted };
-      actions.push({ kind: rule.kind, argv, target, ...(Object.keys(where).length ? { where } : {}) });
+      // Whether other commands (a `cd` aside) run before it on the line; they
+      // may move the refs a push expectation is read from.
+      const follows = commands.slice(0, i).some((prior) => !["cd", "pushd", "popd"].includes(prior[0]));
+      actions.push({ kind: rule.kind, argv, target, ...(Object.keys(where).length ? { where } : {}), ...(follows ? { follows } : {}) });
     }
     for (const rule of policy.actions.custom) {
       if (rule.argv.some((prefix) => matchesPrefix(argv, prefix))) actions.push({ kind: rule.kind, argv, target: {} });
