@@ -39,10 +39,24 @@ export const PROBES = {
     // without it the push cannot be checked from here.
     if (action.where && !expect.cwd) return elsewhere();
     const cwd = expect.cwd ?? repo.root;
-    for (const { ref, sha } of expect.refs) {
+    for (const { ref, sha, local } of expect.refs) {
       const result = await exec("git", ["ls-remote", "--", expect.remote, ref], { cwd, timeoutMs: 30_000 });
       if (result.code !== 0) return unknown(`git ls-remote failed: ${result.stderr.trim() || "timed out"}`);
       const remoteSha = result.stdout.split("\n").find((line) => line.endsWith(`\t${ref}`))?.split("\t")[0] ?? null;
+      // The sha was read before earlier commands on the line ran. If the
+      // branch has moved since, the push is confirmed only by the remote
+      // holding the branch as it is now; the old sha there means the new
+      // commits never arrived, and anything else cannot be told apart.
+      if (expect.moves && sha && local) {
+        const now = await exec("git", ["rev-parse", "--verify", "-q", `${local}^{commit}`], { cwd });
+        const current = now.code === 0 ? now.stdout.trim() : null;
+        if (!current) return unknown(`${ref} was pushed after other commands on the same line and its branch cannot be read now; reconcile manually`);
+        if (current !== sha) {
+          if (remoteSha === current) continue;
+          if (remoteSha === sha) return { outcome: "failed", detail: `${expect.remote} ${ref} is still ${sha}; the commits made on the same line did not arrive` };
+          return unknown(`${expect.remote} ${ref} is ${remoteSha ?? "absent"}, neither the commit before the line ran nor the branch now; reconcile manually`);
+        }
+      }
       if (remoteSha !== sha) return { outcome: "failed", detail: `${expect.remote} ${ref} is ${remoteSha ?? "absent"}, expected ${sha ?? "absent"}` };
     }
     return { outcome: "success", detail: `${expect.remote} has the expected refs` };
