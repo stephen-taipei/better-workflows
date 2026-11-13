@@ -52,6 +52,10 @@ function namedLocation(argv) {
   return {};
 }
 
+// Environment variables that point git or gh at another repository. No
+// probe reads them, so a line that sets one cannot be checked from here.
+const TARGET_ENV = /(^|[^A-Za-z0-9_])(GH_REPO|GH_HOST|GIT_DIR|GIT_WORK_TREE)=/;
+
 // Built-in side-effect kinds. Each returns a target description or null.
 const BUILTIN_ACTIONS = [
   {
@@ -117,13 +121,14 @@ export function classifyCommand(line, policy) {
   const { commands, attributable, directories, opaque, changesDirectory } = splitCommand(line);
   const actions = [];
   const evidence = [];
+  const retargeted = TARGET_ENV.test(String(line)) ? { unresolved: true } : {};
   for (const [i, argv] of commands.entries()) {
     for (const rule of BUILTIN_ACTIONS) {
       const target = rule.match(argv);
       if (!target) continue;
       // Only recorded when the action may land outside the repository the
       // hook runs in, so keys of ordinary actions stay as they were.
-      const where = { ...(directories[i]?.length === 0 ? {} : { cd: directories[i] }), ...namedLocation(argv) };
+      const where = { ...(directories[i]?.length === 0 ? {} : { cd: directories[i] }), ...namedLocation(argv), ...retargeted };
       actions.push({ kind: rule.kind, argv, target, ...(Object.keys(where).length ? { where } : {}) });
     }
     for (const rule of policy.actions.custom) {

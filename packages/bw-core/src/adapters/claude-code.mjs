@@ -101,7 +101,12 @@ async function preToolUse(input, repo) {
   }));
 }
 
+// A background call returns at once, before its command has finished, so
+// its PostToolUse says nothing about the exit code.
+const inBackground = (input) => input.tool_input?.run_in_background === true || Boolean(input.tool_response?.backgroundTaskId);
+
 function exitCodeFrom(input) {
+  if (inBackground(input)) return null;
   if (input.hook_event_name === "PostToolUse") return input.tool_response?.interrupted ? null : 0;
   if (input.is_interrupt) return null;
   const match = /^Exit code (\d+)/.exec(String(input.error ?? ""));
@@ -110,7 +115,8 @@ function exitCodeFrom(input) {
 
 async function postToolUse(input, repo) {
   const event = normalizedEvent(input, exitCodeFrom(input));
-  await postBash(event, repo, { detail: input.error ?? "interrupted" });
+  const background = inBackground(input);
+  await postBash(event, repo, { detail: background ? "ran in the background; its result was not seen" : input.error ?? "interrupted", background });
   return null;
 }
 

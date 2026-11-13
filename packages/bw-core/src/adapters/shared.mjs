@@ -12,7 +12,10 @@ import { splitCommand } from "../command.mjs";
 import { run } from "../process.mjs";
 
 const READ_ONLY = new Set(["cat", "head", "tail", "less", "more", "jq", "grep", "rg", "ls", "wc", "file", "stat", "diff"]);
-const PROTECTED_TEXT = [".better-workflows/", ".better-workflows\\", "/.git/better-workflows", ".git/better-workflows"];
+// The policy directory by name, with or without a trailing separator, so
+// `rm -r .better-workflows` or `cd .better-workflows` is caught too; a
+// sibling such as `.better-workflows-old` is not.
+const PROTECTED_TEXT = /\.better-workflows(?![\w.-])|\.git[/\\]better-workflows/;
 
 // Refusals and questions are kept in the ledger too, so a review can count
 // what the hooks stopped and not only what was let through. The decision
@@ -94,7 +97,7 @@ function isInside(child, parent) {
 // The agent may read them but not change them.
 function protectedBash(command) {
   const { commands } = splitCommand(command);
-  const touches = PROTECTED_TEXT.some((text) => command.includes(text));
+  const touches = PROTECTED_TEXT.test(command);
   if (touches && commands.some((argv) => !READ_ONLY.has(argv[0]) && !(argv[0] === "git" && ["diff", "log", "show", "status"].includes(argv[1])))) {
     return "the agent may read but not change .better-workflows/ or the Better Workflows ledger";
   }
@@ -224,7 +227,9 @@ async function ranWhereRequired(evidence, event, repo) {
   return ran === wanted;
 }
 
-export async function postBash(event, repo, { detail, requireKnownExitCode = false } = {}) {
+// `background`: the host returned before the command finished, so no result
+// of this call can count as a pass.
+export async function postBash(event, repo, { detail, requireKnownExitCode = false, background = false } = {}) {
   if (event.toolName !== "Bash" || !event.toolUseId) return null;
   const exitCode = Number.isInteger(event.finalExitCode) ? event.finalExitCode : null;
   if (requireKnownExitCode && exitCode === null) return null;
@@ -262,7 +267,7 @@ export async function postBash(event, repo, { detail, requireKnownExitCode = fal
     const scopes = pending.scopes ?? {};
     const after = await subtreeDigests(repo, treeAfter, [...new Set(Object.values(scopes).flatMap((s) => s.scope))]);
     for (const kind of pending.kinds) {
-      const excluded = pending.excluded?.[kind] ?? null;
+      const excluded = background ? "background" : pending.excluded?.[kind] ?? null;
       const scoped = scopes[kind] ? { scope: scopes[kind].scope, scopeBefore: scopes[kind].before, scopeAfter: scopeDigests(scopes[kind].scope, after) } : {};
       await recordEvidence(repo, {
         kind, command: pending.command, exitCode, excluded, treeBefore: pending.treeBefore, treeAfter, head,
