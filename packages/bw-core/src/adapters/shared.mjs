@@ -11,7 +11,15 @@ import { awaitingCompletion, loadState, openActions, probeFailed, sessionFor, to
 import { splitCommand } from "../command.mjs";
 import { run } from "../process.mjs";
 
-const READ_ONLY = new Set(["cat", "head", "tail", "less", "more", "jq", "grep", "rg", "ls", "wc", "file", "stat", "diff"]);
+const READ_ONLY = new Set(["cat", "head", "tail", "less", "more", "jq", "grep", "rg", "ls", "wc", "file", "stat", "diff", "cut", "echo", "cd", "find"]);
+// Options that turn one of those readers into a writer or a launcher.
+const WRITE_OPTIONS = {
+  find: /^-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/,
+  rg: /^--pre(=|$)/,
+  less: /^(-[oO]|--log-file|--LOG-FILE)/,
+  file: /^(-C|--compile)$/,
+  git: /^--output(=|$)/,
+};
 // The policy directory by name, with or without a trailing separator, so
 // `rm -r .better-workflows` or `cd .better-workflows` is caught too; a
 // sibling such as `.better-workflows-old` is not.
@@ -95,10 +103,20 @@ function isInside(child, parent) {
 
 // The policy, the ledger and manual reconciliation belong to the person.
 // The agent may read them but not change them.
+// A line counts as reading only when every command on it is a known reader
+// without a writing option, nothing is hidden in a substitution, no variable
+// is set for a command (LESSOPEN and the like run programs), and output goes
+// nowhere but /dev/null or another descriptor. Anything else stays refused.
+const reader = (argv) => (READ_ONLY.has(argv[0]) || (argv[0] === "git" && ["diff", "log", "show", "status"].includes(argv[1])))
+  && !argv.slice(1).some((arg) => WRITE_OPTIONS[argv[0]]?.test(arg));
+// A `>` inside quotes is text (`jq 'select(.seq > 430)'`), not a redirection.
+const writesOutput = (command) => command.replace(/'[^']*'|"[^"]*"/g, "''").replace(/\d*>&\d+|&?\d*>>?\s*\/dev\/null(?![^\s;&|)])/g, "").includes(">");
+const setsVariable = (command) => /(^|[;&|(\n])\s*(?:(?:sudo|env|command|nohup|time|exec|nice|timeout)\s[^;&|()\n]*?)?[A-Za-z_][A-Za-z0-9_]*=/.test(command);
+
 function protectedBash(command) {
-  const { commands } = splitCommand(command);
+  const { commands, opaque } = splitCommand(command);
   const touches = PROTECTED_TEXT.test(command);
-  if (touches && commands.some((argv) => !READ_ONLY.has(argv[0]) && !(argv[0] === "git" && ["diff", "log", "show", "status"].includes(argv[1])))) {
+  if (touches && (opaque || writesOutput(command) || setsVariable(command) || !commands.every(reader))) {
     return "the agent may read but not change .better-workflows/ or the Better Workflows ledger";
   }
   for (const argv of commands) {

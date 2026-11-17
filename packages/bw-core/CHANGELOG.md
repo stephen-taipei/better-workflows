@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Reading the ledger through Bash was refused.** The guard on `.better-workflows/` and `.git/better-workflows/` allowed only a short list of readers, so `find`, `cut`, `echo` and `cd` on the same line made a read look like a change; on 2026-11-17 an agent's `ls … && find …`, `cd … && cat …; echo; tail …` and `tail … | cut …` were all refused. These four are now readers too (`find` only without `-delete`, `-exec`, `-ok` or `-fprint`-style options).
+- **A reader could still write the policy or the ledger.** The guard looked only at program names, so `ls > .better-workflows/policy.json` or `cat /dev/null > .git/better-workflows/ledger.jsonl` went through, as did `git diff --output=…`, `rg --pre …`, `less -o …`, `file -C`, a command hidden in backticks, and a variable such as `LESSOPEN=…` set for the reader. On a line that names the policy directory or the ledger, any output redirection other than to `/dev/null` or another descriptor, any of those options, any substitution and any variable assignment now count as a change and are refused.
+
 ## 6.0.0-alpha.4
 
 ### Fixed
