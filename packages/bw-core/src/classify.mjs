@@ -56,6 +56,24 @@ function namedLocation(argv) {
 // probe reads them, so a line that sets one cannot be checked from here.
 const TARGET_ENV = /(^|[^A-Za-z0-9_])(GH_REPO|GH_HOST|GIT_DIR|GIT_WORK_TREE)=/;
 
+// gh accepts `-R/--repo` between its words (`gh pr -R owner/repo merge 4`).
+// Moves options found before the second word behind it, so the kinds below
+// can read `gh <group> <verb>` by position.
+function ghWords(argv) {
+  if (argv[0] !== "gh") return argv;
+  const words = [];
+  const options = [];
+  let i = 1;
+  while (i < argv.length && words.length < 2) {
+    const arg = argv[i];
+    i += 1;
+    if (!arg.startsWith("-")) words.push(arg);
+    else if ((arg === "-R" || arg === "--repo") && i < argv.length) options.push(arg, argv[i++]);
+    else options.push(arg);
+  }
+  return ["gh", ...words, ...options, ...argv.slice(i)];
+}
+
 // Built-in side-effect kinds. Each returns a target description or null.
 const BUILTIN_ACTIONS = [
   {
@@ -124,12 +142,15 @@ export function classifyCommand(line, policy) {
   const retargeted = TARGET_ENV.test(String(line)) ? { unresolved: true } : {};
   for (const [i, argv] of commands.entries()) {
     for (const rule of BUILTIN_ACTIONS) {
-      const target = rule.match(argv);
+      const target = rule.match(ghWords(argv));
       if (!target) continue;
       // Only recorded when the action may land outside the repository the
       // hook runs in, so keys of ordinary actions stay as they were.
       const where = { ...(directories[i]?.length === 0 ? {} : { cd: directories[i] }), ...namedLocation(argv), ...retargeted };
-      actions.push({ kind: rule.kind, argv, target, ...(Object.keys(where).length ? { where } : {}) });
+      // Whether other commands (a `cd` aside) run before it on the line; they
+      // may move the refs a push expectation is read from.
+      const follows = commands.slice(0, i).some((prior) => !["cd", "pushd", "popd"].includes(prior[0]));
+      actions.push({ kind: rule.kind, argv, target, ...(Object.keys(where).length ? { where } : {}), ...(follows ? { follows } : {}) });
     }
     for (const rule of policy.actions.custom) {
       if (rule.argv.some((prefix) => matchesPrefix(argv, prefix))) actions.push({ kind: rule.kind, argv, target: {} });

@@ -89,11 +89,21 @@ export async function gitDirectoryFor(action, base) {
   return result.code === 0 ? result.stdout.trim() : null;
 }
 
+// Flags that push refs the command line does not name.
+const PUSH_MANY = new Set(["--tags", "--all", "--branches", "--mirror", "--follow-tags"]);
+
 // What a push should have produced, captured before it runs. A ref whose
 // commit cannot be resolved makes the whole expectation unknown: a missing
-// sha must never compare equal to a missing remote ref.
-async function pushExpectation(dir, target, branch) {
+// sha must never compare equal to a missing remote ref. So does a push of
+// refs this cannot name: `--tags` and the like, or a source that is not a
+// local branch (a tag lands in refs/tags, which is not looked up here).
+// `moves` marks a sha read before earlier commands on the line ran
+// (`git commit && git push`); the probe then compares with the branch as it
+// is when it checks.
+async function pushExpectation(dir, action, branch) {
+  const { target } = action;
   const remote = target.remote ?? await upstreamRemote(dir, branch);
+  if (action.argv.some((arg) => PUSH_MANY.has(arg))) return { remote, refs: null };
   const specs = target.refspecs.length ? target.refspecs : [branch ?? "HEAD"];
   const refs = [];
   for (const spec of specs) {
@@ -105,18 +115,21 @@ async function pushExpectation(dir, target, branch) {
     const deleting = target.delete || rawSrc === "";
     const sha = deleting ? null : await revParse(dir, rawSrc === "HEAD" ? "HEAD" : rawSrc);
     if (!deleting && !sha) return { remote, refs: null };
-    refs.push({ ref, sha });
+    const local = deleting ? null : src.startsWith("refs/heads/") ? src : `refs/heads/${src}`;
+    const isBranch = Boolean(local) && Boolean(await revParse(dir, local));
+    if (local && !isBranch && !dst.startsWith("refs/")) return { remote, refs: null };
+    refs.push({ ref, sha, ...(action.follows && isBranch ? { local } : {}) });
   }
-  return { remote, refs };
+  return { remote, refs, ...(action.follows ? { moves: true } : {}) };
 }
 
 async function pushTargetExpectation(repo, action, branch, cwd) {
-  if (!action.where) return pushExpectation(repo.root, action.target, branch);
+  if (!action.where) return pushExpectation(repo.root, action, branch);
   const dir = await gitDirectoryFor(action, cwd ?? repo.root);
   if (!dir) return { remote: action.target.remote ?? null, refs: null, cwd: null };
   const result = await run("git", ["symbolic-ref", "-q", "--short", "HEAD"], { cwd: dir });
   const dirBranch = result.code === 0 ? result.stdout.trim() : null;
-  return { ...(await pushExpectation(dir, action.target, dirBranch)), cwd: dir };
+  return { ...(await pushExpectation(dir, action, dirBranch)), cwd: dir };
 }
 
 export async function beginActions(repo, evaluation, { command, tree, policyDigest, host = null, toolUseId = null, session, turnId, cwd, transcriptPath, startedAfterSeq }) {
