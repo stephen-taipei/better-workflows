@@ -6,8 +6,8 @@ Updated: 2026-11-17
 
 ## Where the project stands
 
-- **V6 Core alpha is out.** [`6.0.0-alpha.5`](packages/bw-core/CHANGELOG.md) installs from this repository's Claude Code plugin marketplace and from npm. The policy format may still change before beta.
-- **Self-use continues.** Core has run on the maintainer's repositories since 2026-10-12, and since 2026-11-03 through project hooks on the repository where most daily work happens. The 2026-11-06 ledger review found probes checking the wrong repository, fixed in `6.0.0-alpha.4`. The first false block, an agent refused while only reading the ledger on 2026-11-17, is fixed in `6.0.0-alpha.5`.
+- **V6 Core alpha is out.** [`6.0.0-alpha.6`](packages/bw-core/CHANGELOG.md) installs from this repository's Claude Code plugin marketplace and from npm. The policy format may still change before beta.
+- **Self-use continues.** Core has run on the maintainer's repositories since 2026-10-12, and since 2026-11-03 through project hooks on the repository where most daily work happens. The 2026-11-06 ledger review found probes checking the wrong repository, fixed in `6.0.0-alpha.4`. The first false block, an agent refused while only reading the ledger on 2026-11-17, is fixed in `6.0.0-alpha.5`; a second, a read next to `git branch --show-current`, in `6.0.0-alpha.6`.
 - **V5 is frozen.** It lives on the [`frozen/v5`](https://github.com/stephen-taipei/better-workflows/tree/frozen/v5) branch, and [V5.0 RC1](https://github.com/stephen-taipei/better-workflows/releases/tag/V5.0.rc1) stays installable. The V5.1 plan has stopped.
 
 ## What V6 Core does
@@ -29,7 +29,7 @@ Claude Code is the first supported host. Its hooks let Core block an action dete
 2. **Core kernel** (done): `packages/bw-core` with evidence, policy, action token, reconciliation, append-only ledger and a `bw` CLI. Zero runtime dependencies, Node 22.14+.
 3. **Claude Code plugin** (done): `SessionStart`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop` and `SubagentStop` hooks backed by Core.
 4. **Demo and docs** (done): a few-second scenario where a stale green test is rejected and a push with an unknown result must be reconciled. Guides in English and Traditional Chinese (Taiwan); the README and website in 41 languages, 39 of them machine-translated.
-5. **Alpha release** (now): `6.0.0-alpha.5`, from the plugin marketplace and npm.
+5. **Alpha release** (now): `6.0.0-alpha.6`, from the plugin marketplace and npm.
 6. **Beta**: the policy format is frozen once self-use shows real catches and few false blocks.
 7. **Stable `6.0.0`**: released only when all of these hold:
    - No known bug lets an agent count evidence it should not, or repeat or stack a side effect.
