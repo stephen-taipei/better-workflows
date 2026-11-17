@@ -24,6 +24,10 @@ test("reading the ledger with the commands from the 2026-11-17 session is allowe
     "grep -c seq .git/better-workflows/ledger.jsonl 2>&1 | head -1",
     "git log --oneline -- .better-workflows/policy.json",
     "jq -c 'select(.seq > 430)' .git/better-workflows/ledger.jsonl",
+    // 2026-11-17, ledger seq 476, after alpha.5.
+    "git branch --show-current && tail -n 1 .git/better-workflows/ledger.jsonl",
+    "git branch -vv --list && git rev-parse HEAD && cat .git/better-workflows/ledger.head",
+    "git ls-files .better-workflows && git status --short",
   ]) {
     assert.equal(decision(await pre(root, command)), "defer", command);
   }
@@ -50,6 +54,12 @@ for (const command of [
   "ls; X=1 cat .better-workflows/policy.json",
   "cd .better-workflows && echo x > policy.json",
   "find .git/better-workflows | xargs rm",
+  "git branch backup && cat .git/better-workflows/ledger.head",
+  "git branch -D old && cat .git/better-workflows/ledger.head",
+  "git branch -m main other && tail -n 1 .git/better-workflows/ledger.jsonl",
+  "git branch --contains HEAD x && tail -n 1 .git/better-workflows/ledger.jsonl",
+  "git log --output=.git/better-workflows/ledger.jsonl",
+  "git -C . branch --show-current && tail -n 1 .git/better-workflows/ledger.jsonl",
 ]) {
   test(`a reader that writes, runs a program or hides a command is still refused: ${command}`, async (t) => {
     const { root } = await fixtureRepo(t);
