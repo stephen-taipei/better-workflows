@@ -23,6 +23,7 @@ test("reading the ledger with the commands from the 2026-11-17 session is allowe
     "cat .git/better-workflows/ledger.jsonl 2>/dev/null",
     "grep -c seq .git/better-workflows/ledger.jsonl 2>&1 | head -1",
     "git log --oneline -- .better-workflows/policy.json",
+    "jq -c 'select(.seq > 430)' .git/better-workflows/ledger.jsonl",
   ]) {
     assert.equal(decision(await pre(root, command)), "defer", command);
   }
@@ -32,6 +33,8 @@ for (const command of [
   "cat /dev/null > .git/better-workflows/ledger.jsonl",
   "ls > .better-workflows/policy.json",
   "echo '{}' >> .git/better-workflows/ledger.jsonl",
+  "echo '{}' >'.git/better-workflows/ledger.jsonl'",
+  "jq '.' \"a>b\" > .better-workflows/policy.json",
   "cat .git/better-workflows/ledger.jsonl > /dev/null.txt",
   "git diff --output=.better-workflows/policy.json",
   "rg --pre ./x.sh foo .better-workflows",

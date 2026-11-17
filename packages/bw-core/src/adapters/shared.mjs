@@ -109,7 +109,8 @@ function isInside(child, parent) {
 // nowhere but /dev/null or another descriptor. Anything else stays refused.
 const reader = (argv) => (READ_ONLY.has(argv[0]) || (argv[0] === "git" && ["diff", "log", "show", "status"].includes(argv[1])))
   && !argv.slice(1).some((arg) => WRITE_OPTIONS[argv[0]]?.test(arg));
-const writesOutput = (command) => command.replace(/\d*>&\d+|&?\d*>>?\s*\/dev\/null(?![^\s;&|)])/g, "").includes(">");
+// A `>` inside quotes is text (`jq 'select(.seq > 430)'`), not a redirection.
+const writesOutput = (command) => command.replace(/'[^']*'|"[^"]*"/g, "''").replace(/\d*>&\d+|&?\d*>>?\s*\/dev\/null(?![^\s;&|)])/g, "").includes(">");
 const setsVariable = (command) => /(^|[;&|(\n])\s*(?:(?:sudo|env|command|nohup|time|exec|nice|timeout)\s[^;&|()\n]*?)?[A-Za-z_][A-Za-z0-9_]*=/.test(command);
 
 function protectedBash(command) {
