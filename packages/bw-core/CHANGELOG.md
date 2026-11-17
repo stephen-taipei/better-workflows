@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Reading the ledger next to `git branch --show-current` was refused.** On a line that names the policy directory or the ledger, the only git readers were `diff`, `log`, `show` and `status`, so `git branch --show-current && tail -n 1 .git/better-workflows/ledger.jsonl` was refused (2026-11-17, after alpha.5). `git rev-parse` and `git ls-files` now count as readers, and so does `git branch` when every argument is a listing option (`--show-current`, `--list`, `-a`, `-r`, `-v`, `--merged`, `--contains`, `--format=…` and similar). `git branch` with a name, or with `-d`, `-D`, `-m`, `-c` and the like, is still refused, as are git's global options such as `git -C`.
+
 ## 6.0.0-alpha.5
 
 ### Fixed

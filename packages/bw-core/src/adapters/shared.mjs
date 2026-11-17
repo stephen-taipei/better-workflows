@@ -107,7 +107,12 @@ function isInside(child, parent) {
 // without a writing option, nothing is hidden in a substitution, no variable
 // is set for a command (LESSOPEN and the like run programs), and output goes
 // nowhere but /dev/null or another descriptor. Anything else stays refused.
-const reader = (argv) => (READ_ONLY.has(argv[0]) || (argv[0] === "git" && ["diff", "log", "show", "status"].includes(argv[1])))
+const GIT_READERS = new Set(["diff", "log", "show", "status", "rev-parse", "ls-files"]);
+// `git branch` lists only when every argument is one of these: a name, or
+// -d/-m/-c and the like, creates, deletes or renames a branch.
+const BRANCH_LISTING = /^(--show-current|--list|-l|-a|--all|-r|--remotes|-v|-vv|--verbose|--no-color|--color|--merged|--no-merged|--contains|--no-contains|--points-at|--omit-empty|--ignore-case|-i|--column|--no-column|--format=.*|--sort=.*|--abbrev=\d+|--no-abbrev)$/;
+const gitReader = (argv) => GIT_READERS.has(argv[1]) || (argv[1] === "branch" && argv.slice(2).every((arg) => BRANCH_LISTING.test(arg)));
+const reader = (argv) => (READ_ONLY.has(argv[0]) || (argv[0] === "git" && gitReader(argv)))
   && !argv.slice(1).some((arg) => WRITE_OPTIONS[argv[0]]?.test(arg));
 // A `>` inside quotes is text (`jq 'select(.seq > 430)'`), not a redirection.
 const writesOutput = (command) => command.replace(/'[^']*'|"[^"]*"/g, "''").replace(/\d*>&\d+|&?\d*>>?\s*\/dev\/null(?![^\s;&|)])/g, "").includes(">");
